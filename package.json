@@ -1,6 +1,6 @@
 {
   "name": "kdm",
-  "version": "1.0.1-alpha.0",
+  "version": "1.0.1-alpha.1",
   "description": "Kubernetes and Docker Monitoring CLI",
   "main": "dist/index.js",
   "bin": {
