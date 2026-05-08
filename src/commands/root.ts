@@ -2,39 +2,22 @@ import { program } from 'commander';
 import chalk from 'chalk';
 import { checkDockerConnection } from '../docker/client';
 import { checkK8sConnection } from '../kubernetes/client';
+import { registerShowCommand } from './show';
+import { registerHealthCommand } from './health';
+import { registerWatchCommand } from './watch';
+import { registerLogsCommand } from './logs';
+import { logger } from '../utils/logger';
 
 program
   .name('kdm')
   .description('Kubernetes and Docker Monitoring CLI')
   .version('1.0.0');
 
-program
-  .command('show <target>')
-  .description('Show running runners, pods, or containers')
-  .action((target) => {
-    console.log(`Showing ${target}...`);
-  });
-
-program
-  .command('health <target>')
-  .description('Show health status')
-  .action((target) => {
-    console.log(`Showing health for ${target}...`);
-  });
-
-program
-  .command('watch')
-  .description('Live monitoring mode')
-  .action(() => {
-    console.log('Starting live monitoring...');
-  });
-
-program
-  .command('logs <name>')
-  .description('Show logs for a container or pod')
-  .action((name) => {
-    console.log(`Showing logs for ${name}...`);
-  });
+// Register modular commands
+registerShowCommand(program);
+registerHealthCommand(program);
+registerWatchCommand(program);
+registerLogsCommand(program);
 
 const run = async () => {
   if (!process.argv.slice(2).length) {
@@ -63,4 +46,5 @@ const run = async () => {
 };
 
 run();
+
 
