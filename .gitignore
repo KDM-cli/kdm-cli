@@ -4,3 +4,4 @@ dist/
 .env
 .npmrc
 BLUEPRINT.md
+./bin
