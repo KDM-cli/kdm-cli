@@ -41,7 +41,7 @@ jobs:
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
       - name: Bump version
-        run: npm version ${{ github.event.inputs.release_type }} -m "chore: release v%s"
+        run: "npm version ${{ github.event.inputs.release_type }} -m 'chore: release v%s'"
 
       - name: Push changes and tags
         run: git push --follow-tags
@@ -53,7 +53,9 @@ jobs:
 
       - name: Get Version
         id: get_version
-        run: echo "VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+        run: |
+          VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('./package.json', 'utf8')).version)")
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
