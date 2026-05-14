@@ -10,6 +10,7 @@ import { registerLogsCommand } from './logs';
 import { registerConfigCommand } from './config';
 import { logger } from '../utils/logger';
 import { showWelcomeBanner } from '../ui/banner';
+import { createSpinner } from '../ui/spinner';
 
 program
   .name('kdm')
@@ -27,11 +28,14 @@ const run = async () => {
   if (!process.argv.slice(2).length) {
     showWelcomeBanner('1.1.0');
 
+    const spinner = createSpinner('Checking connections...').start();
     const [dockerStatus, k8sStatus, minikubeStatus] = await Promise.all([
       checkDockerConnection(),
       checkK8sConnection(),
       checkMinikubeConnection()
     ]);
+    spinner.stop('Connection check complete');
+    console.log();
 
     const badge = (text: string, color: 'green' | 'red' | 'yellow') => {
       const styles = {

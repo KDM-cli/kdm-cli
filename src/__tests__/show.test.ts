@@ -23,6 +23,10 @@ vi.mock('../ui/spinner', () => ({
   createSpinner: vi.fn(() => ({
     start: vi.fn().mockReturnThis(),
     stop: vi.fn().mockReturnThis(),
+    fail: vi.fn().mockReturnThis(),
+    warn: vi.fn().mockReturnThis(),
+    info: vi.fn().mockReturnThis(),
+    update: vi.fn().mockReturnThis(),
   })),
 }));
 vi.mock('../ui/table', () => ({

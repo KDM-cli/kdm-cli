@@ -9,6 +9,13 @@ vi.mock('../utils/logger', () => ({
   },
 }));
 
+vi.mock('../ui/spinner', () => ({
+  createSpinner: vi.fn(() => ({
+    start: vi.fn().mockReturnThis(),
+    stop: vi.fn().mockReturnThis(),
+  })),
+}));
+
 describe('logs command', () => {
   let program: Command;
 
