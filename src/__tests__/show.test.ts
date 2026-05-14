@@ -3,6 +3,7 @@ import { getRunningContainers } from '../docker/containers';
 import { getRunningPods } from '../kubernetes/pods';
 import { logger } from '../utils/logger';
 import { showRunners, showPods } from '../commands/show';
+import * as tableUtils from '../ui/table';
 
 // Mock dependencies
 vi.mock('../docker/containers', () => ({
@@ -43,8 +44,7 @@ describe('show command runners', () => {
     // Verify: Warning was logged for Kubernetes, but no crash
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Kubernetes is unreachable'));
     // Verify: Table still rendered with Docker data
-    const { renderTable } = await import('../ui/table');
-    expect(renderTable).toHaveBeenCalled();
+    expect(tableUtils.renderTable).toHaveBeenCalled();
   });
 
   it('should handle both services failing gracefully in showRunners', async () => {
