@@ -2,11 +2,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Command } from 'commander';
 import { registerConfigCommand } from '../commands/config';
 import { setConfig, getConfig, clearConfig } from '../utils/config';
+import { select } from '@vr_patel/tui';
 
 vi.mock('../utils/config', () => ({
   setConfig: vi.fn(),
   getConfig: vi.fn(() => ({})),
   clearConfig: vi.fn(),
+}));
+
+vi.mock('@vr_patel/tui', () => ({
+  select: vi.fn(),
 }));
 
 describe('config command', () => {
@@ -22,10 +27,18 @@ describe('config command', () => {
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
-  it('should register config set, list, and clear commands', () => {
+  it('should register config setup, set, list, and clear commands', () => {
     const configCmd = program.commands.find((c) => c.name() === 'config');
     expect(configCmd).toBeDefined();
-    expect(configCmd?.commands.map((c) => c.name())).toEqual(['set', 'list', 'clear']);
+    expect(configCmd?.commands.map((c) => c.name())).toEqual(['setup', 'set', 'list', 'clear']);
+  });
+
+  it('should call select and setConfig on config setup', async () => {
+    (select as any).mockResolvedValue('discord');
+    await program.parseAsync(['node', 'test', 'config', 'setup']);
+    expect(select).toHaveBeenCalled();
+    expect(setConfig).toHaveBeenCalledWith('notification_service', 'discord');
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringMatching(/Notification service set to:.*DISCORD/i));
   });
 
   it('should call setConfig on config set', async () => {

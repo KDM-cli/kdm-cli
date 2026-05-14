@@ -1,6 +1,7 @@
 import Conf from 'conf';
 
 interface KDMConfig {
+  notification_service?: 'discord' | 'email' | 'none';
   discord_webhook?: string;
   email_host?: string;
   email_port?: number;

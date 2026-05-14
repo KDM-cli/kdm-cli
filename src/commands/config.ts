@@ -1,11 +1,39 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { setConfig, getConfig, clearConfig } from '../utils/config';
+import { select } from '@vr_patel/tui';
 
 export const registerConfigCommand = (program: Command) => {
   const config = program
     .command('config')
     .description('Manage KDM configuration');
+
+  config
+    .command('setup')
+    .description('Interactively setup notification service')
+    .action(async () => {
+      try {
+        const choice = await select({
+          message: "Select notification service:",
+          options: [
+            { label: "Discord", value: "discord", description: "Send alerts to a Discord channel via Webhook" },
+            { label: "Email (SMTP)", value: "email", description: "Send alerts via Email SMTP" },
+            { label: "None", value: "none", description: "Disable notifications" },
+          ],
+        });
+
+        setConfig('notification_service', choice);
+        console.log(chalk.green(`\n✓ Notification service set to: ${chalk.bold(choice.toUpperCase())}`));
+        
+        if (choice === 'discord') {
+          console.log(chalk.yellow('! Remember to set your webhook URL:'), chalk.cyan('kdm config set discord_webhook <url>'));
+        } else if (choice === 'email') {
+          console.log(chalk.yellow('! Remember to set your SMTP details (email_host, email_port, email_user, email_to)'));
+        }
+      } catch (error) {
+        console.error(chalk.red(`✗ Setup cancelled or failed: ${(error as Error).message}`));
+      }
+    });
 
   config
     .command('set <key> <value>')
