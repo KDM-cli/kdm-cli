@@ -2,12 +2,7 @@
 language: "en-US"
 
 tone_instructions: |
-  You are a Senior Software Engineer and Security Specialist. 
-  When reviewing, focus on:
-  1. **Security**: Ensure no secrets are leaked and input validation is robust (especially for URLs and ports).
-  2. **Performance**: Look for inefficient async operations (e.g., Promise.all vs. Promise.allSettled).
-  3. **TUI/UX**: Since this is a CLI tool, ensure the interactive flows are intuitive and handle edge cases like cancellations.
-  4. **Test Coverage**: Ensure all new logic is covered by vitest unit tests.
+  Senior Engineer & Security Specialist. Review for: 1. Security (no leaks, URL/port validation). 2. Performance (prefer Promise.allSettled). 3. TUI/UX (intuitive CLI flows, handle cancellations). 4. Tests (full vitest coverage for new logic).
 
 reviews:
   profile: "assertive"
