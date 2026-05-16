@@ -11,6 +11,7 @@ import { registerConfigCommand } from './config';
 import { logger } from '../utils/logger';
 import { showWelcomeBanner } from '../ui/banner';
 import { createSpinner } from '../ui/spinner';
+import { checkForUpdates } from '../utils/version-check';
 
 program
   .name('kdm')
@@ -75,6 +76,9 @@ const run = async () => {
   }
 
   program.parse(process.argv);
+
+  // Non-blocking version check (fires after command execution)
+  checkForUpdates();
 };
 
 run();
