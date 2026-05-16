@@ -11,7 +11,7 @@ permissions:
 jobs:
   on-pr-review:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
+    if: !github.event.pull_request.draft
 
     concurrency:
       group: pr-bot-${{ github.event.pull_request.number }}
@@ -24,8 +24,15 @@ jobs:
           egress-policy: audit
 
       - name: Save review event
+        env:
+          REVIEW_PAYLOAD: |
+            {
+              "pr_number": ${{ toJSON(github.event.pull_request.number) }},
+              "review_state": ${{ toJSON(github.event.review.state) }},
+              "draft": ${{ toJSON(github.event.pull_request.draft) }}
+            }
         run: |
-          echo '{"pr_number":${{ github.event.pull_request.number }}, "review_state":"${{ github.event.review.state }}", "draft":${{ github.event.pull_request.draft }}}' > review-event.cjson
+          echo "$REVIEW_PAYLOAD" > review-event.cjson
 
       - name: Upload review event
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

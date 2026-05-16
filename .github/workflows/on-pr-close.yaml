@@ -15,6 +15,7 @@ permissions:
 jobs:
   on-pr-close:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     if: github.event.pull_request.merged == true
 
     concurrency:
@@ -41,6 +42,7 @@ jobs:
 
   on-pr-merged-conflict-check:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     if: github.event.pull_request.merged == true
     steps:
       - name: Harden Runner

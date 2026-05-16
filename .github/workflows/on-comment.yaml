@@ -45,6 +45,7 @@ jobs:
     if: github.event.issue.pull_request == null
 
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     # Serialize per issue to prevent same-issue races without blocking other issues.
     # IMPORTANT: keep this keyed by issue.number (not github.actor), otherwise
