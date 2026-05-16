@@ -27,7 +27,7 @@ jobs:
           token: ${{ secrets.GH_PAT }}
           fetch-depth: 0
 
-      - name: Setup Node.js
+      - name: Setup Node.cjs
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -46,8 +46,8 @@ jobs:
 
       - name: Commit lockfile if changed
         run: |
-          git add package-lock.json || true
-          git diff --cached --quiet || git commit -m 'chore: update package-lock.json'
+          git add package-lock.cjson || true
+          git diff --cached --quiet || git commit -m 'chore: update package-lock.cjson'
 
       - name: Push changes and tags
         run: |
@@ -62,7 +62,7 @@ jobs:
       - name: Get Version
         id: get_version
         run: |
-          VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('./package.json', 'utf8')).version)")
+          VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('./package.cjson', 'utf8')).version)")
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
