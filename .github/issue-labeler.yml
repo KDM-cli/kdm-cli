@@ -1,0 +1,21 @@
+bug:
+  - "bug"
+  - "error"
+  - "broken"
+  - "fix"
+  - "crash"
+  - "not working"
+
+enhancement:
+  - "feature"
+  - "request"
+  - "add"
+  - "new"
+  - "improve"
+  - "enhancement"
+
+good first issue:
+  - "first timer"
+  - "beginner"
+  - "easy"
+  - "starter"

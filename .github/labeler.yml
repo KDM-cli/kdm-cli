@@ -1,0 +1,31 @@
+documentation:
+  - changed-files:
+    - any-glob-to-any-file: ['README.md', '*.md']
+
+ci:
+  - changed-files:
+    - any-glob-to-any-file: ['.github/workflows/**', '.github/**']
+
+tests:
+  - changed-files:
+    - any-glob-to-any-file: ['src/__tests__/**']
+
+docker:
+  - changed-files:
+    - any-glob-to-any-file: ['src/docker/**']
+
+kubernetes:
+  - changed-files:
+    - any-glob-to-any-file: ['src/kubernetes/**', 'src/minikube/**']
+
+ui:
+  - changed-files:
+    - any-glob-to-any-file: ['src/ui/**']
+
+commands:
+  - changed-files:
+    - any-glob-to-any-file: ['src/commands/**']
+
+build:
+  - changed-files:
+    - any-glob-to-any-file: ['package.json', 'package-lock.json', 'tsconfig.json']
