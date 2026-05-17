@@ -2,6 +2,7 @@ import chalk from 'chalk';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { logger } from './logger';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -18,7 +19,7 @@ function getInstalledVersion(): string {
 }
 
 // Compare two semver strings; returns 'lt' if a < b, 'gt' if a > b, 'eq' if equal
-function compareSemver(a: string, b: string): 'lt' | 'gt' | 'eq' {
+export function compareSemver(a: string, b: string): 'lt' | 'gt' | 'eq' {
   const parse = (v: string) => v.replace(/^v/, '').split('.').map(Number);
   const [a1, a2, a3] = parse(a);
   const [b1, b2, b3] = parse(b);
@@ -29,21 +30,13 @@ function compareSemver(a: string, b: string): 'lt' | 'gt' | 'eq' {
 }
 
 // Determine update type for messaging
-function getUpdateType(installed: string, latest: string): string {
+export function getUpdateType(installed: string, latest: string): string {
   const cmp = compareSemver(installed, latest);
-  if (cmp === 'eq') return '';
-  const [i1] = installed.replace(/^v/, '').split('.').map(Number);
-  const [l1] = latest.replace(/^v/, '').split('.').map(Number);
-  if (l1 > i1) return 'major';
-function getUpdateType(installed: string, latest: string): string {
-  const cmp = compareSemver(installed, latest);
-  if (cmp === 'eq') return '';
+  if (cmp === 'eq' || cmp === 'gt') return '';
   const [i1 = 0, i2 = 0] = installed.replace(/^v/, '').split('.').map(Number);
   const [l1 = 0, l2 = 0] = latest.replace(/^v/, '').split('.').map(Number);
   if (l1 > i1) return 'major';
   if (l2 > i2) return 'minor';
-  return 'patch';
-}
   return 'patch';
 }
 
@@ -54,7 +47,13 @@ export async function checkForUpdates(): Promise<void> {
     });
     if (!response.ok) return;
 
-    const data = await response.json() as { version: string };
+    const data = (await response.json()) as unknown;
+    
+    if (!data || typeof data !== 'object' || !('version' in data) || typeof data.version !== 'string') {
+      logger.error('Invalid registry response: version not found');
+      return;
+    }
+
     const latestVersion = data.version;
     const installedVersion = getInstalledVersion();
 
