@@ -55,6 +55,13 @@ jobs:
             core.info(`Found ${labelNames.length} labels: ${labelNames.join(', ')}`);
             return labelNames;
 
+      - name: 'Check for Gemini Authentication'
+        run: |
+          if [[ -z "${{ secrets.GEMINI_API_KEY }}" && -z "${{ secrets.GOOGLE_API_KEY }}" && -z "${{ vars.GCP_WIF_PROVIDER }}" ]]; then
+            echo "::error::Gemini API authentication is not configured. Please add GEMINI_API_KEY or GOOGLE_API_KEY to your repository secrets, or configure Google Cloud Workload Identity Federation."
+            exit 1
+          fi
+
       - name: 'Run Gemini issue analysis'
         id: 'gemini_analysis'
         if: |-
@@ -65,6 +72,7 @@ jobs:
           ISSUE_TITLE: '${{ github.event.issue.title }}'
           ISSUE_BODY: '${{ github.event.issue.body }}'
           AVAILABLE_LABELS: '${{ steps.get_labels.outputs.available_labels }}'
+          GEMINI_CLI_TRUST_WORKSPACE: 'true'
         with:
           gcp_location: '${{ vars.GOOGLE_CLOUD_LOCATION }}'
           gcp_project_id: '${{ vars.GOOGLE_CLOUD_PROJECT }}'
