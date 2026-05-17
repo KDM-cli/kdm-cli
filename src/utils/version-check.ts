@@ -49,7 +49,9 @@ function getUpdateType(installed: string, latest: string): string {
 
 export async function checkForUpdates(): Promise<void> {
   try {
-    const response = await fetch('https://registry.npmjs.org/kdm-cli/latest');
+    const response = await fetch('https://registry.npmjs.org/kdm-cli/latest', {
+      signal: AbortSignal.timeout(1500),
+    });
     if (!response.ok) return;
 
     const data = await response.json() as { version: string };
