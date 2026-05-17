@@ -13,11 +13,12 @@ KDM (Kubernetes Docker Monitor) is a lightweight, terminal-based monitoring CLI 
 
 ## Installation
 
+Install kdm-cli via npm:
 ```bash
 npm install -g kdm-cli
 ```
 
-Or run directly with npx:
+Run directly with npx:
 
 ```bash
 npx kdm-cli
