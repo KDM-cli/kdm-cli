@@ -58,6 +58,7 @@ describe('version-check utilities', () => {
     beforeEach(() => {
       vi.stubGlobal('fetch', fetchMock);
       vi.spyOn(console, 'log').mockImplementation(() => {});
+      vi.mocked(logger.error).mockReset();
     });
 
     afterEach(() => {
