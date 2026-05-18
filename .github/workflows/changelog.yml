@@ -9,7 +9,7 @@ on:
 
 jobs:
   generate-changelog:
-    runs-on: ubuntu-latest  # Ensure this is here and aligned
+    runs-on: ubuntu-latest
 
     concurrency:
       group: auto-changelog-${{ github.ref_name }}
@@ -41,43 +41,41 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Scaffold Versioned CLI Documentation System
+      - name: Generate Flat Version File & Update README
         env:
           CHANGELOG: ${{ steps.github_release.outputs.changelog }}
         run: |
           VERSION="${{ github.ref_name }}"
-          TARGET_DIR="docs/${VERSION}"
-          TEMPLATE_DIR=".github/docs-template"
+          VERSION_FILE="docs/${VERSION}.md"
           
-          # 1. Create the unique versioned directory hierarchy
-          mkdir -p "$TARGET_DIR"
+          # 1. Create the standalone version document right in the root of docs/
+          echo "# KDM CLI Documentation - ${VERSION}" > "$VERSION_FILE"
+          echo "Published on: $(date +'%Y-%m-%d')" >> "$VERSION_FILE"
+          echo "" >> "$VERSION_FILE"
+          printf '%s\n' "$CHANGELOG" >> "$VERSION_FILE"
           
-          # 2. If a core template folder exists, copy its entire structural hierarchy over
-          if [ -d "$TEMPLATE_DIR" ]; then
-            shopt -s dotglob nullglob
-            template_items=("$TEMPLATE_DIR"/*)
-            if [ ${`#template_items`[@]} -gt 0 ]; then
-              cp -r "${template_items[@]}" "$TARGET_DIR"/
-            fi
-            # 3. Recursively inject the mandatory Version string into every markdown file copied
-            find "$TARGET_DIR" -type f -name "*.md" -exec sh -c '
-              for file; do
-                if ! grep -Fq "**Version:** '"$VERSION"'" "$file"; then
-                  printf "\n---\n**Version:** %s\n" "'"$VERSION"'" >> "$file"
-                fi
-              done
-            ' _ {} +
-          else
-            # Fallback structure if the template directory isn't initialized yet
-            mkdir -p "$TARGET_DIR/config" "$TARGET_DIR/health" "$TARGET_DIR/logs" "$TARGET_DIR/show" "$TARGET_DIR/watch"
-          fi
+          # 2. Build the new dynamic landing page in a temporary file
+          TEMP_README=$(mktemp)
           
-          # 4. Generate the dedicated version README.md using the Release Engine Changelog output
-          VERSION_README="$TARGET_DIR/README.md"
-          echo -e "# KDM CLI Documentation - ${VERSION}\n" > "$VERSION_README"
-          echo -e "Published on: $(date +'%Y-%m-%d')\n" >> "$VERSION_README"
-          printf '%s\n' "$CHANGELOG" >> "$VERSION_README"
-          printf '\n---\n**Version Information:** %s\n' "$VERSION" >> "$VERSION_README"
+          echo "# Documentation (Latest: ${VERSION})" > "$TEMP_README"
+          echo "" >> "$TEMP_README"
+          
+          # 3. Embed the raw content of the new version directly into the README
+          cat "$VERSION_FILE" >> "$TEMP_README"
+          
+          echo "" >> "$TEMP_README"
+          echo "---" >> "$TEMP_README"
+          echo "## Version History" >> "$TEMP_README"
+          echo "" >> "$TEMP_README"
+          
+          # 4. Find all v*.md files, sort them newest to oldest, and link them
+          for file in $(ls docs/v*.md | sort -V -r); do
+            V_NAME=$(basename "$file" .md)
+            echo "* [$V_NAME]($V_NAME.md)" >> "$TEMP_README"
+          done
+          
+          # 5. Overwrite the old main README with the newly built one
+          mv "$TEMP_README" docs/README.md
 
       - name: Commit and Push Changes
         run: |
@@ -85,14 +83,19 @@ jobs:
           git config --local user.name "github-actions[bot]"
           
           git checkout ${{ github.event.repository.default_branch }}
+          
+          # ff-only means fast-forward only. It will instantly fail the pull if someone else
+          # pushed code to main while this action was running, preventing messy merge conflicts.
           git pull origin ${{ github.event.repository.default_branch }} --ff-only
           
-          # Track and stage the entire documentation change block
           git add docs/
+          
+          # If no files changed, exit cleanly so the runner doesn't crash on an empty commit
           if git diff --cached --quiet; then
             echo "No documentation changes to commit."
             exit 0
           fi
           
-          git commit -m "docs: auto-scaffold documentation architecture for ${{ github.ref_name }} [skip ci]"
+          # The [skip ci] tag tells GitHub Actions NOT to trigger another workflow run from this automated push
+          git commit -m "docs: auto-scaffold flat documentation for ${{ github.ref_name }} [skip ci]"
           git push origin HEAD:${{ github.event.repository.default_branch }}
