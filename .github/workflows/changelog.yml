@@ -5,7 +5,10 @@ on:
     types: [published]
   push:
     tags:
-      - 'v*.*.*'
+      - 'v*.*.*'      # Matches v1.0.0, v2.14.2, etc.
+      - '*.*.*'       # Matches 1.0.0 (no v prefix)
+      - 'v*.*.*-*'    # Matches v1.0.1-alpha.1, v1.2.0-beta.3, v2.0.0-rc.1
+      - '*.*.*-*'     # Matches 1.0.1-alpha.1 (no v prefix)
 
 jobs:
   generate-changelog:
@@ -68,13 +71,22 @@ jobs:
           echo "## Version History" >> "$TEMP_README"
           echo "" >> "$TEMP_README"
           
-          # 4. Find all v*.md files, sort them newest to oldest, and link them
-          for file in $(ls docs/v*.md | sort -V -r); do
+          # 4. Safely extract, sort, and process all version documentation files
+          # shopt -s nullglob ensures an unmatched glob pattern expands to nothing rather than its literal string
+          shopt -s nullglob
+          
+          # Ingest all docs/*.md files, filter out README.md, version-sort in reverse chronological order
+          mapfile -t version_files < <(printf '%s\n' docs/*.md | grep -v '^docs/README\.md$' | sort -V -r)
+          
+          # 5. Loop through the array buffer safely without breaking on empty sets or spaces
+          for file in "${version_files[@]}"; do
+            # Double check the file exists to catch empty arrays securely
+            [ -f "$file" ] || continue
             V_NAME=$(basename "$file" .md)
             echo "* [$V_NAME]($V_NAME.md)" >> "$TEMP_README"
           done
           
-          # 5. Overwrite the old main README with the newly built one
+          # 6. Overwrite the main docs/README.md with our cleanly compiled template
           mv "$TEMP_README" docs/README.md
 
       - name: Commit and Push Changes
@@ -83,19 +95,14 @@ jobs:
           git config --local user.name "github-actions[bot]"
           
           git checkout ${{ github.event.repository.default_branch }}
-          
-          # ff-only means fast-forward only. It will instantly fail the pull if someone else
-          # pushed code to main while this action was running, preventing messy merge conflicts.
           git pull origin ${{ github.event.repository.default_branch }} --ff-only
           
           git add docs/
           
-          # If no files changed, exit cleanly so the runner doesn't crash on an empty commit
           if git diff --cached --quiet; then
             echo "No documentation changes to commit."
             exit 0
           fi
           
-          # The [skip ci] tag tells GitHub Actions NOT to trigger another workflow run from this automated push
           git commit -m "docs: auto-scaffold flat documentation for ${{ github.ref_name }} [skip ci]"
           git push origin HEAD:${{ github.event.repository.default_branch }}
