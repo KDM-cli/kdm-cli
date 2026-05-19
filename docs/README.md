@@ -1,40 +1,12 @@
-# KDM CLI — Versioned Command Documentation
+# Documentation (Latest: v1.2.4-test)
 
-This directory contains versioned documentation for all KDM CLI commands. Each section documents a top-level command group with usage, parameters, examples, and troubleshooting.
+# KDM CLI Documentation - v1.2.4-test
+Published on: 2026-05-19
 
-## Command Index
+- no changes
 
-- `show` — Show running runners, pods, containers, or minikube
-- `health` — Show health status for pods or containers
-- `watch` — Live monitoring mode
-- `logs` — Show logs for a container or pod
-- `config` — Manage KDM configuration
-
-## Quick Start
-
-```bash
-# Install globally
-npm install -g kdm-cli
-
-# Show all workloads
-kdm show runners
-
-# Check pod health
-kdm health po
-
-# Live watch
-kdm watch
-
-# View logs
-kdm logs <name>
-
-# Configure notifications
-kdm config setup
-
-```
 ---
-
 ## Version History
 
-* [v1.2.1](v1.2.1.md)
-* [v1.1.0](v1.1.0.md)
+* [v1.2.4-test](v1.2.4-test.md)
+* [v1.2.3-test](v1.2.3-test.md)
