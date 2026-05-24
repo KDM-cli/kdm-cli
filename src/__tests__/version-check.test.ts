@@ -13,6 +13,9 @@ vi.mock('../utils/logger', () => ({
   },
 }));
 
+const hasPathSuffix = (path: string, suffix: string) =>
+  path.replaceAll('\\', '/').endsWith(suffix);
+
 describe('version-check utilities', () => {
   describe('compareSemver', () => {
     it('should return "lt" if a < b', () => {
@@ -109,9 +112,15 @@ describe('version-check utilities', () => {
       vi.mocked(readFileSync).mockReset();
     });
 
+    it('should treat Windows and POSIX separators the same when matching package paths', () => {
+      expect(hasPathSuffix('C:\\repo\\src\\package.json', 'src/package.json')).toBe(true);
+      expect(hasPathSuffix('/repo/src/package.json', 'src/package.json')).toBe(true);
+      expect(hasPathSuffix('/repo/src/package.json', 'src/other.json')).toBe(false);
+    });
+
     it('should resolve and return the version if package.json in production path is valid', () => {
       vi.mocked(readFileSync).mockImplementation((path) => {
-        if (typeof path === 'string' && path.endsWith('src/package.json')) {
+        if (typeof path === 'string' && hasPathSuffix(path, 'src/package.json')) {
           return JSON.stringify({ version: '2.3.4' });
         }
         throw new Error('File not found');
@@ -122,7 +131,7 @@ describe('version-check utilities', () => {
 
     it('should resolve and return the version if production path fails but development path succeeds', () => {
       vi.mocked(readFileSync).mockImplementation((path) => {
-        if (typeof path === 'string' && path.endsWith('package.json') && !path.endsWith('src/package.json')) {
+        if (typeof path === 'string' && hasPathSuffix(path, 'package.json') && !hasPathSuffix(path, 'src/package.json')) {
           return JSON.stringify({ version: '1.2.3' });
         }
         throw new Error('File not found');
@@ -133,10 +142,10 @@ describe('version-check utilities', () => {
 
     it('should advance to the next path if JSON is malformed', () => {
       vi.mocked(readFileSync).mockImplementation((path) => {
-        if (typeof path === 'string' && path.endsWith('src/package.json')) {
+        if (typeof path === 'string' && hasPathSuffix(path, 'src/package.json')) {
           return '{ malformed json';
         }
-        if (typeof path === 'string' && path.endsWith('package.json') && !path.endsWith('src/package.json')) {
+        if (typeof path === 'string' && hasPathSuffix(path, 'package.json') && !hasPathSuffix(path, 'src/package.json')) {
           return JSON.stringify({ version: '1.2.9' });
         }
         throw new Error('File not found');
@@ -147,10 +156,10 @@ describe('version-check utilities', () => {
 
     it('should advance to next path if version is not a string or missing', () => {
       vi.mocked(readFileSync).mockImplementation((path) => {
-        if (typeof path === 'string' && path.endsWith('src/package.json')) {
+        if (typeof path === 'string' && hasPathSuffix(path, 'src/package.json')) {
           return JSON.stringify({ version: 12345 }); // non-string version
         }
-        if (typeof path === 'string' && path.endsWith('package.json') && !path.endsWith('src/package.json')) {
+        if (typeof path === 'string' && hasPathSuffix(path, 'package.json') && !hasPathSuffix(path, 'src/package.json')) {
           return JSON.stringify({ version: '1.2.8' });
         }
         throw new Error('File not found');
