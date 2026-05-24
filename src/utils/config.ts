@@ -7,6 +7,7 @@ interface KDMConfig {
   email_port?: number;
   email_user?: string;
   email_to?: string;
+  email_password?: string;
   alert_cooldown?: number; // in seconds
 }
 
@@ -25,6 +26,7 @@ export const clearNotificationCredentials = () => {
   config.delete('email_port');
   config.delete('email_user');
   config.delete('email_to');
+  config.delete('email_password');
 };
 
 // Helper for sensitive data - always use environment variables
@@ -34,7 +36,7 @@ export const getSMTPSettings = () => {
     port: config.get('email_port') || 587,
     auth: {
       user: config.get('email_user'),
-      pass: process.env.KDM_SMTP_PASSWORD,
+      pass: process.env.KDM_SMTP_PASSWORD || config.get('email_password'),
     },
     to: config.get('email_to'),
   };
