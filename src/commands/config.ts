@@ -68,22 +68,16 @@ export const registerConfigCommand = (program: Command) => {
             message: 'Alert Recipient Email:',
             validate: (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) || 'Must be a valid email address',
           });
-          const password = await input({
-            message: 'SMTP Password (optional, press Enter to skip):',
-            validate: () => true,
-          });
 
           clearNotificationCredentials();
           setConfig('email_host', host);
           setConfig('email_port', parseInt(portStr, 10));
           setConfig('email_user', user);
           setConfig('email_to', to);
-          if (password) {
-            setConfig('email_password', password);
-          }
           setConfig('notification_service', 'email');
           
           console.log(chalk.green('\n✓ Email SMTP configured.'));
+          console.log(chalk.dim(' Set KDM_SMTP_PASSWORD in your environment to provide the SMTP password.'));
         }
 
         console.log(chalk.green(`✓ Notification service set to: ${chalk.bold(choice.toUpperCase())}`));
@@ -127,7 +121,7 @@ export const registerConfigCommand = (program: Command) => {
       }
       
       console.log(chalk.gray('──────────────────────────────────────────────────'));
-      console.log(chalk.dim('\n Note: SMTP password can be set either in config or via the KDM_SMTP_PASSWORD environment variable, which takes precedence if both are set.\n'));
+      console.log(chalk.dim('\n Note: SMTP password is not stored in config. Set it with the KDM_SMTP_PASSWORD environment variable.\n'));
     });
 
   config
@@ -156,7 +150,7 @@ const printEmailSmtpGuide = () => {
   console.log(chalk.white('  1. Find your provider SMTP settings before continuing.'));
   console.log(chalk.white('  2. Common hosts: smtp.gmail.com for Gmail, smtp.office365.com for Outlook.'));
   console.log(chalk.white('  3. Use port 587 for STARTTLS unless your provider says otherwise.'));
-  console.log(chalk.white('  4. Provide the SMTP password during setup or via the KDM_SMTP_PASSWORD environment variable.'));
+  console.log(chalk.white('  4. Provide the SMTP password via the KDM_SMTP_PASSWORD environment variable.'));
   console.log(chalk.dim('     Gmail accounts with 2FA usually require an App Password.'));
   console.log(chalk.gray('──────────────────────────────────────────────────\n'));
 };

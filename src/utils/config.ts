@@ -1,46 +1,50 @@
-import Conf from 'conf';
+import {
+  clearConfig as clearStoredConfig,
+  deleteLegacyValue,
+  getLegacyConfig,
+  getLegacyValue,
+  setLegacyValue,
+} from '../config/store';
+import type { LegacyNotificationConfig } from '../config/schema';
 
-interface KDMConfig {
-  notification_service?: 'discord' | 'email' | 'none';
-  discord_webhook?: string;
-  email_host?: string;
-  email_port?: number;
-  email_user?: string;
-  email_to?: string;
-  email_password?: string;
-  alert_cooldown?: number; // in seconds
-}
+export const getConfig = () => getLegacyConfig();
 
-const config = new Conf<KDMConfig>({
-  projectName: 'kdm-cli',
-});
+const sensitiveLegacyKeys = new Set<keyof LegacyNotificationConfig>(['email_password']);
 
-export const getConfig = () => config.store;
-export const setConfig = (key: keyof KDMConfig, value: any) => config.set(key, value);
-export const deleteConfig = (key: keyof KDMConfig) => config.delete(key);
-export const clearConfig = () => config.clear();
+export const setConfig = <Key extends keyof LegacyNotificationConfig>(
+  key: Key,
+  value: LegacyNotificationConfig[Key],
+) => {
+  if (sensitiveLegacyKeys.has(key)) {
+    throw new Error(`${key} must not be stored in config. Use the KDM_SMTP_PASSWORD environment variable instead.`);
+  }
+  setLegacyValue(key, value);
+};
+
+export const deleteConfig = (key: keyof LegacyNotificationConfig) => deleteLegacyValue(key);
+export const clearConfig = () => clearStoredConfig();
 
 export const clearNotificationCredentials = () => {
-  config.delete('discord_webhook');
-  config.delete('email_host');
-  config.delete('email_port');
-  config.delete('email_user');
-  config.delete('email_to');
-  config.delete('email_password');
+  deleteLegacyValue('discord_webhook');
+  deleteLegacyValue('email_host');
+  deleteLegacyValue('email_port');
+  deleteLegacyValue('email_user');
+  deleteLegacyValue('email_to');
+  deleteLegacyValue('email_password');
 };
 
 // Helper for sensitive data - always use environment variables
 export const getSMTPSettings = () => {
   return {
-    host: config.get('email_host'),
-    port: config.get('email_port') || 587,
+    host: getLegacyValue('email_host'),
+    port: getLegacyValue('email_port') || 587,
     auth: {
-      user: config.get('email_user'),
+      user: getLegacyValue('email_user'),
       pass:
         process.env.KDM_SMTP_PASSWORD !== undefined
           ? process.env.KDM_SMTP_PASSWORD
-          : config.get('email_password'),
+          : getLegacyValue('email_password'),
     },
-    to: config.get('email_to'),
+    to: getLegacyValue('email_to'),
   };
 };

@@ -3,7 +3,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('conf', () => {
   const mockConfigStore = new Map<string, any>();
   const mockConfInstance = {
-    store: {},
+    get store() {
+      return Object.fromEntries(mockConfigStore.entries());
+    },
     set: vi.fn((key, val) => {
       mockConfigStore.set(key, val);
     }),
@@ -30,7 +32,7 @@ vi.mock('conf', () => {
   };
 });
 
-import { getSMTPSettings, clearNotificationCredentials } from '../utils/config';
+import { getSMTPSettings, clearNotificationCredentials, setConfig } from '../utils/config';
 
 describe('config utils', () => {
   const originalEnv = process.env;
@@ -88,5 +90,10 @@ describe('config utils', () => {
     process.env.KDM_SMTP_PASSWORD = '';
     settings = getSMTPSettings();
     expect(settings.auth.pass).toBe('');
+  });
+
+  it('should reject storing SMTP passwords in config', () => {
+    expect(() => setConfig('email_password', 'secret')).toThrow(/KDM_SMTP_PASSWORD/);
+    expect(mockConfInstance.set).not.toHaveBeenCalledWith('email_password', 'secret');
   });
 });
