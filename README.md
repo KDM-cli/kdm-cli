@@ -69,9 +69,6 @@ KDM is built with:
 
 ## Contributors
 
-<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
-<!-- prettier-ignore-start -->
-<!-- markdownlint-disable -->
 <table>
   <tbody>
     <tr>
@@ -80,11 +77,5 @@ KDM is built with:
   </tbody>
 </table>
 
-<!-- markdownlint-restore -->
-<!-- prettier-ignore-end -->
-
-<!-- ALL-CONTRIBUTORS-LIST:END -->
-
 ## License
-
-MIT
+[GNU AGPL 3.0](https://github.com/Yuvraj-Sarathe/kdm-cli?tab=license-1-ov-file)
