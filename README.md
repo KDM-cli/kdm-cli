@@ -72,6 +72,13 @@ KDM is built with:
 <!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
 <!-- prettier-ignore-start -->
 <!-- markdownlint-disable -->
+<table>
+  <tbody>
+    <tr>
+      <td align="center" valign="top" width="14.28%"><a href="https://yuvraj-sarathe.github.io/Portfolio/"><img src="https://avatars.githubusercontent.com/u/216678101?v=4?s=100" width="100px;" alt="Yuvraj Sarathe"/><br /><sub><b>Yuvraj Sarathe</b></sub></a><br /><a href="#infra-Yuvraj-Sarathe" title="Infrastructure (Hosting, Build-Tools, etc)">🚇</a></td>
+    </tr>
+  </tbody>
+</table>
 
 <!-- markdownlint-restore -->
 <!-- prettier-ignore-end -->

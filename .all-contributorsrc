@@ -1,4 +1,21 @@
 {
   "projectName": "kdm-cli",
-  "projectOwner": "KDM-cli"
+  "projectOwner": "KDM-cli",
+  "files": [
+    "README.md"
+  ],
+  "commitType": "docs",
+  "commitConvention": "angular",
+  "contributorsPerLine": 7,
+  "contributors": [
+    {
+      "login": "Yuvraj-Sarathe",
+      "name": "Yuvraj Sarathe",
+      "avatar_url": "https://avatars.githubusercontent.com/u/216678101?v=4",
+      "profile": "https://yuvraj-sarathe.github.io/Portfolio/",
+      "contributions": [
+        "infra"
+      ]
+    }
+  ]
 }
