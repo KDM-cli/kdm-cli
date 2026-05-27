@@ -120,7 +120,10 @@ describe('config command', () => {
 
     await program.parseAsync(['node', 'test', 'config', 'setup']);
 
-    expect(consoleLogSpy).not.toHaveBeenCalledWith(expect.stringContaining('currently set to'));
+    expect(consoleLogSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('Current notification service is set to'),
+    );
+    expect(tui.select).toHaveBeenCalledTimes(1); // only service selection
     expect(configUtils.setConfig).toHaveBeenCalledWith('notification_service', 'none');
   });
 
