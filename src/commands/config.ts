@@ -13,6 +13,26 @@ export const registerConfigCommand = (program: Command) => {
     .description('Interactively set up notification service')
     .action(async () => {
       try {
+        // Check for existing configuration
+        const currentConfig = getConfig();
+        if (currentConfig.notification_service && currentConfig.notification_service !== 'none') {
+          const serviceLabel = currentConfig.notification_service === 'discord' ? 'Discord' : 'Email (SMTP)';
+          console.log(chalk.yellow(`\n⚠ Current notification service is set to: ${chalk.bold(serviceLabel)}`));
+
+          const shouldReconfigure = await select({
+            message: 'Would you like to reconfigure?',
+            options: [
+              { label: 'Yes', value: 'yes' },
+              { label: 'No', value: 'no' },
+            ],
+          });
+
+          if (shouldReconfigure === 'no') {
+            console.log(chalk.dim('Setup cancelled. Current configuration unchanged.'));
+            return;
+          }
+        }
+
         const choice = await select({
           message: 'Select notification service:',
           options: [
@@ -97,6 +117,15 @@ export const registerConfigCommand = (program: Command) => {
     .description('Set a configuration value')
     .action((key, value) => {
       try {
+        // Credential keys that should be configured via the interactive setup
+        const credentialKeys = ['notification_service', 'discord_webhook', 'email_host', 'email_port', 'email_user', 'email_to'];
+        const credentialKeyPattern = new RegExp(`^(${credentialKeys.join('|')})$`);
+
+        if (credentialKeyPattern.test(key)) {
+          console.log(chalk.yellow(`\n⚠ Deprecation warning: Setting "${key}" via "kdm config set" is deprecated.`));
+          console.log(chalk.yellow(`  Use ${chalk.bold('kdm config setup')} for guided configuration.\n`));
+        }
+
         // Convert value to number if key is alert_cooldown or email_port
         let finalValue = value;
         if (key === 'alert_cooldown' || key === 'email_port') {
