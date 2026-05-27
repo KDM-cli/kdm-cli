@@ -124,6 +124,26 @@ describe('config command', () => {
     expect(configUtils.setConfig).toHaveBeenCalledWith('notification_service', 'none');
   });
 
+  it('should handle select rejection gracefully during setup', async () => {
+    vi.mocked(tui.select).mockRejectedValueOnce(new Error('select failed'));
+
+    await program.parseAsync(['node', 'test', 'config', 'setup']);
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('select failed'));
+    expect(configUtils.setConfig).not.toHaveBeenCalled();
+  });
+
+  it('should handle setConfig failure gracefully during setup', async () => {
+    vi.mocked(tui.select).mockResolvedValue('discord');
+    vi.mocked(tui.input).mockResolvedValue('https://discord.com/api/webhooks/123456789/token-here');
+    // Use mockImplementationOnce to avoid polluting subsequent tests
+    vi.mocked(configUtils.setConfig).mockImplementationOnce(() => { throw new Error('write failed'); });
+
+    await program.parseAsync(['node', 'test', 'config', 'setup']);
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('write failed'));
+  });
+
   it('should call select, multiple inputs and setConfig on email setup without password', async () => {
     vi.mocked(tui.select).mockResolvedValue('email');
     vi.mocked(tui.input)
