@@ -3,6 +3,31 @@ import chalk from 'chalk';
 import { setConfig, getConfig, clearConfig, clearNotificationCredentials } from '../utils/config';
 import { select, input } from '@vr_patel/tui';
 
+const promptReconfigurationIfNeeded = async (): Promise<boolean> => {
+  const currentConfig = getConfig();
+  if (currentConfig.notification_service && currentConfig.notification_service !== 'none') {
+    const serviceLabel =
+      currentConfig.notification_service === 'discord' ? 'Discord' : 'Email (SMTP)';
+    console.log(
+      chalk.yellow`\n⚠ Current notification service is set to: ${chalk.bold(serviceLabel)}`
+    );
+
+    const shouldReconfigure = await select({
+      message: 'Would you like to reconfigure?',
+      options: [
+        { label: 'Yes', value: 'yes' },
+        { label: 'No', value: 'no' },
+      ],
+    });
+
+    if (shouldReconfigure === 'no') {
+      console.log(chalk.dim('Setup cancelled. Current configuration unchanged.'));
+      return false;
+    }
+  }
+  return true;
+};
+
 export const registerConfigCommand = (program: Command) => {
   const config = program
     .command('config')
@@ -14,24 +39,8 @@ export const registerConfigCommand = (program: Command) => {
     .action(async () => {
       try {
         // Check for existing configuration
-        const currentConfig = getConfig();
-        if (currentConfig.notification_service && currentConfig.notification_service !== 'none') {
-          const serviceLabel = currentConfig.notification_service === 'discord' ? 'Discord' : 'Email (SMTP)';
-          console.log(chalk.yellow(`\n⚠ Current notification service is set to: ${chalk.bold(serviceLabel)}`));
-
-          const shouldReconfigure = await select({
-            message: 'Would you like to reconfigure?',
-            options: [
-              { label: 'Yes', value: 'yes' },
-              { label: 'No', value: 'no' },
-            ],
-          });
-
-          if (shouldReconfigure === 'no') {
-            console.log(chalk.dim('Setup cancelled. Current configuration unchanged.'));
-            return;
-          }
-        }
+        const shouldProceed = await promptReconfigurationIfNeeded();
+        if (!shouldProceed) return;
 
         const choice = await select({
           message: 'Select notification service:',
@@ -59,7 +68,7 @@ export const registerConfigCommand = (program: Command) => {
               return discordWebhookRegex.test(v) || 'Must be a valid Discord webhook URL (including ID and Token)';
             },
           });
-          
+
           clearNotificationCredentials();
           setConfig('discord_webhook', webhook);
           setConfig('notification_service', 'discord');
@@ -102,13 +111,13 @@ export const registerConfigCommand = (program: Command) => {
             setConfig('email_password', password);
           }
           setConfig('notification_service', 'email');
-          
+
           console.log(chalk.green('\n✓ Email SMTP configured.'));
         }
 
-        console.log(chalk.green(`✓ Notification service set to: ${chalk.bold(choice.toUpperCase())}`));
+        console.log(chalk.green`\n✓ Notification service set to: ${chalk.bold(choice.toUpperCase())}`);
       } catch (error) {
-        console.error(chalk.red(`✗ Set up cancelled or failed: ${(error as Error).message}`));
+        console.error(chalk.red`\n✗ Set up cancelled or failed: ${(error as Error).message}`);
       }
     });
 
@@ -122,8 +131,8 @@ export const registerConfigCommand = (program: Command) => {
         const credentialKeyPattern = new RegExp(`^(${credentialKeys.join('|')})$`);
 
         if (credentialKeyPattern.test(key)) {
-          console.log(chalk.yellow(`\n⚠ Deprecation warning: Setting "${key}" via "kdm config set" is deprecated.`));
-          console.log(chalk.yellow(`  Use ${chalk.bold('kdm config setup')} for guided configuration.\n`));
+          console.log(chalk.yellow`\n⚠ Deprecation warning: Setting "${key}" via "kdm config set" is deprecated.`);
+          console.log(chalk.yellow`  Use ${chalk.bold('kdm config setup')} for guided configuration.\n`);
         }
 
         // Convert value to number if key is alert_cooldown or email_port
@@ -131,11 +140,11 @@ export const registerConfigCommand = (program: Command) => {
         if (key === 'alert_cooldown' || key === 'email_port') {
           finalValue = parseInt(value, 10);
         }
-        
+
         setConfig(key as any, finalValue);
-        console.log(chalk.green(`✓ Set ${key} to ${finalValue}`));
+        console.log(chalk.green`✓ Set ${key} to ${finalValue}`);
       } catch (error) {
-        console.error(chalk.red(`✗ Failed to set config: ${(error as Error).message}`));
+        console.error(chalk.red`✗ Failed to set config: ${(error as Error).message}`);
       }
     });
 
@@ -146,15 +155,15 @@ export const registerConfigCommand = (program: Command) => {
       const current = getConfig();
       console.log(chalk.bold('\nCurrent KDM Configuration:'));
       console.log(chalk.gray('──────────────────────────────────────────────────'));
-      
+
       if (Object.keys(current).length === 0) {
         console.log(chalk.yellow(' No configuration found. Use "kdm config set <key> <value>"'));
       } else {
         Object.entries(current).forEach(([key, value]) => {
-          console.log(` ${chalk.cyan(key.padEnd(20))} : ${chalk.white(value)}`);
+          console.log(`${chalk.cyan(key.padEnd(20))} : ${chalk.white(value)}`);
         });
       }
-      
+
       console.log(chalk.gray('──────────────────────────────────────────────────'));
       console.log(chalk.dim('\n Note: SMTP password can be set either in config or via the KDM_SMTP_PASSWORD environment variable, which takes precedence if both are set.\n'));
     });
