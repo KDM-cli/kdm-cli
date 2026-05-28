@@ -9,7 +9,7 @@ const promptReconfigurationIfNeeded = async (): Promise<boolean> => {
     const serviceLabel =
       currentConfig.notification_service === 'discord' ? 'Discord' : 'Email (SMTP)';
     console.log(
-      chalk.yellow`\n⚠ Current notification service is set to: ${chalk.bold(serviceLabel)}`
+      chalk.yellow(`\n⚠ Current notification service is set to: ${chalk.bold(serviceLabel)}`)
     );
 
     const shouldReconfigure = await select({
@@ -115,9 +115,9 @@ export const registerConfigCommand = (program: Command) => {
           console.log(chalk.green('\n✓ Email SMTP configured.'));
         }
 
-        console.log(chalk.green`\n✓ Notification service set to: ${chalk.bold(choice.toUpperCase())}`);
+        console.log(chalk.green(`\n✓ Notification service set to: ${chalk.bold(choice.toUpperCase())}`));
       } catch (error) {
-        console.error(chalk.red`\n✗ Set up cancelled or failed: ${(error as Error).message}`);
+        console.error(chalk.red(`\n✗ Set up cancelled or failed: ${(error as Error).message}`));
       }
     });
 
@@ -131,8 +131,8 @@ export const registerConfigCommand = (program: Command) => {
         const credentialKeyPattern = new RegExp(`^(${credentialKeys.join('|')})$`);
 
         if (credentialKeyPattern.test(key)) {
-          console.log(chalk.yellow`\n⚠ Deprecation warning: Setting "${key}" via "kdm config set" is deprecated.`);
-          console.log(chalk.yellow`  Use ${chalk.bold('kdm config setup')} for guided configuration.\n`);
+          console.log(chalk.yellow(`\n⚠ Deprecation warning: Setting "${key}" via "kdm config set" is deprecated.`));
+          console.log(chalk.yellow(`  Use ${chalk.bold('kdm config setup')} for guided configuration.\n`));
         }
 
         // Convert value to number if key is alert_cooldown or email_port
@@ -142,9 +142,9 @@ export const registerConfigCommand = (program: Command) => {
         }
 
         setConfig(key as any, finalValue);
-        console.log(chalk.green`✓ Set ${key} to ${finalValue}`);
+        console.log(chalk.green(`✓ Set ${key} to ${finalValue}`));
       } catch (error) {
-        console.error(chalk.red`✗ Failed to set config: ${(error as Error).message}`);
+        console.error(chalk.red(`✗ Failed to set config: ${(error as Error).message}`));
       }
     });
 
