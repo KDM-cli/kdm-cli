@@ -137,8 +137,13 @@ export const registerConfigCommand = (program: Command) => {
 
         // Convert value to number if key is alert_cooldown or email_port
         let finalValue = value;
+        let finalValue = value;
         if (key === 'alert_cooldown' || key === 'email_port') {
-          finalValue = parseInt(value, 10);
+          const parsed = Number.parseInt(value, 10);
+          if (Number.isNaN(parsed)) {
+            throw new Error(`Invalid numeric value for "${key}"`);
+          }
+          finalValue = parsed;
         }
 
         setConfig(key as any, finalValue);
