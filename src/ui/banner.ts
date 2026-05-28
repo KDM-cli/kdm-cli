@@ -10,13 +10,11 @@ export const showWelcomeBanner = (version: string) => {
   ${chalk.cyan('╚═╝  ╚═╝╚═════╝ ╚═╝     ╚═╝')}
   `;
 
-  const signature = chalk.gray(`
-  ──────────────────────────────────────────────────
-         ${chalk.white.bold('devloped by')} ${chalk.yellow.bold('utkarshpatrikar')}
-  ──────────────────────────────────────────────────
-  `);
+  const signature = chalk.gray(
+    '──────────────────────────────────────────────────'
+  );
   
   console.log(banner);
   console.log(signature);
-  console.log(chalk.blue.bold(`  Kubernetes & Docker Monitor v${version}\n`));
+  console.log(chalk.blue.bold(`  Kubernetes & Docker Monitor v${version}`));
 };

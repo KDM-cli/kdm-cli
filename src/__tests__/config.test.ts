@@ -89,6 +89,64 @@ describe('config command', () => {
     expect(webhookPrompt.validate('not-a-webhook')).toBe('Must be a valid Discord webhook URL (including ID and Token)');
   });
 
+  it('should detect existing config and prompt for reconfiguration — cancel keeps current config', async () => {
+    vi.mocked(configUtils.getConfig).mockReturnValue({ notification_service: 'discord' });
+    vi.mocked(tui.select).mockResolvedValueOnce('no'); // decline reconfiguration
+
+    await program.parseAsync(['node', 'test', 'config', 'setup']);
+
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Current notification service is set to'));
+    expect(tui.select).toHaveBeenCalledTimes(1); // only reconfiguration prompt
+    expect(configUtils.setConfig).not.toHaveBeenCalled();
+  });
+
+  it('should proceed with setup when user confirms reconfiguration', async () => {
+    vi.mocked(configUtils.getConfig).mockReturnValue({ notification_service: 'discord' });
+    vi.mocked(tui.select)
+      .mockResolvedValueOnce('yes') // confirm reconfiguration
+      .mockResolvedValueOnce('discord'); // select discord service
+    vi.mocked(tui.input).mockResolvedValue('https://discord.com/api/webhooks/123456789/token-here');
+
+    await program.parseAsync(['node', 'test', 'config', 'setup']);
+
+    expect(tui.select).toHaveBeenCalledTimes(2); // reconfiguration + service selection
+    expect(configUtils.setConfig).toHaveBeenCalledWith('notification_service', 'discord');
+    expect(configUtils.setConfig).toHaveBeenCalledWith('discord_webhook', 'https://discord.com/api/webhooks/123456789/token-here');
+  });
+
+  it('should skip reconfiguration prompt when no existing config', async () => {
+    vi.mocked(configUtils.getConfig).mockReturnValue({});
+    vi.mocked(tui.select).mockResolvedValue('none');
+
+    await program.parseAsync(['node', 'test', 'config', 'setup']);
+
+    expect(consoleLogSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('Current notification service is set to'),
+    );
+    expect(tui.select).toHaveBeenCalledTimes(1); // only service selection
+    expect(configUtils.setConfig).toHaveBeenCalledWith('notification_service', 'none');
+  });
+
+  it('should handle select rejection gracefully during setup', async () => {
+    vi.mocked(tui.select).mockRejectedValueOnce(new Error('select failed'));
+
+    await program.parseAsync(['node', 'test', 'config', 'setup']);
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('select failed'));
+    expect(configUtils.setConfig).not.toHaveBeenCalled();
+  });
+
+  it('should handle setConfig failure gracefully during setup', async () => {
+    vi.mocked(tui.select).mockResolvedValue('discord');
+    vi.mocked(tui.input).mockResolvedValue('https://discord.com/api/webhooks/123456789/token-here');
+    // Use mockImplementationOnce to avoid polluting subsequent tests
+    vi.mocked(configUtils.setConfig).mockImplementationOnce(() => { throw new Error('write failed'); });
+
+    await program.parseAsync(['node', 'test', 'config', 'setup']);
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('write failed'));
+  });
+
   it('should call select, multiple inputs and setConfig on email setup without password', async () => {
     vi.mocked(tui.select).mockResolvedValue('email');
     vi.mocked(tui.input)
@@ -150,6 +208,32 @@ describe('config command', () => {
     await program.parseAsync(['node', 'test', 'config', 'set', 'alert_email', 'test@test.com']);
     expect(configUtils.setConfig).toHaveBeenCalledWith('alert_email', 'test@test.com');
     expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Set alert_email to test@test.com'));
+  });
+
+  it('should show deprecation warning when setting credential key via config set', async () => {
+    await program.parseAsync(['node', 'test', 'config', 'set', 'discord_webhook', 'https://discord.com/api/webhooks/test']);
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Deprecation warning'));
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('kdm config setup'));
+    expect(configUtils.setConfig).toHaveBeenCalled(); // still executes (soft deprecation)
+  });
+
+  it('should show deprecation warning for all credential keys', async () => {
+    const credentialKeys = ['notification_service', 'discord_webhook', 'email_host', 'email_port', 'email_user', 'email_to'];
+    for (const key of credentialKeys) {
+      vi.clearAllMocks();
+      // email_port gets parsed to int by the existing handler logic
+      const testValue = key === 'email_port' ? '587' : 'test-value';
+      const expectedValue = key === 'email_port' ? 587 : testValue;
+      await program.parseAsync(['node', 'test', 'config', 'set', key, testValue]);
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Deprecation warning'));
+      expect(configUtils.setConfig).toHaveBeenCalledWith(key, expectedValue);
+    }
+  });
+
+  it('should not show deprecation warning for non-credential keys', async () => {
+    await program.parseAsync(['node', 'test', 'config', 'set', 'alert_cooldown', '300']);
+    expect(consoleLogSpy).not.toHaveBeenCalledWith(expect.stringContaining('Deprecation warning'));
+    expect(configUtils.setConfig).toHaveBeenCalledWith('alert_cooldown', 300);
   });
 
   it('should parse integer for alert_cooldown', async () => {
