@@ -83,7 +83,7 @@ export async function runAnalysis(options: AnalysisOptions): Promise<AnalysisOut
   await Promise.all(workers);
 
   const problems = results.reduce((acc, curr) => acc + curr.errors.length, 0);
-  const status = results.length > 0 ? 'ProblemDetected' : 'OK';
+  const status = problems > 0 ? 'ProblemDetected' : 'OK';
 
   const output: AnalysisOutput = {
     errors,

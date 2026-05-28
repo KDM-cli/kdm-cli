@@ -36,6 +36,14 @@ export const notificationFromLegacy = (
 };
 export const mergeLegacyConfig = (stored: StoredKDMConfig): KDMConfig => {
   const legacyNotifications = notificationFromLegacy(stored);
+  const mergedNotifications =
+    legacyNotifications || stored.notifications
+      ? {
+          service: 'none' as const,
+          ...legacyNotifications,
+          ...stored.notifications,
+        }
+      : undefined;
 
   return {
     ai: stored.ai,
@@ -43,9 +51,6 @@ export const mergeLegacyConfig = (stored: StoredKDMConfig): KDMConfig => {
     kubernetes: stored.kubernetes,
     cache: stored.cache,
     output: stored.output,
-    notifications: {
-      ...legacyNotifications,
-      ...stored.notifications,
-    },
+    notifications: mergedNotifications,
   };
 };

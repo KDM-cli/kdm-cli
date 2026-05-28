@@ -4,6 +4,14 @@ import chalk from 'chalk';
 export function formatTextOutput(output: AnalysisOutput): string {
   const lines: string[] = [];
 
+  const redact = (value: string, sensitive?: { unmasked: string; masked: string }[]): string => {
+    if (!sensitive?.length) return value;
+    return sensitive.reduce(
+      (acc, pair) => (pair.unmasked ? acc.split(pair.unmasked).join(pair.masked) : acc),
+      value
+    );
+  };
+
   // Summary line
   if (output.status === 'OK') {
     lines.push(chalk.green('No problems detected'));
@@ -46,9 +54,11 @@ export function formatTextOutput(output: AnalysisOutput): string {
         const nsPart = res.namespace ? ` [${res.namespace}]` : '';
         lines.push(`- Name: ${chalk.yellow(res.name)}${nsPart} ${chalk.cyan(parentPart)}`.trim());
         for (const failure of res.errors) {
-          lines.push(`  - ${chalk.red('Error:')} ${chalk.red(failure.text)}`);
+          lines.push(`  - ${chalk.red('Error:')} ${chalk.red(redact(failure.text, failure.sensitive))}`);
           if (failure.kubernetesDoc) {
-            lines.push(`    ${chalk.red('Kubernetes Doc:')} ${chalk.red(failure.kubernetesDoc)}`);
+            lines.push(
+              `    ${chalk.red('Kubernetes Doc:')} ${chalk.red(redact(failure.kubernetesDoc, failure.sensitive))}`
+            );
           }
         }
         if (res.details) {

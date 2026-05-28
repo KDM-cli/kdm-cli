@@ -69,24 +69,24 @@ describe('config utils', () => {
     expect(mockConfInstance.delete).toHaveBeenCalledWith('email_password');
   });
 
-  it('should get SMTP settings with precedence given to environment variables over email_password', () => {
+  it('should get SMTP settings from env var only, never falling back to stored email_password', () => {
     mockConfigStore.set('email_host', 'smtp.test.com');
     mockConfigStore.set('email_port', 587);
     mockConfigStore.set('email_user', 'user@test.com');
     mockConfigStore.set('email_to', 'to@test.com');
     mockConfigStore.set('email_password', 'config-password');
 
-    // Case 1: No env variable set, should use stored config password
+    // Case 1: No env variable set, should NOT fall back to stored config password
     delete process.env.KDM_SMTP_PASSWORD;
     let settings = getSMTPSettings();
-    expect(settings.auth.pass).toBe('config-password');
+    expect(settings.auth.pass).toBeUndefined();
 
-    // Case 2: Env variable set, should take precedence
+    // Case 2: Env variable set, should use it
     process.env.KDM_SMTP_PASSWORD = 'env-password';
     settings = getSMTPSettings();
     expect(settings.auth.pass).toBe('env-password');
 
-    // Case 3: Env variable set to empty string, should be honored instead of falling back to config password
+    // Case 3: Env variable set to empty string, should be honored
     process.env.KDM_SMTP_PASSWORD = '';
     settings = getSMTPSettings();
     expect(settings.auth.pass).toBe('');

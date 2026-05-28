@@ -9,9 +9,11 @@ import type { LegacyNotificationConfig } from '../config/schema';
 
 export const getConfig = () => getLegacyConfig();
 
+type SensitiveLegacyKey = 'email_password';
+
 const sensitiveLegacyKeys = new Set<keyof LegacyNotificationConfig>(['email_password']);
 
-export const setConfig = <Key extends keyof LegacyNotificationConfig>(
+export const setConfig = <Key extends Exclude<keyof LegacyNotificationConfig, SensitiveLegacyKey>>(
   key: Key,
   value: LegacyNotificationConfig[Key],
 ) => {
@@ -40,10 +42,8 @@ export const getSMTPSettings = () => {
     port: getLegacyValue('email_port') || 587,
     auth: {
       user: getLegacyValue('email_user'),
-      pass:
-        process.env.KDM_SMTP_PASSWORD !== undefined
-          ? process.env.KDM_SMTP_PASSWORD
-          : getLegacyValue('email_password'),
+      // SMTP password must come from KDM_SMTP_PASSWORD env var only.
+      pass: process.env.KDM_SMTP_PASSWORD,
     },
     to: getLegacyValue('email_to'),
   };

@@ -64,4 +64,23 @@ describe('config migration', () => {
       emailPassword: undefined,
     });
   });
+
+  it('mergeLegacyConfig falls back safely with malformed legacy fields', () => {
+    const config = mergeLegacyConfig({
+      notification_service: 42 as never,
+      discord_webhook: 123 as never,
+      email_port: 'not-a-number' as never,
+    });
+
+    expect(config.notifications).toBeDefined();
+    expect(config.notifications!.service).toBe('none');
+    expect(config.notifications!.discordWebhook).toBeUndefined();
+    expect(config.notifications!.emailPort).toBeUndefined();
+  });
+
+  it('mergeLegacyConfig returns undefined notifications when no config sources exist', () => {
+    const config = mergeLegacyConfig({});
+
+    expect(config.notifications).toBeUndefined();
+  });
 });

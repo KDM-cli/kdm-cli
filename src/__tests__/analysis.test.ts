@@ -1,5 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { registry } from '../analyzers';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import {
+  registry,
+  PodAnalyzer,
+  DeploymentAnalyzer,
+  ServiceAnalyzer,
+  PersistentVolumeClaimAnalyzer,
+  NodeAnalyzer,
+} from '../analyzers';
 import { runAnalysis } from '../analysis/analysis';
 import { formatTextOutput, formatJsonOutput } from '../analysis/output';
 import { clearConfig } from '../config/store';
@@ -33,6 +40,14 @@ vi.mock('conf', () => {
 describe('Analysis Engine', () => {
   beforeEach(() => {
     clearConfig();
+    // Ensure no analyzer registrations leak between tests.
+    registry.clear();
+    // Re-register core analyzers after clearing.
+    registry.register(PodAnalyzer);
+    registry.register(DeploymentAnalyzer);
+    registry.register(ServiceAnalyzer);
+    registry.register(PersistentVolumeClaimAnalyzer);
+    registry.register(NodeAnalyzer);
   });
 
   it('runs no-op analyzers and returns OK when no issues are found', async () => {
@@ -85,12 +100,22 @@ describe('Analysis Engine', () => {
     let activeCalls = 0;
     let maxConcurrentCalls = 0;
 
+    // Controlled promise helpers for deterministic concurrency testing
+    const createDeferred = () => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((r) => { resolve = r; });
+      return { promise, resolve };
+    };
+
+    const gate1 = createDeferred();
+    const gate2 = createDeferred();
+
     const delayAnalyzer1 = {
       name: 'Delay1',
       analyze: async () => {
         activeCalls++;
         maxConcurrentCalls = Math.max(maxConcurrentCalls, activeCalls);
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await gate1.promise;
         activeCalls--;
         return [];
       },
@@ -101,7 +126,7 @@ describe('Analysis Engine', () => {
       analyze: async () => {
         activeCalls++;
         maxConcurrentCalls = Math.max(maxConcurrentCalls, activeCalls);
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await gate2.promise;
         activeCalls--;
         return [];
       },
@@ -110,10 +135,16 @@ describe('Analysis Engine', () => {
     registry.register(delayAnalyzer1);
     registry.register(delayAnalyzer2);
 
-    await runAnalysis({
+    const analysisPromise = runAnalysis({
       filters: ['Delay1', 'Delay2'],
       maxConcurrency: 1,
     });
+
+    // Release gates sequentially to let the analysis complete
+    gate1.resolve();
+    gate2.resolve();
+
+    await analysisPromise;
 
     expect(maxConcurrentCalls).toBe(1);
   });

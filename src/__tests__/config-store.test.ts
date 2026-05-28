@@ -18,7 +18,6 @@ vi.mock('conf', () => {
     }),
   };
 
-  (globalThis as any).mockConfigStore = mockConfigStore;
 
   return {
     default: class MockConf {

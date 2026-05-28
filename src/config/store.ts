@@ -66,7 +66,10 @@ export const getNotificationConfig = (): NotificationConfig => ({
 });
 
 export const setNotificationConfig = (notifications: NotificationConfig) =>
-  setConfigValue('notifications', notifications);
+  setConfigValue('notifications', {
+    ...notifications,
+    emailPassword: undefined,
+  });
 
 export const getLegacyConfig = (): LegacyNotificationConfig => {
   const notifications = getNotificationConfig();
@@ -77,7 +80,8 @@ export const getLegacyConfig = (): LegacyNotificationConfig => {
     email_port: notifications.emailPort,
     email_user: notifications.emailUser,
     email_to: notifications.emailTo,
-    email_password: notifications.emailPassword,
+    // SMTP password must come from KDM_SMTP_PASSWORD env var only.
+    email_password: undefined,
     alert_cooldown: notifications.alertCooldown,
   };
 };
