@@ -40,14 +40,29 @@ jobs:
         uses: mikepenz/release-changelog-builder-action@32e3c96f29a6532607f638797455e9e98cfc703d # v4
         with:
           toTag: ${{ github.event.inputs.version || github.ref_name }}
-          configuration: |
+          configurationJson: |
             {
               "categories": [
-                { "title": "### Features", "labels": ["feature", "feat"] },
-                { "title": "### Fixes", "labels": ["fix", "bug"] },
-                { "title": "### Improvements", "labels": ["perf", "refactor"] },
-                { "title": "### Documentation", "labels": ["doc", "docs"] }
-              ]
+                { "title": "### 🚀 Features", "labels": ["feat", "feature"] },
+                { "title": "### 🐛 Fixes", "labels": ["fix", "bug"] },
+                { "title": "### 📚 Documentation", "labels": ["docs", "doc"] },
+                { "title": "### ⚡ Improvements", "labels": ["perf", "refactor"] },
+                { "title": "### 🔧 Chore & CI", "labels": ["chore", "ci", "build", "test", "style", "revert"] }
+              ],
+              "label_extractor": [
+                {
+                  "pattern": "^(feat|fix|docs|doc|perf|refactor|chore|ci|build|test|style|revert)(?:\\([\\w\\-\\.]+\\))?(!)?:",
+                  "on_property": "title",
+                  "target": "$1"
+                }
+              ],
+              "template": "#{{CHANGELOG}}",
+              "pr_template": "- {{TITLE}} by @{{AUTHOR}} in #{{NUMBER}}",
+              "empty_template": "- No changes",
+              "sort": {
+                "order": "DESC",
+                "on_property": "mergedAt"
+              }
             }
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
