@@ -44,7 +44,7 @@
     "commander": "^14.0.3",
     "conf": "^15.1.0",
     "cosmiconfig": "^9.0.0",
-    "dockerode": "^4.0.0",
+    "dockerode": "^5.0.0",
     "ink": "^4.4.1",
     "nodemailer": "^8.0.7",
     "react": "^19.2.6"
