@@ -5,3 +5,4 @@ dist/
 .npmrc
 BLUEPRINT.md
 implemented.md
+coverage/
