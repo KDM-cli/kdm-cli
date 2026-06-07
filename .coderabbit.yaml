@@ -73,7 +73,6 @@ reviews:
       instructions: |
         - Ensure mocks are clean and shared correctly.
         - Verify that tests cover both happy paths and error conditions.
-
-pre_merge_checks:
-  linked_issue_assessment:
-    mode: "warning"
+    - pre_merge_checks:
+        linked_issue_assessment:
+          mode: "warning"
