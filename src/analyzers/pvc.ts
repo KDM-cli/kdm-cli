@@ -10,9 +10,10 @@ const getPvcFailures = (pvc: k8s.V1PersistentVolumeClaim): Failure[] => {
   const phase = pvc.status?.phase;
 
   if (phase === 'Pending') {
-    failures.push({ text: 'PersistentVolumeClaim is Pending' });
     if (!pvc.spec?.storageClassName) {
       failures.push({ text: 'PersistentVolumeClaim is pending without a storage class' });
+    } else {
+      failures.push({ text: 'PersistentVolumeClaim is Pending' });
     }
   }
 
