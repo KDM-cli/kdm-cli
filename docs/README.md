@@ -1,76 +1,15 @@
-# Documentation (Latest: v1.2.3)
+# Documentation (Latest: v2.0.0)
 
-# KDM CLI Documentation - v1.2.3
-Published on: 2026-05-28
-
-## 📦 Uncategorized
-
-- fix: add auth checks and trust workspace in gemini workflows
-   - PR: #48
-- feat: add dependabot configuration for automated updates
-   - PR: #49
-- fix(tests): ensure logger mock isolation in version-check tests
-   - PR: #71
-- chore(deps): bump qs and @kubernetes/client-node
-   - PR: #69
-- chore(deps): bump vite and vitest
-   - PR: #70
-- Potential fix for code scanning alert no. 1: Workflow does not contain permissions
-   - PR: #73
-- chore(deps): bump tar-fs and dockerode
-   - PR: #68
-- chore(ci): optimize gemini workflows and remove automatic triage
-   - PR: #76
-- feat(ci): implement flat-file automated documentation architecture
-   - PR: #77
-- Issue #78 solved
-   - PR: #81
-- Flat line CI/CD integration for Release Documentation
-   - PR: #82
-- chore(deps): bump commander from 12.1.0 to 14.0.3
-   - PR: #61
-- chore(deps-dev): bump typescript from 5.9.3 to 6.0.3
-   - PR: #60
-- chore(deps): bump ws from 8.20.0 to 8.20.1
-   - PR: #83
-- chore(deps): bump react and @types/react
-   - PR: #59
-- chore(deps-dev): bump eslint from 9.39.4 to 10.4.0 in /.github/scripts
-   - PR: #57
-- feat: add live watch mode for `kdm health` Add watch mode to health command
-   - PR: #87
-- fix: resolve package.json path correctly in bundled build
-   - PR: #88
-- test: normalize mocked package path suffixes
-   - PR: #90
-- chore(deps): bump actions/setup-node from 4 to 6
-   - PR: #50
-- chore(deps): bump actions/create-github-app-token from 2.2.1 to 3.2.0
-   - PR: #52
-- chore(deps): bump softprops/action-gh-release from 1 to 3
-   - PR: #53
-- chore(deps): bump actions/github-script from 7 to 9
-   - PR: #54
-- chore(deps): bump actions/checkout from 4 to 6
-   - PR: #55
-- feat: implement optional SMTP password support
-   - PR: #91
-- feat: setup allcontributors configuration, badge, and documentation
-   - PR: #97
-- Allcontibutors
-   - PR: #98
-- docs: add Yuvraj-Sarathe as a contributor for infra
-   - PR: #99
-- License readme update
-   - PR: #101
-- Solves Issue #102
-   - PR: #103
+# KDM CLI Documentation - v2.0.0
+Published on: 2026-06-07
 
 
 
 ---
 ## Version History
 
+* [what-is-kdm](what-is-kdm.md)
+* [v2.0.0](v2.0.0.md)
 * [v1.2.5](v1.2.5.md)
 * [v1.2.3](v1.2.3.md)
 * [v1.2.2](v1.2.2.md)
