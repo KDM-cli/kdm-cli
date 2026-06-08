@@ -24,6 +24,7 @@
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts",
     "dev": "tsup src/index.ts --format esm --watch",
+    "pretest": "npm run build",
     "test": "vitest run --pool=forks",
     "prepublishOnly": "npm run build"
   },
@@ -35,7 +36,7 @@
     "devops"
   ],
   "author": "",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "dependencies": {
     "@kubernetes/client-node": "^1.4.0",
     "@vr_patel/tui": "^1.0.0",
