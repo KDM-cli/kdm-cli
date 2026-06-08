@@ -67,15 +67,12 @@ const parseCustomHeaders = (headers: string[]): Record<string, string> => {
 };
 
 /**
- * Masks secrets/API keys to avoid leaking them in plain text display.
+ * Returns a non-sensitive credential status for display.
  * @param provider The AI provider configuration.
- * @returns Masked representation.
+ * @returns '(set)' when a password exists, otherwise '(not set)'.
  */
 const getMaskedSecret = (provider: AIProviderConfig): string => {
-  const secret = provider.password;
-  if (!secret) return '(not set)';
-  if (secret.length <= 8) return '********';
-  return `${secret.substring(0, 4)}...${secret.substring(secret.length - 4)}`;
+  return provider.password ? '(set)' : '(not set)';
 };
 
 /**
