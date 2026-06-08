@@ -4,7 +4,7 @@
 //
 // Shared constants for bot scripts: maintainer team, labels, issue state.
 
-const { loadAutomationConfig, buildConstants } = require('./config-loader');
+const { loadAutomationConfig, buildConstants } = require('./config-loader.cjs');
 
 /**
  * Parsed and validated automation config loaded from .github/kdm-automation.json.

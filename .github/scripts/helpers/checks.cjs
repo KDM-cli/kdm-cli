@@ -6,7 +6,7 @@
 // merge conflicts, and issue link (with assignment verification).
 // Each function returns a structured result object with no side effects.
 
-const { getLogger } = require('./logger');
+const { getLogger } = require('./logger.cjs');
 
 /**
  * Checks whether a commit message contains a valid DCO sign-off line.

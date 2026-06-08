@@ -251,6 +251,77 @@ function validateRequiredKeys(config, section, requiredKeys, errors) {
  * @param {object} config - The parsed config object.
  * @throws {Error} If any validation rule is violated.
  */
+/**
+ * Validates the prLabels section of the config.
+ * Covers type, size, module, complexity, and modulePaths.
+ * @param {object} config - The parsed config object.
+ * @param {string[]} errors - Mutable array to push error messages into.
+ */
+function validatePrLabels(config, errors) {
+  const pr = config.prLabels;
+  if (!pr || typeof pr !== 'object') return; // optional section
+
+  // Type labels
+  if (pr.type && typeof pr.type === 'object') {
+    for (const key of Object.keys(pr.type)) {
+      if (typeof pr.type[key] !== 'string' || !pr.type[key].startsWith('type: ')) {
+        errors.push(`prLabels.type["${key}"] must be a string starting with "type: "`);
+      }
+    }
+  }
+
+  // Size labels
+  if (pr.size && typeof pr.size === 'object') {
+    const sizeKeys = ['xs', 's', 'm', 'l', 'xl'];
+    for (const key of sizeKeys) {
+      const entry = pr.size[key];
+      if (!entry || typeof entry !== 'object') {
+        errors.push(`prLabels.size["${key}"] must be an object with "label" and "maxChanges"`);
+        continue;
+      }
+      if (typeof entry.label !== 'string' || !entry.label.startsWith('size: ')) {
+        errors.push(`prLabels.size["${key}"].label must be a string starting with "size: "`);
+      }
+    }
+  }
+
+  // Module labels
+  if (pr.module && typeof pr.module === 'object') {
+    for (const key of Object.keys(pr.module)) {
+      if (typeof pr.module[key] !== 'string' || !pr.module[key].startsWith('module: ')) {
+        errors.push(`prLabels.module["${key}"] must be a string starting with "module: "`);
+      }
+    }
+  }
+
+  // Complexity labels
+  if (pr.complexity && typeof pr.complexity === 'object') {
+    const compKeys = ['easy', 'medium', 'complex'];
+    for (const key of compKeys) {
+      const entry = pr.complexity[key];
+      if (!entry || typeof entry !== 'object') {
+        errors.push(`prLabels.complexity["${key}"] must be an object with "label" and "maxScore"`);
+        continue;
+      }
+      if (typeof entry.label !== 'string' || !entry.label.startsWith('review: ')) {
+        errors.push(`prLabels.complexity["${key}"].label must be a string starting with "review: "`);
+      }
+    }
+  }
+
+  // Module paths
+  if (pr.modulePaths && typeof pr.modulePaths === 'object') {
+    for (const [pattern, moduleName] of Object.entries(pr.modulePaths)) {
+      if (typeof pattern !== 'string' || typeof moduleName !== 'string') {
+        errors.push(`prLabels.modulePaths entries must have string keys and string values`);
+      }
+      if (typeof moduleName === 'string' && pr.module && !pr.module[moduleName]) {
+        errors.push(`prLabels.modulePaths["${pattern}"] references unknown module "${moduleName}"`);
+      }
+    }
+  }
+}
+
 function validateConfig(config) {
   const errors = [];
 
@@ -261,6 +332,7 @@ function validateConfig(config) {
   validateAssignmentLimits(config, errors);
   validateRequiredKeys(config, 'documentation', REQUIRED_DOC_KEYS, errors);
   validateRequiredKeys(config, 'community', REQUIRED_COMMUNITY_KEYS, errors);
+  validatePrLabels(config, errors);
 
   if (errors.length > 0) {
     throw new Error(

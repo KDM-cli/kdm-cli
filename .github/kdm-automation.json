@@ -79,5 +79,52 @@
 
   "community": {
     "discordChannel": "https://discord.com/channels/905194001349627914/1337424839761465364"
+  },
+
+  "prLabels": {
+    "type": {
+      "bugFix": "type: bug-fix",
+      "feature": "type: feature",
+      "refactor": "type: refactor"
+    },
+    "size": {
+      "xs": { "label": "size: XS", "maxChanges": 9 },
+      "s": { "label": "size: S", "maxChanges": 49 },
+      "m": { "label": "size: M", "maxChanges": 199 },
+      "l": { "label": "size: L", "maxChanges": 499 },
+      "xl": { "label": "size: XL", "maxChanges": null }
+    },
+    "module": {
+      "config": "module: config",
+      "cli": "module: cli",
+      "ui": "module: ui",
+      "auth": "module: auth",
+      "logger": "module: logger",
+      "test": "module: test",
+      "docs": "module: docs",
+      "docker": "module: docker",
+      "k8s": "module: k8s",
+      "minikube": "module: minikube",
+      "monitor": "module: monitor"
+    },
+    "complexity": {
+      "easy": { "label": "review: easy", "maxScore": 14 },
+      "medium": { "label": "review: medium", "maxScore": 39 },
+      "complex": { "label": "review: complex", "maxScore": null }
+    },
+    "modulePaths": {
+      "src/commands/**": "cli",
+      "src/ui/**": "ui",
+      "src/utils/config.ts": "config",
+      "src/utils/logger.ts": "logger",
+      "src/__tests__/**": "test",
+      "docs/**": "docs",
+      "src/docker/**": "docker",
+      "src/kubernetes/**": "k8s",
+      "src/minikube/**": "minikube",
+      "src/monitor/**": "monitor",
+      "src/utils/version-check.ts": "cli",
+      "src/**": "cli"
+    }
   }
 }
