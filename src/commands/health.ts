@@ -26,8 +26,8 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { getRunningContainers } from '../docker/containers';
-import { getRunningPods } from '../kubernetes/pods';
+import { getRunningContainers, type ContainerData } from '../docker/containers';
+import { getRunningPods, type PodData } from '../kubernetes/pods';
 import { logger } from '../utils/logger';
 import { createSpinner } from '../ui/spinner';
 import { renderTable } from '../ui/table';
@@ -48,8 +48,47 @@ const healthColor = (status: string): string => {
   return chalk.yellow(status);
 };
 
+const getContainerRows = (
+  result: PromiseSettledResult<ContainerData[]>,
+  shouldFetch: boolean
+): (string | number)[][] => {
+  if (!shouldFetch) return [];
+  if (result.status === 'fulfilled') {
+    return result.value.map((container) => [
+      'container',
+      container.name,
+      healthColor(container.state),
+      container.status,
+    ]);
+  }
+  const message = result.reason instanceof Error
+    ? result.reason.message
+    : String(result.reason);
+  logger.warn?.(`Docker unavailable: ${message}`);
+  return [];
+};
+
+const getPodRows = (
+  result: PromiseSettledResult<PodData[]>,
+  shouldFetch: boolean
+): (string | number)[][] => {
+  if (!shouldFetch) return [];
+  if (result.status === 'fulfilled') {
+    return result.value.map((pod) => [
+      'pod',
+      pod.name,
+      healthColor(pod.status),
+      `namespace: ${pod.namespace}, restarts: ${pod.restarts}`,
+    ]);
+  }
+  const message = result.reason instanceof Error
+    ? result.reason.message
+    : String(result.reason);
+  logger.warn?.(`Kubernetes unavailable: ${message}`);
+  return [];
+};
+
 const fetchHealthRows = async (target: string, options?: { forceAlert?: boolean }): Promise<(string | number)[][]> => {
-  const rows: (string | number)[][] = [];
   const shouldFetchContainers = target === 'all' || target === 'containers';
   const shouldFetchPods = target === 'all' || target === 'pods';
 
@@ -58,43 +97,10 @@ const fetchHealthRows = async (target: string, options?: { forceAlert?: boolean 
     shouldFetchPods ? getRunningPods({ forceAlert: options?.forceAlert }) : Promise.resolve([]),
   ]);
 
-  if (shouldFetchContainers) {
-    if (containerResult.status === 'fulfilled') {
-      rows.push(
-        ...containerResult.value.map((container) => [
-          'container',
-          container.name,
-          healthColor(container.state),
-          container.status,
-        ]),
-      );
-    } else {
-      const message = containerResult.reason instanceof Error
-        ? containerResult.reason.message
-        : String(containerResult.reason);
-      logger.warn?.(`Docker unavailable: ${message}`);
-    }
-  }
-
-  if (shouldFetchPods) {
-    if (podResult.status === 'fulfilled') {
-      rows.push(
-        ...podResult.value.map((pod) => [
-          'pod',
-          pod.name,
-          healthColor(pod.status),
-          `namespace: ${pod.namespace}, restarts: ${pod.restarts}`,
-        ]),
-      );
-    } else {
-      const message = podResult.reason instanceof Error
-        ? podResult.reason.message
-        : String(podResult.reason);
-      logger.warn?.(`Kubernetes unavailable: ${message}`);
-    }
-  }
-
-  return rows;
+  return [
+    ...getContainerRows(containerResult, shouldFetchContainers),
+    ...getPodRows(podResult, shouldFetchPods),
+  ];
 };
 
 export const showHealth = async (target: string, options: HealthOptions = {}): Promise<void> => {
