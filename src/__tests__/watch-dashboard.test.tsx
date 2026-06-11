@@ -43,21 +43,10 @@ const getDockerSystemStatsSpy = vi.spyOn(containersMod, 'getDockerSystemStats');
 
 describe('WatchDashboard', () => {
   let mockStdout: MockWritable;
-  let originalCI: string | undefined;
 
   beforeEach(() => {
     mockStdout = new MockWritable();
     vi.clearAllMocks();
-    originalCI = process.env.CI;
-    delete process.env.CI;
-  });
-
-  afterEach(() => {
-    if (originalCI !== undefined) {
-      process.env.CI = originalCI;
-    } else {
-      delete process.env.CI;
-    }
   });
 
   it('renders loading states and then displays pods and containers', async () => {
@@ -78,7 +67,7 @@ describe('WatchDashboard', () => {
       memoryLimit: 8000000000,
     });
 
-    const { unmount } = render(<WatchDashboard />, { stdout: mockStdout as any });
+    const { unmount } = render(<WatchDashboard />, { stdout: mockStdout as any, interactive: true });
 
     await waitForFrameToContain(mockStdout, 'pod-1');
 
@@ -120,7 +109,7 @@ describe('WatchDashboard', () => {
   ])('$description', async ({ mockSetup, errorMsg, outputMsg }) => {
     mockSetup();
 
-    const { unmount } = render(<WatchDashboard />, { stdout: mockStdout as any });
+    const { unmount } = render(<WatchDashboard />, { stdout: mockStdout as any, interactive: true });
 
     await waitForFrameToContain(mockStdout, errorMsg);
 
@@ -144,7 +133,7 @@ describe('WatchDashboard', () => {
       configurable: true,
     });
 
-    const { unmount } = render(<WatchDashboard />, { stdout: mockStdout as any });
+    const { unmount } = render(<WatchDashboard />, { stdout: mockStdout as any, interactive: true });
     
     process.stdout.emit('resize');
 
