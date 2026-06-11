@@ -127,11 +127,13 @@ export const routeRequest = (req: any, res: any, options: ServerOptions): void =
   };
 
   if (method === 'GET' && url in getHandlers) {
-    return getHandlers[url](res);
+    getHandlers[url](res);
+    return;
   }
 
   if (method === 'POST' && url === '/analyze') {
-    return handleAnalyze(req, res, options);
+    handleAnalyze(req, res, options);
+    return;
   }
 
   sendJson(res, 404, { error: 'Not found' });

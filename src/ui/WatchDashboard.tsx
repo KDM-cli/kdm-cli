@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
-import { getRunningPods, PodData } from '../kubernetes/pods';
-import { getRunningContainers, ContainerData } from '../docker/containers';
+import { getRunningPods, PodData, getK8sClusterStats, K8sClusterStats } from '../kubernetes/pods';
+import { getRunningContainers, ContainerData, getDockerSystemStats, DockerSystemStats, formatDockerBytes } from '../docker/containers';
 
 const StatusBadge = ({ status, type }: { status: string, type: 'pod' | 'container' }) => {
   const isRunning = type === 'pod' ? status === 'Running' : status === 'running';
@@ -25,6 +25,8 @@ export const truncateName = (name: string, maxLength: number): string => {
 export const WatchDashboard = () => {
   const [pods, setPods] = useState<PodData[]>([]);
   const [containers, setContainers] = useState<ContainerData[]>([]);
+  const [k8sStats, setK8sStats] = useState<K8sClusterStats | null>(null);
+  const [dockerStats, setDockerStats] = useState<DockerSystemStats | null>(null);
   const [error, setError] = useState<{ type: string; message: string } | null>(null);
   const [columns, setColumns] = useState(process.stdout.columns || 80);
 
@@ -63,9 +65,29 @@ export const WatchDashboard = () => {
       }
     };
 
+    const fetchK8sStats = async () => {
+      try {
+        const stats = await getK8sClusterStats();
+        setK8sStats(stats);
+      } catch (err) {
+        setK8sStats(null);
+      }
+    };
+
+    const fetchDockerStats = async () => {
+      try {
+        const stats = await getDockerSystemStats();
+        setDockerStats(stats);
+      } catch (err) {
+        setDockerStats(null);
+      }
+    };
+
     const fetchData = () => {
       fetchPods();
       fetchContainers();
+      fetchK8sStats();
+      fetchDockerStats();
     };
 
     fetchData();
@@ -101,6 +123,13 @@ export const WatchDashboard = () => {
           <Box borderStyle="single" borderColor="blue" paddingX={1} marginBottom={1}>
             <Text color="blue" bold>Kubernetes Pods ({pods.length})</Text>
           </Box>
+          <Box marginBottom={1} paddingX={1}>
+            <Text dimColor>
+              {k8sStats 
+                ? `${k8sStats.source === 'requests' ? 'k8s Requests' : 'k8s Stats'}: CPU: ${k8sStats.cpu} | Mem: ${k8sStats.memory}`
+                : 'k8s Stats: CPU: N/A | Mem: N/A'}
+            </Text>
+          </Box>
           {pods.length === 0 && !error?.type.includes('k8s') ? (
             <Text color="gray">  No pods found.</Text>
           ) : (
@@ -116,6 +145,13 @@ export const WatchDashboard = () => {
         <Box flexDirection="column" width={columnWidth}>
           <Box borderStyle="single" borderColor="blue" paddingX={1} marginBottom={1}>
             <Text color="blue" bold>Docker Containers ({containers.length})</Text>
+          </Box>
+          <Box marginBottom={1} paddingX={1}>
+            <Text dimColor>
+              {dockerStats 
+                ? `Docker Stats: CPU: ${dockerStats.cpu.toFixed(1)}% | Mem: ${formatDockerBytes(dockerStats.memoryUsage)} / ${formatDockerBytes(dockerStats.memoryLimit)}`
+                : 'Docker Stats: CPU: N/A | Mem: N/A'}
+            </Text>
           </Box>
           {containers.length === 0 && !error?.type.includes('docker') ? (
             <Text color="gray">  No containers found.</Text>
