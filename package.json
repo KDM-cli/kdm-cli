@@ -51,7 +51,7 @@
     "react": "^19.2.7"
   },
   "devDependencies": {
-    "@types/dockerode": "^3.3.26",
+    "@types/dockerode": "^4.0.1",
     "@types/node": "^25.9.2",
     "@types/nodemailer": "^8.0.0",
     "@types/react": "^19.2.17",
