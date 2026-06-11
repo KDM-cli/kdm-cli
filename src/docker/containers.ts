@@ -131,7 +131,14 @@ const fetchContainerStats = async (docker: any, containerId: string) => {
       memoryUsage: calculateMemoryUsage(stats.memory_stats),
       limit: stats.memory_stats?.limit || 0,
     };
-  } catch {
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    const msg = `Failed to fetch stats for container ${containerId}: ${errMsg}`;
+    if (typeof (logger as any).debug === 'function') {
+      (logger as any).debug(msg);
+    } else {
+      console.debug(msg);
+    }
     return { cpuPercent: 0, memoryUsage: 0, limit: 0 };
   }
 };
@@ -144,9 +151,13 @@ export const getDockerSystemStats = async (): Promise<DockerSystemStats | null> 
   const docker = getDockerClient();
   try {
     const containers = await docker.listContainers({ filters: { status: ['running'] } });
+    
+    // Always call docker.info() to obtain MemTotal and use that as memoryLimit
+    const info = await docker.info().catch(() => ({ MemTotal: 0 }));
+    const memoryLimit = info.MemTotal || 0;
+
     if (containers.length === 0) {
-      const info = await docker.info().catch(() => ({ MemTotal: 0 }));
-      return { cpu: 0, memoryUsage: 0, memoryLimit: info.MemTotal || 0 };
+      return { cpu: 0, memoryUsage: 0, memoryLimit };
     }
 
     const statsPromises = containers.map(c => fetchContainerStats(docker, c.Id));
@@ -154,25 +165,16 @@ export const getDockerSystemStats = async (): Promise<DockerSystemStats | null> 
     
     let totalCpu = 0;
     let totalMemory = 0;
-    let maxLimit = 0;
     
     for (const res of results) {
       totalCpu += res.cpuPercent;
       totalMemory += res.memoryUsage;
-      if (res.limit > maxLimit) {
-        maxLimit = res.limit;
-      }
-    }
-
-    if (maxLimit === 0) {
-      const info = await docker.info().catch(() => ({ MemTotal: 0 }));
-      maxLimit = info.MemTotal || 0;
     }
 
     return {
       cpu: totalCpu,
       memoryUsage: totalMemory,
-      memoryLimit: maxLimit,
+      memoryLimit,
     };
   } catch (error) {
     return null;

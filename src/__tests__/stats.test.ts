@@ -77,7 +77,7 @@ describe('Kubernetes resource quantity parsing', () => {
     });
 
     it('hits the default case for other suffixes', () => {
-      expect(parseK8sCpuQuantity('2x')).toBe(2000);
+      expect(parseK8sCpuQuantity('2x')).toBe(0);
     });
   });
 
@@ -102,6 +102,7 @@ describe('Kubernetes resource quantity parsing', () => {
       expect(parseK8sMemoryQuantity('')).toBe(0);
       expect(parseK8sMemoryQuantity('abc')).toBe(0);
       expect(parseK8sMemoryQuantity('512')).toBe(512);
+      expect(parseK8sMemoryQuantity('2x')).toBe(0);
     });
   });
 });
@@ -182,7 +183,7 @@ describe('getDockerSystemStats', () => {
     // Cont 2 Memory: 2000000 - 200000 = 1800000
     // Total Memory: 2700000
     expect(stats?.memoryUsage).toBe(2700000);
-    expect(stats?.memoryLimit).toBe(8000000);
+    expect(stats?.memoryLimit).toBe(8000000000);
   });
 
   it('falls back to docker.info() memory limit if limit from stats is 0', async () => {
@@ -352,6 +353,9 @@ describe('getK8sClusterStats', () => {
           spec: {
             containers: [
               { resources: { requests: { cpu: '100m', memory: '256Mi' } } },
+            ],
+            initContainers: [
+              { resources: { requests: { cpu: '500m', memory: '1Gi' } } },
             ],
           },
         },

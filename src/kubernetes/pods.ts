@@ -92,7 +92,7 @@ export function parseK8sCpuQuantity(q: string | number): number {
     case '':
       return val * 1000; // cores to millicores
     default:
-      return val * 1000;
+      return 0;
   }
 }
 
@@ -108,6 +108,10 @@ export function parseK8sMemoryQuantity(q: string | number): number {
   if (!match) return 0;
   const val = parseFloat(match[1]);
   const suffix = match[2];
+
+  if (suffix === '') {
+    return val;
+  }
   
   const binaryPower: Record<string, number> = {
     Ki: 1024,
@@ -125,13 +129,13 @@ export function parseK8sMemoryQuantity(q: string | number): number {
     P: 1000 * 1000 * 1000 * 1000 * 1000,
   };
 
-  if (binaryPower[suffix]) {
+  if (suffix in binaryPower) {
     return val * binaryPower[suffix];
   }
-  if (decimalPower[suffix]) {
+  if (suffix in decimalPower) {
     return val * decimalPower[suffix];
   }
-  return val;
+  return 0;
 }
 
 /**
@@ -212,9 +216,8 @@ const sumPodRequests = (pod: any) => {
   let cpu = 0;
   let memory = 0;
   const containers = pod.spec?.containers || [];
-  const initContainers = pod.spec?.initContainers || [];
   
-  for (const container of [...containers, ...initContainers]) {
+  for (const container of containers) {
     const req = getContainerRequests(container);
     cpu += req.cpu;
     memory += req.memory;
