@@ -70,13 +70,13 @@ const sendEmailNotification = async (alert: Alert) => {
   }
 };
 
-export const triggerAlert = async (alert: Alert) => {
+export const triggerAlert = async (alert: Alert, options?: { force?: boolean }) => {
   const now = Date.now();
   const { alert_cooldown = 300 } = getConfig(); // Default 5 minutes
   const cooldownMs = alert_cooldown * 1000;
 
   const lastAlert = cooldownTracker.get(alert.id);
-  if (lastAlert && (now - lastAlert) < cooldownMs) {
+  if (!options?.force && lastAlert && (now - lastAlert) < cooldownMs) {
     return; // Still in cooldown
   }
 

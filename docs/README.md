@@ -1,7 +1,7 @@
-# Documentation (Latest: v2.0.0)
+# Documentation (Latest: v2.0.1)
 
-# KDM CLI Documentation - v2.0.0
-Published on: 2026-06-07
+# KDM CLI Documentation - v2.0.1
+Published on: 2026-06-11
 
 
 
@@ -9,6 +9,7 @@ Published on: 2026-06-07
 ## Version History
 
 * [what-is-kdm](what-is-kdm.md)
+* [v2.0.1](v2.0.1.md)
 * [v2.0.0](v2.0.0.md)
 * [v1.2.5](v1.2.5.md)
 * [v1.2.3](v1.2.3.md)

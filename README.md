@@ -17,7 +17,7 @@
 
 [![npm version](https://img.shields.io/npm/v/kdm-cli?style=flat-square&logo=npm&color=cb3837)](https://www.npmjs.com/package/kdm-cli)
 [![npm downloads](https://img.shields.io/npm/dm/kdm-cli?style=flat-square&logo=npm&color=cb3837)](https://www.npmjs.com/package/kdm-cli)
-[![License](https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square)](LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 [![All Contributors](https://img.shields.io/github/all-contributors/KDM-cli/kdm-cli?color=ee8449&style=flat-square)](#contributors)
 [![GitHub stars](https://img.shields.io/github/stars/KDM-cli/kdm-cli?style=flat-square&logo=github)](https://github.com/KDM-cli/kdm-cli)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-339933?style=flat-square&logo=node.js)](https://nodejs.org)

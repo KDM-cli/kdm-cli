@@ -85,6 +85,8 @@ describe('health command', () => {
 
     await program.parseAsync(['node', 'test', 'health', 'all']);
 
+    expect(getRunningContainers).toHaveBeenCalledWith({ forceAlert: true });
+    expect(getRunningPods).toHaveBeenCalledWith({ forceAlert: true });
     expect(logger.info).toHaveBeenCalledWith('Showing health for all...');
     expect(tableUtils.renderTable).toHaveBeenCalledWith(
       expect.objectContaining({

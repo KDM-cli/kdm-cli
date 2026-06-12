@@ -153,7 +153,7 @@ describe('auth command & AI clients', () => {
     ]);
     await program.parseAsync(['node', 'test', 'auth', 'list']);
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('openai'));
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('supe...ikey'));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('(set)'));
   });
 
   it('shows empty list message', async () => {
