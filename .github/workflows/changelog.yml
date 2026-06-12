@@ -145,7 +145,7 @@ jobs:
           shopt -s nullglob
           
           # Ingest all docs/*.md files, filter out README.md, version-sort in reverse chronological order
-          mapfile -t version_files < <(printf '%s\n' docs/*.md | grep -v '^docs/README\.md$' | sort -V -r)
+          mapfile -t version_files < <(printf '%s\n' docs/*.md | grep -v -E '^docs/(README|what-is-kdm|UPGRADE-v2)\.md$' | sort -V -r)
           
           # 5. Loop through the array buffer safely without breaking on empty sets or spaces
           for file in "${version_files[@]}"; do
@@ -163,7 +163,6 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
-          git checkout ${{ github.event.repository.default_branch }}
           git checkout ${{ github.event.repository.default_branch }}
           
           # Retry fast-forward pull up to 3 times with exponential backoff
