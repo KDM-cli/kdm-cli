@@ -81,6 +81,7 @@ export function parseK8sCpuQuantity(q: string | number): number {
   const match = q.trim().match(/^([0-9.]+)([a-zA-Z]*)$/);
   if (!match) return 0;
   const val = parseFloat(match[1]);
+  if (Number.isNaN(val)) return 0;
   const suffix = match[2];
   switch (suffix) {
     case 'n':
