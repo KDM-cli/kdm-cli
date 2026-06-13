@@ -9,7 +9,7 @@
 </pre>
 </div>
 
-<div align="center">trial
+<div align="center">
 
 # KDM — Kubernetes + Docker Monitoring CLI
 
