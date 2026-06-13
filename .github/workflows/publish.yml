@@ -24,6 +24,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
         with:
+          token: ${{ secrets.GH_PAT }}
           fetch-depth: 0
 
       - name: Setup Node.cjs
