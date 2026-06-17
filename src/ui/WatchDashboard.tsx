@@ -45,54 +45,63 @@ export const WatchDashboard = () => {
   }, []);
 
   useEffect(() => {
-    const fetchPods = async () => {
-      try {
-        const p = await getRunningPods();
-        setPods(p);
+    let isMounted = true;
+    let isFetching = false;
+
+    const fetchData = async () => {
+      if (isFetching) return;
+      isFetching = true;
+
+      const [podsResult, containersResult, k8sStatsResult, dockerStatsResult] = await Promise.allSettled([
+        getRunningPods(),
+        getRunningContainers(),
+        getK8sClusterStats(),
+        getDockerSystemStats()
+      ]);
+
+      if (!isMounted) {
+        isFetching = false;
+        return;
+      }
+
+      if (podsResult.status === 'fulfilled') {
+        setPods(podsResult.value);
         setError(prev => prev?.type === 'k8s' ? null : prev);
-      } catch (err) {
-        setError({ type: 'k8s', message: (err as Error).message });
+      } else {
+        setError({ type: 'k8s', message: (podsResult.reason as Error).message });
       }
-    };
 
-    const fetchContainers = async () => {
-      try {
-        const c = await getRunningContainers();
-        setContainers(c);
+      if (containersResult.status === 'fulfilled') {
+        setContainers(containersResult.value);
         setError(prev => prev?.type === 'docker' ? null : prev);
-      } catch (err) {
-        setError({ type: 'docker', message: (err as Error).message });
+      } else {
+        setError({ type: 'docker', message: (containersResult.reason as Error).message });
       }
-    };
 
-    const fetchK8sStats = async () => {
-      try {
-        const stats = await getK8sClusterStats();
-        setK8sStats(stats);
-      } catch (err) {
+      if (k8sStatsResult.status === 'fulfilled') {
+        setK8sStats(k8sStatsResult.value);
+      } else {
         setK8sStats(null);
       }
-    };
 
-    const fetchDockerStats = async () => {
-      try {
-        const stats = await getDockerSystemStats();
-        setDockerStats(stats);
-      } catch (err) {
+      if (dockerStatsResult.status === 'fulfilled') {
+        setDockerStats(dockerStatsResult.value);
+      } else {
         setDockerStats(null);
       }
+
+      isFetching = false;
     };
 
-    const fetchData = () => {
-      fetchPods();
-      fetchContainers();
-      fetchK8sStats();
-      fetchDockerStats();
-    };
+    void fetchData();
+    const interval = setInterval(() => {
+      void fetchData();
+    }, 3000);
 
-    fetchData();
-    const interval = setInterval(fetchData, 3000);
-    return () => clearInterval(interval);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   const isCompact = columns < 80;
