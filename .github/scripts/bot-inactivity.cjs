@@ -26,8 +26,8 @@
 //   - Issues linked to open PRs with recent activity are not flagged.
 //   - When a PR is closed for inactivity, its linked issues are also reset.
 
-const { createLogger } = require('./helpers/logger');
-const { LABELS } = require('./helpers/constants');
+const { createLogger } = require('./helpers/logger.cjs');
+const { LABELS } = require('./helpers/constants.cjs');
 const {
   hasLabel,
   removeLabel,
@@ -39,14 +39,8 @@ const {
   fetchIssueEvents,
   fetchPRCommits,
   closeItem,
-} = require('./helpers/api');
-const { parseIssueNumbers } = require('./helpers/checks');
-
-// ─── Constants ───────────────────────────────────────────────────────────────
-
-const WARN_AFTER_MS           = 5 * 24 * 60 * 60 * 1000;  // 5 days
-const CLOSE_AFTER_MS          = 7 * 24 * 60 * 60 * 1000;  // 7 days
-const BLOCKED_CHECKIN_AFTER_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+} = require('./helpers/api.cjs');
+const { parseIssueNumbers } = require('./helpers/checks.cjs');
 
 const {
   WARN_MARKER,
@@ -55,7 +49,7 @@ const {
   buildClosureComment,
   buildLinkedPRClosedComment,
   buildBlockedCheckinComment,
-} = require('./bot-inactivity-comments');
+} = require('./bot-inactivity-comments.cjs');
 
 // ─── Context builder ─────────────────────────────────────────────────────────
 
