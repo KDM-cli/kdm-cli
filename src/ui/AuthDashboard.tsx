@@ -168,18 +168,19 @@ const ProviderList = ({
   );
 };
 
-interface AddWizardProps {
-  wizardStep: number;
-  wizardValues: {
-    provider: string;
-    model: string;
-    apiKey: string;
-    temp: string;
-  };
+interface WizardStep {
+  label: string;
+  value: string;
+}
+
+interface WizardFormProps {
+  title: string;
+  steps: WizardStep[];
+  activeStep: number;
   errorMsg: string | null;
 }
 
-const AddWizard = ({ wizardStep, wizardValues, errorMsg }: AddWizardProps) => {
+const WizardForm = ({ title, steps, activeStep, errorMsg }: WizardFormProps) => {
   return (
     <Box
       borderStyle="round"
@@ -190,108 +191,21 @@ const AddWizard = ({ wizardStep, wizardValues, errorMsg }: AddWizardProps) => {
     >
       <Box marginBottom={1}>
         <Text bold color="yellow">
-          ┌─ Add AI Provider ────────────────────────────────────────┐
+          ┌─ {title} ────────────────────────────────────────┐
         </Text>
       </Box>
 
-      <Box flexDirection="row">
-        <Text color={wizardStep === 0 ? 'cyan' : undefined} bold={wizardStep === 0}>
-          {wizardStep === 0 ? '> ' : '  '}Step 1/4 — Provider:  
-        </Text>
-        <Text>{wizardValues.provider}</Text>
-      </Box>
-
-      <Box flexDirection="row">
-        <Text color={wizardStep === 1 ? 'cyan' : undefined} bold={wizardStep === 1}>
-          {wizardStep === 1 ? '> ' : '  '}Step 2/4 — Model:     
-        </Text>
-        <Text>{wizardValues.model}</Text>
-      </Box>
-
-      <Box flexDirection="row">
-        <Text color={wizardStep === 2 ? 'cyan' : undefined} bold={wizardStep === 2}>
-          {wizardStep === 2 ? '> ' : '  '}Step 3/4 — API Key:   
-        </Text>
-        <Text>{'*'.repeat(wizardValues.apiKey.length)}</Text>
-      </Box>
-
-      <Box flexDirection="row" marginBottom={1}>
-        <Text color={wizardStep === 3 ? 'cyan' : undefined} bold={wizardStep === 3}>
-          {wizardStep === 3 ? '> ' : '  '}Step 4/4 — Temp:      
-        </Text>
-        <Text>{wizardValues.temp}</Text>
-      </Box>
-
-      {errorMsg && (
-        <Box marginBottom={1}>
-          <Text color="red" bold>
-            {errorMsg}
-          </Text>
-        </Box>
-      )}
-
-      <Text dimColor>
-        [ENTER] Next/Submit   [ESC] Cancel   [↑/↓] Change fields
-      </Text>
-    </Box>
-  );
-};
-
-interface EditWizardProps {
-  selectedProviderName: string;
-  wizardStep: number;
-  wizardValues: {
-    model: string;
-    apiKey: string;
-    temp: string;
-  };
-  errorMsg: string | null;
-}
-
-const EditWizard = ({
-  selectedProviderName,
-  wizardStep,
-  wizardValues,
-  errorMsg,
-}: EditWizardProps) => {
-  return (
-    <Box
-      borderStyle="round"
-      borderColor="yellow"
-      flexDirection="column"
-      padding={1}
-      marginTop={1}
-    >
-      <Box marginBottom={1}>
-        <Text bold color="yellow">
-          ┌─ Edit AI Provider: {selectedProviderName} ────────────────┐
-        </Text>
-      </Box>
-
-      <Box flexDirection="row">
-        <Text color={wizardStep === 0 ? 'cyan' : undefined} bold={wizardStep === 0}>
-          {wizardStep === 0 ? '> ' : '  '}Step 1/3 — Model:     
-        </Text>
-        <Text>{wizardValues.model}</Text>
-      </Box>
-
-      <Box flexDirection="row">
-        <Text color={wizardStep === 1 ? 'cyan' : undefined} bold={wizardStep === 1}>
-          {wizardStep === 1 ? '> ' : '  '}Step 2/3 — API Key:   
-        </Text>
-        <Text>
-          {wizardValues.apiKey
-            ? '*'.repeat(wizardValues.apiKey.length)
-            : '(leave empty to keep existing)'}
-        </Text>
-      </Box>
-
-      <Box flexDirection="row" marginBottom={1}>
-        <Text color={wizardStep === 2 ? 'cyan' : undefined} bold={wizardStep === 2}>
-          {wizardStep === 2 ? '> ' : '  '}Step 3/3 — Temp:      
-        </Text>
-        <Text>{wizardValues.temp}</Text>
-      </Box>
+      {steps.map((step, idx) => {
+        const isActive = idx === activeStep;
+        return (
+          <Box key={idx} flexDirection="row" marginBottom={idx === steps.length - 1 ? 1 : 0}>
+            <Text color={isActive ? 'cyan' : undefined} bold={isActive}>
+              {isActive ? '> ' : '  '}Step {idx + 1}/{steps.length} — {step.label}
+            </Text>
+            <Text>{step.value}</Text>
+          </Box>
+        );
+      })}
 
       {errorMsg && (
         <Box marginBottom={1}>
@@ -378,221 +292,252 @@ export const AuthDashboard = () => {
     setSuccessMsg(null);
   };
 
-  // Mode-specific input handlers to reduce nested complexity
+  const updateWizardField = (
+    fields: (keyof typeof wizardValues)[],
+    activeStep: number,
+    char: string,
+    isDelete: boolean
+  ) => {
+    const field = fields[activeStep];
+    setWizardValues((prev) => {
+      const currentVal = prev[field];
+      const nextVal = isDelete ? currentVal.slice(0, -1) : currentVal + char;
+      return { ...prev, [field]: nextVal };
+    });
+  };
 
-  const handleListInput = (input: string, key: any) => {
-    if (key.upArrow) {
-      setSelectedIndex((prev) => (prev > 0 ? prev - 1 : VALID_BACKENDS.length - 1));
-    } else if (key.downArrow) {
-      setSelectedIndex((prev) => (prev < VALID_BACKENDS.length - 1 ? prev + 1 : 0));
-    } else if (input === 'a' || input === 'A') {
-      const defaultModel = DEFAULT_MODELS[selectedBackend] || 'default';
-      setWizardValues({
-        provider: selectedBackend,
-        model: defaultModel,
-        apiKey: '',
-        temp: '0.7',
-      });
-      setWizardStep(0);
-      setMode('add');
-    } else if (input === 'e' || input === 'E') {
-      if (!selectedConfig) {
-        setErrorMsg(`Provider "${selectedProviderName}" is not configured. Press 'A' to add.`);
-        return;
-      }
-      setWizardValues({
-        provider: selectedBackend,
-        model: selectedConfig.model || '',
-        apiKey: '',
-        temp: selectedConfig.temperature !== undefined ? String(selectedConfig.temperature) : '0.7',
-      });
-      setWizardStep(0);
-      setMode('edit');
-    } else if (input === 'd' || input === 'D') {
-      if (!selectedConfig) {
-        setErrorMsg(`Cannot set unconfigured provider "${selectedProviderName}" as default.`);
-        return;
-      }
-      const newConfig = { ...config, defaultProvider: selectedBackend };
-      setAIConfig(newConfig);
-      setConfig(newConfig);
-      setSuccessMsg(`Successfully set default AI provider to "${selectedProviderName}".`);
-    } else if (input === 'r' || input === 'R') {
-      if (!selectedConfig) {
-        setErrorMsg(`Provider "${selectedProviderName}" is not configured.`);
-        return;
-      }
-      setMode('remove-confirm');
-    } else if (input === 'q' || input === 'Q') {
-      process.exit(0);
+  const handleTyping = ({
+    input,
+    key,
+    fields,
+    activeStep,
+  }: {
+    input: string;
+    key: any;
+    fields: (keyof typeof wizardValues)[];
+    activeStep: number;
+  }) => {
+    if (key.backspace || key.delete) {
+      updateWizardField(fields, activeStep, '', true);
+    } else if (input && input.charCodeAt(0) >= 32) {
+      updateWizardField(fields, activeStep, input, false);
     }
   };
 
-  const handleAddInput = (input: string, key: any) => {
-    if (key.escape) {
-      setMode('list');
-      return;
-    }
-
-    const stepsCount = 4;
-
-    if (key.upArrow) {
-      setWizardStep((prev) => Math.max(0, prev - 1));
-      return;
-    }
-    if (key.downArrow) {
-      setWizardStep((prev) => Math.min(stepsCount - 1, prev + 1));
-      return;
-    }
-
-    if (key.return) {
-      if (wizardStep < stepsCount - 1) {
-        if (wizardStep === 0) {
-          const prov = wizardValues.provider.trim().toLowerCase();
-          if (!VALID_BACKENDS.includes(prov)) {
-            setErrorMsg(`Unsupported provider "${wizardValues.provider}".`);
-            return;
-          }
-          setWizardValues((prev) => ({
-            ...prev,
-            model: DEFAULT_MODELS[prov] || prev.model || 'default',
-          }));
-        }
-        setWizardStep((prev) => prev + 1);
-      } else {
+  const handleAddReturn = () => {
+    if (wizardStep < 3) {
+      if (wizardStep === 0) {
         const prov = wizardValues.provider.trim().toLowerCase();
         if (!VALID_BACKENDS.includes(prov)) {
           setErrorMsg(`Unsupported provider "${wizardValues.provider}".`);
           return;
         }
-
-        if (currentProviders.some((p) => p.name.toLowerCase() === prov)) {
-          setErrorMsg(`Provider "${prov}" is already configured. Use edit (E) instead.`);
-          return;
-        }
-
-        const tempFloat = parseTemperature(wizardValues.temp);
-        if (tempFloat === null) {
-          setErrorMsg('Temperature must be a valid number.');
-          return;
-        }
-
-        const newProvider: AIProviderConfig = {
-          name: prov,
-          model: wizardValues.model.trim() || DEFAULT_MODELS[prov] || 'default',
-          password: wizardValues.apiKey.trim() || undefined,
-          temperature: tempFloat,
-        };
-
-        const newProviders = [...currentProviders, newProvider];
-        const newConfig = {
-          providers: newProviders,
-          defaultProvider: config.defaultProvider || prov,
-        };
-
-        setAIConfig(newConfig);
-        setConfig(newConfig);
-        setSuccessMsg(`Successfully added AI provider "${PROVIDER_NAMES[prov] || prov}".`);
-        setMode('list');
+        setWizardValues((prev) => ({
+          ...prev,
+          model: DEFAULT_MODELS[prov] || prev.model || 'default',
+        }));
       }
+      setWizardStep((prev) => prev + 1);
       return;
     }
 
-    const updateValue = (char: string, isDelete = false) => {
-      setWizardValues((prev) => {
-        let field: keyof typeof prev = 'provider';
-        if (wizardStep === 0) field = 'provider';
-        else if (wizardStep === 1) field = 'model';
-        else if (wizardStep === 2) field = 'apiKey';
-        else if (wizardStep === 3) field = 'temp';
+    const prov = wizardValues.provider.trim().toLowerCase();
+    if (!VALID_BACKENDS.includes(prov)) {
+      setErrorMsg(`Unsupported provider "${wizardValues.provider}".`);
+      return;
+    }
 
-        const currentVal = prev[field];
-        const nextVal = isDelete ? currentVal.slice(0, -1) : currentVal + char;
-        return { ...prev, [field]: nextVal };
-      });
+    if (currentProviders.some((p) => p.name.toLowerCase() === prov)) {
+      setErrorMsg(`Provider "${prov}" is already configured. Use edit (E) instead.`);
+      return;
+    }
+
+    const tempFloat = parseTemperature(wizardValues.temp);
+    if (tempFloat === null) {
+      setErrorMsg('Temperature must be a valid number.');
+      return;
+    }
+
+    const newProvider: AIProviderConfig = {
+      name: prov,
+      model: wizardValues.model.trim() || DEFAULT_MODELS[prov] || 'default',
+      password: wizardValues.apiKey.trim() || undefined,
+      temperature: tempFloat,
     };
 
-    if (key.backspace || key.delete) {
-      updateValue('', true);
-    } else if (input && input.charCodeAt(0) >= 32) {
-      updateValue(input);
+    const newProviders = [...currentProviders, newProvider];
+    const newConfig = {
+      providers: newProviders,
+      defaultProvider: config.defaultProvider || prov,
+    };
+
+    setAIConfig(newConfig);
+    setConfig(newConfig);
+    setSuccessMsg(`Successfully added AI provider "${PROVIDER_NAMES[prov] || prov}".`);
+    setMode('list');
+  };
+
+  const handleEditReturn = () => {
+    if (wizardStep < 2) {
+      setWizardStep((prev) => prev + 1);
+      return;
+    }
+
+    const tempFloat = parseTemperature(wizardValues.temp);
+    if (tempFloat === null) {
+      setErrorMsg('Temperature must be a valid number.');
+      return;
+    }
+
+    const updatedProviders = currentProviders.map((p) => {
+      if (p.name.toLowerCase() === selectedBackend.toLowerCase()) {
+        return {
+          ...p,
+          model: wizardValues.model.trim() || p.model,
+          password: wizardValues.apiKey.trim() ? wizardValues.apiKey.trim() : p.password,
+          temperature: tempFloat,
+        };
+      }
+      return p;
+    });
+
+    const newConfig = {
+      ...config,
+      providers: updatedProviders,
+    };
+
+    setAIConfig(newConfig);
+    setConfig(newConfig);
+    setSuccessMsg(`Successfully updated AI provider "${selectedProviderName}".`);
+    setMode('list');
+  };
+
+  const selectAddProvider = () => {
+    const defaultModel = DEFAULT_MODELS[selectedBackend] || 'default';
+    setWizardValues({
+      provider: selectedBackend,
+      model: defaultModel,
+      apiKey: '',
+      temp: '0.7',
+    });
+    setWizardStep(0);
+    setMode('add');
+  };
+
+  const selectEditProvider = () => {
+    if (!selectedConfig) {
+      setErrorMsg(`Provider "${selectedProviderName}" is not configured. Press 'A' to add.`);
+      return;
+    }
+    setWizardValues({
+      provider: selectedBackend,
+      model: selectedConfig.model || '',
+      apiKey: '',
+      temp: selectedConfig.temperature !== undefined ? String(selectedConfig.temperature) : '0.7',
+    });
+    setWizardStep(0);
+    setMode('edit');
+  };
+
+  const selectSetDefaultProvider = () => {
+    if (!selectedConfig) {
+      setErrorMsg(`Cannot set unconfigured provider "${selectedProviderName}" as default.`);
+      return;
+    }
+    const newConfig = { ...config, defaultProvider: selectedBackend };
+    setAIConfig(newConfig);
+    setConfig(newConfig);
+    setSuccessMsg(`Successfully set default AI provider to "${selectedProviderName}".`);
+  };
+
+  const selectRemoveProvider = () => {
+    if (!selectedConfig) {
+      setErrorMsg(`Provider "${selectedProviderName}" is not configured.`);
+      return;
+    }
+    setMode('remove-confirm');
+  };
+
+  const handleListInput = ({ input, key }: { input: string; key: any }) => {
+    const lowerInput = input.toLowerCase();
+    if (key.upArrow) {
+      setSelectedIndex((prev) => (prev > 0 ? prev - 1 : VALID_BACKENDS.length - 1));
+      return;
+    }
+    if (key.downArrow) {
+      setSelectedIndex((prev) => (prev < VALID_BACKENDS.length - 1 ? prev + 1 : 0));
+      return;
+    }
+    if (lowerInput === 'a') {
+      selectAddProvider();
+      return;
+    }
+    if (lowerInput === 'e') {
+      selectEditProvider();
+      return;
+    }
+    if (lowerInput === 'd') {
+      selectSetDefaultProvider();
+      return;
+    }
+    if (lowerInput === 'r') {
+      selectRemoveProvider();
+      return;
+    }
+    if (lowerInput === 'q') {
+      process.exit(0);
     }
   };
 
-  const handleEditInput = (input: string, key: any) => {
+  const handleAddInput = ({ input, key }: { input: string; key: any }) => {
     if (key.escape) {
       setMode('list');
       return;
     }
-
-    const stepsCount = 3;
 
     if (key.upArrow) {
       setWizardStep((prev) => Math.max(0, prev - 1));
       return;
     }
     if (key.downArrow) {
-      setWizardStep((prev) => Math.min(stepsCount - 1, prev + 1));
+      setWizardStep((prev) => Math.min(3, prev + 1));
       return;
     }
 
     if (key.return) {
-      if (wizardStep < stepsCount - 1) {
-        setWizardStep((prev) => prev + 1);
-      } else {
-        const tempFloat = parseTemperature(wizardValues.temp);
-        if (tempFloat === null) {
-          setErrorMsg('Temperature must be a valid number.');
-          return;
-        }
-
-        const updatedProviders = currentProviders.map((p) => {
-          if (p.name.toLowerCase() === selectedBackend.toLowerCase()) {
-            return {
-              ...p,
-              model: wizardValues.model.trim() || p.model,
-              password: wizardValues.apiKey.trim() ? wizardValues.apiKey.trim() : p.password,
-              temperature: tempFloat,
-            };
-          }
-          return p;
-        });
-
-        const newConfig = {
-          ...config,
-          providers: updatedProviders,
-        };
-
-        setAIConfig(newConfig);
-        setConfig(newConfig);
-        setSuccessMsg(`Successfully updated AI provider "${selectedProviderName}".`);
-        setMode('list');
-      }
+      handleAddReturn();
       return;
     }
 
-    const updateValue = (char: string, isDelete = false) => {
-      setWizardValues((prev) => {
-        let field: keyof typeof prev = 'model';
-        if (wizardStep === 0) field = 'model';
-        else if (wizardStep === 1) field = 'apiKey';
-        else if (wizardStep === 2) field = 'temp';
-
-        const currentVal = prev[field];
-        const nextVal = isDelete ? currentVal.slice(0, -1) : currentVal + char;
-        return { ...prev, [field]: nextVal };
-      });
-    };
-
-    if (key.backspace || key.delete) {
-      updateValue('', true);
-    } else if (input && input.charCodeAt(0) >= 32) {
-      updateValue(input);
-    }
+    handleTyping({ input, key, fields: ['provider', 'model', 'apiKey', 'temp'], activeStep: wizardStep });
   };
 
-  const handleRemoveConfirmInput = (input: string, key: any) => {
-    if (input === 'y' || input === 'Y') {
+  const handleEditInput = ({ input, key }: { input: string; key: any }) => {
+    if (key.escape) {
+      setMode('list');
+      return;
+    }
+
+    if (key.upArrow) {
+      setWizardStep((prev) => Math.max(0, prev - 1));
+      return;
+    }
+    if (key.downArrow) {
+      setWizardStep((prev) => Math.min(2, prev + 1));
+      return;
+    }
+
+    if (key.return) {
+      handleEditReturn();
+      return;
+    }
+
+    handleTyping({ input, key, fields: ['model', 'apiKey', 'temp'], activeStep: wizardStep });
+  };
+
+  const handleRemoveConfirmInput = ({ input, key }: { input: string; key: any }) => {
+    const lowerInput = input.toLowerCase();
+    if (lowerInput === 'y') {
       const newProviders = currentProviders.filter(
         (p) => p.name.toLowerCase() !== selectedBackend.toLowerCase()
       );
@@ -610,21 +555,22 @@ export const AuthDashboard = () => {
       setConfig(newConfig);
       setSuccessMsg(`Successfully removed AI provider "${selectedProviderName}".`);
       setMode('list');
-    } else if (input === 'n' || input === 'N' || key.escape) {
+    } else if (lowerInput === 'n' || key.escape) {
       setMode('list');
     }
   };
 
   useInput((input, key) => {
     clearMessages();
+    const args = { input, key };
     if (mode === 'list') {
-      handleListInput(input, key);
+      handleListInput(args);
     } else if (mode === 'add') {
-      handleAddInput(input, key);
+      handleAddInput(args);
     } else if (mode === 'edit') {
-      handleEditInput(input, key);
+      handleEditInput(args);
     } else if (mode === 'remove-confirm') {
-      handleRemoveConfirmInput(input, key);
+      handleRemoveConfirmInput(args);
     }
   });
 
@@ -642,18 +588,33 @@ export const AuthDashboard = () => {
 
       {/* Overlays */}
       {mode === 'add' && (
-        <AddWizard
-          wizardStep={wizardStep}
-          wizardValues={wizardValues}
+        <WizardForm
+          title="Add AI Provider"
+          steps={[
+            { label: 'Provider:  ', value: wizardValues.provider },
+            { label: 'Model:     ', value: wizardValues.model },
+            { label: 'API Key:   ', value: '*'.repeat(wizardValues.apiKey.length) },
+            { label: 'Temp:      ', value: wizardValues.temp },
+          ]}
+          activeStep={wizardStep}
           errorMsg={errorMsg}
         />
       )}
 
       {mode === 'edit' && (
-        <EditWizard
-          selectedProviderName={selectedProviderName}
-          wizardStep={wizardStep}
-          wizardValues={wizardValues}
+        <WizardForm
+          title={`Edit AI Provider: ${selectedProviderName}`}
+          steps={[
+            { label: 'Model:     ', value: wizardValues.model },
+            {
+              label: 'API Key:   ',
+              value: wizardValues.apiKey
+                ? '*'.repeat(wizardValues.apiKey.length)
+                : '(leave empty to keep existing)',
+            },
+            { label: 'Temp:      ', value: wizardValues.temp },
+          ]}
+          activeStep={wizardStep}
           errorMsg={errorMsg}
         />
       )}
