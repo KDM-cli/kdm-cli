@@ -7,8 +7,8 @@ import { WatchDashboard } from '../ui/WatchDashboard';
 import * as podsMod from '../kubernetes/pods';
 import * as containersMod from '../docker/containers';
 
-if (!console.Console) {
-  console.Console = Console;
+if (!(console as any).Console) {
+  (console as any).Console = Console;
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

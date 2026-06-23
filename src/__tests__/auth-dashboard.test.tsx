@@ -5,8 +5,8 @@ import { Writable, Readable } from 'node:stream';
 import { Console } from 'node:console';
 import { AuthDashboard } from '../ui/AuthDashboard';
 
-if (!console.Console) {
-  console.Console = Console;
+if (!(console as any).Console) {
+  (console as any).Console = Console;
 }
 
 const { mockStore } = vi.hoisted(() => ({
