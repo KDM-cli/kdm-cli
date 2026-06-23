@@ -1,3 +1,6 @@
+import React from 'react';
+import { render } from 'ink';
+import { AuthDashboard } from '../ui/AuthDashboard';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { getAIConfig, setAIConfig } from '../config/store';
@@ -356,7 +359,12 @@ const handleAuthRemove = (backend: string): void => {
 export const registerAuthCommand = (program: Command): void => {
   const auth = program
     .command('auth')
-    .description('Manage AI provider authentication and credentials');
+    .description('Manage AI provider authentication and credentials')
+    .action(() => {
+      // Clear terminal screen before showing the dashboard
+      process.stdout.write('\x1Bc');
+      render(<AuthDashboard />);
+    });
 
   auth
     .command('add')
