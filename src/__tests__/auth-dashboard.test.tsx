@@ -192,6 +192,7 @@ describe('AuthDashboard', () => {
   it('performs Edit Provider Wizard flow successfully', async () => {
     mockStore.providers = [
       { name: 'openai', model: 'gpt-4o', password: 'old-key', temperature: 0.7 },
+      { name: 'ollama', model: 'llama3.1', password: 'ollama-key', temperature: 0.7 },
     ];
 
     const { unmount } = render(<AuthDashboard />, {
@@ -328,6 +329,320 @@ describe('AuthDashboard', () => {
     await sleep(50);
     mockStdin.sendKey('return');
     await waitForFrameToContain(mockStdout, 'Temperature must be a valid number.');
+
+    unmount();
+    await sleep(50);
+  });
+
+  it('rejects invalid provider name in Add Wizard', async () => {
+    const { unmount } = render(<AuthDashboard />, {
+      stdout: mockStdout as any,
+      stdin: mockStdin as any,
+      interactive: true,
+    });
+
+    await waitForFrameToContain(mockStdout, 'OpenAI');
+
+    mockStdin.sendChar('a');
+    await waitForFrameToContain(mockStdout, 'Step 1/4 — Provider:');
+    await sleep(50);
+
+    for (let i = 0; i < 6; i++) {
+      mockStdin.sendKey('backspace');
+      await sleep(20);
+    }
+    mockStdin.sendStr('invalidprov');
+    await sleep(50);
+    mockStdin.sendKey('return');
+    await waitForFrameToContain(mockStdout, 'Unsupported provider "invalidprov".');
+
+    unmount();
+    await sleep(50);
+  });
+
+  it('rejects adding an already configured provider', async () => {
+    mockStore.providers = [
+      { name: 'openai', model: 'gpt-4o', password: 'key', temperature: 0.7 },
+    ];
+
+    const { unmount } = render(<AuthDashboard />, {
+      stdout: mockStdout as any,
+      stdin: mockStdin as any,
+      interactive: true,
+    });
+
+    await waitForFrameToContain(mockStdout, 'OpenAI');
+
+    mockStdin.sendChar('a');
+    await waitForFrameToContain(mockStdout, 'Step 1/4 — Provider:');
+    await sleep(50);
+
+    mockStdin.sendKey('return');
+    await sleep(50);
+    mockStdin.sendKey('return');
+    await sleep(50);
+    mockStdin.sendKey('return');
+    await sleep(50);
+    mockStdin.sendKey('return');
+    await waitForFrameToContain(mockStdout, 'Provider "openai" is already configured. Use edit (E) instead.');
+
+    unmount();
+    await sleep(50);
+  });
+
+  it('rejects invalid temperature in Edit Wizard', async () => {
+    mockStore.providers = [
+      { name: 'openai', model: 'gpt-4o', password: 'key', temperature: 0.7 },
+    ];
+
+    const { unmount } = render(<AuthDashboard />, {
+      stdout: mockStdout as any,
+      stdin: mockStdin as any,
+      interactive: true,
+    });
+
+    await waitForFrameToContain(mockStdout, 'OpenAI');
+
+    mockStdin.sendChar('e');
+    await waitForFrameToContain(mockStdout, 'Edit AI Provider: OpenAI');
+    await sleep(50);
+
+    mockStdin.sendKey('return');
+    await sleep(50);
+    mockStdin.sendKey('return');
+    await sleep(50);
+
+    mockStdin.sendKey('backspace');
+    await sleep(20);
+    mockStdin.sendKey('backspace');
+    await sleep(20);
+    mockStdin.sendKey('backspace');
+    await sleep(20);
+    mockStdin.sendStr('invalidtemp');
+    await sleep(50);
+    mockStdin.sendKey('return');
+    await waitForFrameToContain(mockStdout, 'Temperature must be a valid number.');
+
+    unmount();
+    await sleep(50);
+  });
+
+  it('rejects editing an unconfigured provider', async () => {
+    const { unmount } = render(<AuthDashboard />, {
+      stdout: mockStdout as any,
+      stdin: mockStdin as any,
+      interactive: true,
+    });
+
+    await waitForFrameToContain(mockStdout, 'OpenAI');
+
+    mockStdin.sendKey('down');
+    await sleep(50);
+
+    mockStdin.sendChar('e');
+    await waitForFrameToContain(mockStdout, 'Provider "Ollama" is not configured. Press \'A\' to add.');
+
+    unmount();
+    await sleep(50);
+  });
+
+  it('rejects setting an unconfigured provider as default', async () => {
+    const { unmount } = render(<AuthDashboard />, {
+      stdout: mockStdout as any,
+      stdin: mockStdin as any,
+      interactive: true,
+    });
+
+    await waitForFrameToContain(mockStdout, 'OpenAI');
+
+    mockStdin.sendKey('down');
+    await sleep(50);
+
+    mockStdin.sendChar('d');
+    await waitForFrameToContain(mockStdout, 'Cannot set unconfigured provider "Ollama" as default.');
+
+    unmount();
+    await sleep(50);
+  });
+
+  it('rejects removing an unconfigured provider', async () => {
+    const { unmount } = render(<AuthDashboard />, {
+      stdout: mockStdout as any,
+      stdin: mockStdin as any,
+      interactive: true,
+    });
+
+    await waitForFrameToContain(mockStdout, 'OpenAI');
+
+    mockStdin.sendKey('down');
+    await sleep(50);
+
+    mockStdin.sendChar('r');
+    await waitForFrameToContain(mockStdout, 'Provider "Ollama" is not configured.');
+
+    unmount();
+    await sleep(50);
+  });
+
+  it('cancels Add Wizard on Escape', async () => {
+    const { unmount } = render(<AuthDashboard />, {
+      stdout: mockStdout as any,
+      stdin: mockStdin as any,
+      interactive: true,
+    });
+
+    await waitForFrameToContain(mockStdout, 'OpenAI');
+
+    mockStdin.sendChar('a');
+    await waitForFrameToContain(mockStdout, 'Step 1/4 — Provider:');
+    await sleep(50);
+
+    mockStdin.sendKey('escape');
+    await sleep(50);
+
+    const lastRendered = [...mockStdout.frames].reverse().find((f) => f.includes('AI Provider Manager'));
+    expect(lastRendered).toBeDefined();
+    expect(lastRendered).not.toContain('Step 1/4');
+
+    unmount();
+    await sleep(50);
+  });
+
+  it('navigates fields inside Add Wizard with up/down arrows', async () => {
+    const { unmount } = render(<AuthDashboard />, {
+      stdout: mockStdout as any,
+      stdin: mockStdin as any,
+      interactive: true,
+    });
+
+    await waitForFrameToContain(mockStdout, 'OpenAI');
+
+    mockStdin.sendChar('a');
+    await waitForFrameToContain(mockStdout, 'Step 1/4 — Provider:');
+    await sleep(50);
+
+    mockStdin.sendKey('down');
+    await sleep(50);
+    mockStdin.sendKey('down');
+    await sleep(50);
+    mockStdin.sendKey('up');
+    await sleep(50);
+
+    unmount();
+    await sleep(50);
+  });
+
+  it('cancels Edit Wizard on Escape', async () => {
+    mockStore.providers = [
+      { name: 'openai', model: 'gpt-4o', password: 'key', temperature: 0.7 },
+    ];
+
+    const { unmount } = render(<AuthDashboard />, {
+      stdout: mockStdout as any,
+      stdin: mockStdin as any,
+      interactive: true,
+    });
+
+    await waitForFrameToContain(mockStdout, 'OpenAI');
+
+    mockStdin.sendChar('e');
+    await waitForFrameToContain(mockStdout, 'Edit AI Provider: OpenAI');
+    await sleep(50);
+
+    mockStdin.sendKey('escape');
+    await sleep(50);
+
+    const lastRendered = [...mockStdout.frames].reverse().find((f) => f.includes('AI Provider Manager'));
+    expect(lastRendered).toBeDefined();
+    expect(lastRendered).not.toContain('Edit AI Provider: OpenAI');
+
+    unmount();
+    await sleep(50);
+  });
+
+  it('navigates fields inside Edit Wizard with up/down arrows', async () => {
+    mockStore.providers = [
+      { name: 'openai', model: 'gpt-4o', password: 'key', temperature: 0.7 },
+    ];
+
+    const { unmount } = render(<AuthDashboard />, {
+      stdout: mockStdout as any,
+      stdin: mockStdin as any,
+      interactive: true,
+    });
+
+    await waitForFrameToContain(mockStdout, 'OpenAI');
+
+    mockStdin.sendChar('e');
+    await waitForFrameToContain(mockStdout, 'Edit AI Provider: OpenAI');
+    await sleep(50);
+
+    mockStdin.sendKey('down');
+    await sleep(50);
+    mockStdin.sendKey('down');
+    await sleep(50);
+    mockStdin.sendKey('up');
+    await sleep(50);
+
+    unmount();
+    await sleep(50);
+  });
+
+  it('selects the next available provider as default when the default provider is removed', async () => {
+    mockStore.providers = [
+      { name: 'openai', model: 'gpt-4o', password: 'key', temperature: 0.7 },
+      { name: 'ollama', model: 'llama3.1', password: 'key', temperature: 0.7 },
+    ];
+    mockStore.defaultProvider = 'openai';
+
+    const { unmount } = render(<AuthDashboard />, {
+      stdout: mockStdout as any,
+      stdin: mockStdin as any,
+      interactive: true,
+    });
+
+    await waitForFrameToContain(mockStdout, 'OpenAI');
+
+    mockStdin.sendChar('r');
+    await waitForFrameToContain(mockStdout, 'Are you sure you want to remove "OpenAI"');
+    await sleep(50);
+
+    mockStdin.sendChar('y');
+    await waitForFrameToContain(mockStdout, 'Successfully removed AI provider "OpenAI"');
+
+    expect(mockStore.defaultProvider).toBe('ollama');
+
+    unmount();
+    await sleep(50);
+  });
+
+  it('cancels removal of a provider on N or Escape', async () => {
+    mockStore.providers = [
+      { name: 'openai', model: 'gpt-4o', password: 'key', temperature: 0.7 },
+    ];
+
+    const { unmount } = render(<AuthDashboard />, {
+      stdout: mockStdout as any,
+      stdin: mockStdin as any,
+      interactive: true,
+    });
+
+    await waitForFrameToContain(mockStdout, 'OpenAI');
+
+    mockStdin.sendChar('r');
+    await waitForFrameToContain(mockStdout, 'Are you sure you want to remove "OpenAI"');
+    await sleep(50);
+
+    mockStdin.sendChar('n');
+    await waitForFrameToContain(mockStdout, 'AI Provider Manager');
+    await sleep(50);
+
+    mockStdin.sendChar('r');
+    await waitForFrameToContain(mockStdout, 'Are you sure you want to remove "OpenAI"');
+    await sleep(50);
+
+    mockStdin.sendKey('escape');
+    await waitForFrameToContain(mockStdout, 'AI Provider Manager');
 
     unmount();
     await sleep(50);

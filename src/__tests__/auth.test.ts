@@ -17,8 +17,13 @@ import { GroqAIClient } from '../ai/groq';
 import { IBMWatsonxAIClient } from '../ai/ibm-watsonx';
 import { OCIGenAIClient } from '../ai/oci-genai';
 
-const { mockStore } = vi.hoisted(() => ({
+const { mockStore, mockRender } = vi.hoisted(() => ({
   mockStore: { providers: [] as any[], defaultProvider: undefined as string | undefined },
+  mockRender: vi.fn(() => ({ unmount: () => {} })),
+}));
+
+vi.mock('ink', () => ({
+  render: mockRender,
 }));
 
 vi.mock('../config/store', () => ({
@@ -522,5 +527,36 @@ describe('auth command & AI clients', () => {
   it('creates AI client without configuration (using default/fallback config)', async () => {
     const client = await createAIClient('noop');
     expect(client.name).toBe('noop');
+  });
+
+  it('runs interactive auth dashboard command action handler', async () => {
+    const originalStdoutTTY = process.stdout.isTTY;
+    const originalStdinTTY = process.stdin.isTTY;
+    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    try {
+      // 1. Non-TTY scenario
+      Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+      Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+      await program.parseAsync(['node', 'test', 'auth']);
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('requires a TTY terminal'));
+      expect(process.exitCode).toBe(1);
+
+      errorSpy.mockClear();
+      process.exitCode = undefined;
+
+      // 2. TTY scenario
+      Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+      Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+
+      mockRender.mockClear();
+      await program.parseAsync(['node', 'test', 'auth']);
+      expect(writeSpy).toHaveBeenCalledWith('\x1Bc');
+      expect(mockRender).toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(process.stdout, 'isTTY', { value: originalStdoutTTY, configurable: true });
+      Object.defineProperty(process.stdin, 'isTTY', { value: originalStdinTTY, configurable: true });
+      writeSpy.mockRestore();
+    }
   });
 });
