@@ -158,9 +158,10 @@ export const showNodes = async () => {
         const name = n.metadata?.name || 'Unknown';
         const readyCondition = n.status?.conditions?.find(c => c.type === 'Ready');
         const status = readyCondition?.status === 'True' ? chalk.green('Ready') : chalk.red('NotReady');
-        const role = n.metadata?.labels?.['node-role.kubernetes.io/control-plane']
+        const labels = n.metadata?.labels ?? {};
+        const role = 'node-role.kubernetes.io/control-plane' in labels
           ? 'control-plane'
-          : n.metadata?.labels?.['node-role.kubernetes.io/master']
+          : 'node-role.kubernetes.io/master' in labels
           ? 'master'
           : '<none>';
         const internalIp = n.status?.addresses?.find(a => a.type === 'InternalIP')?.address || '-';
@@ -170,7 +171,8 @@ export const showNodes = async () => {
       }),
     });
   } catch (error) {
-    spinner.fail('Failed to fetch Kubernetes nodes');
+    const message = error instanceof Error ? error.message : String(error);
+    spinner.fail(`Failed to fetch Kubernetes nodes: ${message}`);
   }
 };
 

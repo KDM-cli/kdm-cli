@@ -59,8 +59,6 @@ const podsToRows = (data: PodData[], stats: K8sClusterStats | null): PodRow[] =>
     status: p.status,
     restarts: p.restarts,
     node: p.node,
-    cpu: stats?.cpu,
-    memory: stats?.memory,
   }));
 
 const containersToRows = (data: ContainerData[], stats: DockerSystemStats | null): ContainerRow[] =>
@@ -71,8 +69,6 @@ const containersToRows = (data: ContainerData[], stats: DockerSystemStats | null
     image: c.image,
     status: c.status,
     state: c.state,
-    cpu: stats ? `${stats.cpu.toFixed(1)}%` : undefined,
-    memory: stats ? formatDockerBytes(stats.memoryUsage) : undefined,
   }));
 
 const nodesToRows = (data: k8s.V1Node[]): NodeRow[] =>
@@ -261,7 +257,7 @@ export const ShowDashboard: React.FC = () => {
       return;
     }
 
-    if (input === 'q' || (key.ctrl && input === 'c')) {
+    if (input.toLowerCase() === 'q' || (key.ctrl && input === 'c')) {
       process.exit(0);
     }
 
