@@ -200,12 +200,14 @@ export const ShowDashboard: React.FC = () => {
       if (nodesResult.status === 'fulfilled') {
         setNodes(nodesResult.value);
       } else {
+        newErrors.push({ source: 'nodes', message: 'Kubernetes nodes unreachable' });
         setNodes([]);
       }
 
       if (minikubeResult.status === 'fulfilled') {
         setMinikubeStatus(minikubeResult.value);
       } else {
+        newErrors.push({ source: 'minikube', message: 'Minikube status unreachable' });
         setMinikubeStatus([]);
       }
 
@@ -222,9 +224,9 @@ export const ShowDashboard: React.FC = () => {
   const tabs: TabConfig[] = useMemo(() => [
     { key: TabType.Pods, label: 'Pods', count: pods.length, disconnected: errors.some(e => e.source === 'k8s') },
     { key: TabType.Containers, label: 'Containers', count: containers.length, disconnected: errors.some(e => e.source === 'docker') },
-    { key: TabType.Nodes, label: 'Nodes', count: nodes.length },
-    { key: TabType.Runners, label: 'Runners', count: pods.length + containers.length },
-    { key: TabType.Minikube, label: 'Minikube', count: minikubeStatus.length },
+    { key: TabType.Nodes, label: 'Nodes', count: nodes.length, disconnected: errors.some(e => e.source === 'nodes') },
+    { key: TabType.Runners, label: 'Runners', count: pods.length + containers.length, disconnected: errors.some(e => e.source === 'k8s' || e.source === 'docker') },
+    { key: TabType.Minikube, label: 'Minikube', count: minikubeStatus.length, disconnected: errors.some(e => e.source === 'minikube') },
   ], [pods, containers, nodes, minikubeStatus, errors]);
 
   const getTabData = (tab: TabType): ResourceRow[] => {
@@ -291,6 +293,7 @@ export const ShowDashboard: React.FC = () => {
     if (key.downArrow) {
       setSelectedRow(prev => {
         const rows = getFilteredRows(getTabData(activeTab), searchQuery);
+        if (rows.length === 0) return 0;
         return Math.min(rows.length - 1, prev + 1);
       });
       return;
@@ -321,7 +324,9 @@ export const ShowDashboard: React.FC = () => {
   const filteredRows = getFilteredRows(currentData, searchQuery);
 
   useEffect(() => {
-    if (selectedRow >= filteredRows.length && filteredRows.length > 0) {
+    if (filteredRows.length === 0) {
+      if (selectedRow !== 0) setSelectedRow(0);
+    } else if (selectedRow >= filteredRows.length) {
       setSelectedRow(filteredRows.length - 1);
     }
   }, [filteredRows.length]);
