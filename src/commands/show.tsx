@@ -170,7 +170,8 @@ export const showNodes = async () => {
       }),
     });
   } catch (error) {
-    spinner.fail('Failed to fetch Kubernetes nodes');
+    const message = error instanceof Error ? error.message : String(error);
+    spinner.fail(`Failed to fetch Kubernetes nodes: ${message}`);
   }
 };
 
