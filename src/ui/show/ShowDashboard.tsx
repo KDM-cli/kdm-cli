@@ -259,7 +259,7 @@ export const ShowDashboard: React.FC = () => {
       return;
     }
 
-    if (input === 'q' || (key.ctrl && input === 'c')) {
+    if (input.toLowerCase() === 'q' || (key.ctrl && input === 'c')) {
       process.exit(0);
     }
 
