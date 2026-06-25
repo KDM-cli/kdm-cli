@@ -5,7 +5,6 @@ import type * as k8s from '@kubernetes/client-node';
 import { logger } from '../utils/logger';
 import { createSpinner } from '../ui/spinner';
 
-// ✅ CodeRabbit (Nitpick): simplified — Buffer and non-Buffer values both
 //    convert correctly with String(), no branch needed
 const printStream = (value: unknown): void =>
   void process.stdout.write(String(value));

@@ -4,6 +4,17 @@ import { registerConfigCommand } from '../commands/config';
 import * as configUtils from '../utils/config';
 import * as tui from '@vr_patel/tui';
 
+// Mock readline — handleDiscordSetup uses readline instead of tui.input
+// so that pasted URLs (multi-char stdin chunks) are accepted correctly.
+const mockRlInstance = {
+  question: vi.fn(),
+  close: vi.fn(),
+  on: vi.fn(),
+};
+vi.mock('readline', () => ({
+  createInterface: vi.fn(() => mockRlInstance),
+}));
+
 // Mock the modules
 vi.mock('../utils/config', () => ({
   setConfig: vi.fn(),
@@ -30,7 +41,7 @@ describe('config command', () => {
     return consoleLogSpy.mock.invocationCallOrder[callIndex];
   };
 
-  const firstInputOrder = () => vi.mocked(tui.input).mock.invocationCallOrder[0];
+  const firstInputOrder = () => mockRlInstance.question.mock.invocationCallOrder[0];
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -38,6 +49,13 @@ describe('config command', () => {
     registerConfigCommand(program);
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    // Default readline behaviour: resolve with a valid Discord webhook URL.
+    // Individual tests can override mockRlInstance.question as needed.
+    mockRlInstance.question.mockImplementation((_q: string, cb: (a: string) => void) => {
+      cb('https://discord.com/api/webhooks/123456789012345678/mock-token-abc123');
+    });
+    mockRlInstance.on.mockImplementation(() => mockRlInstance);
   });
 
   it('should register config setup, set, list, and clear commands', () => {
@@ -61,17 +79,20 @@ describe('config command', () => {
     expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringMatching(/Notifications disabled/i));
   });
 
-  it('should call select, input and setConfig on discord setup', async () => {
+  it('should call select, readline and setConfig on discord setup', async () => {
     vi.mocked(tui.select).mockResolvedValue('discord');
-    vi.mocked(tui.input).mockResolvedValue('https://discord.com/api/webhooks/123456789/token-here');
-    
+    // mockRlInstance.question default resolves with a valid webhook URL (set in beforeEach)
+
     await program.parseAsync(['node', 'test', 'config', 'setup']);
-    
+
     expect(tui.select).toHaveBeenCalled();
-    expect(tui.input).toHaveBeenCalled();
+    expect(mockRlInstance.question).toHaveBeenCalled();
     expect(configUtils.clearNotificationCredentials).toHaveBeenCalled();
     expect(configUtils.setConfig).toHaveBeenCalledWith('notification_service', 'discord');
-    expect(configUtils.setConfig).toHaveBeenCalledWith('discord_webhook', 'https://discord.com/api/webhooks/123456789/token-here');
+    expect(configUtils.setConfig).toHaveBeenCalledWith(
+      'discord_webhook',
+      'https://discord.com/api/webhooks/123456789012345678/mock-token-abc123',
+    );
     expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringMatching(/Discord webhook setup/i));
     expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Integrations > Webhooks'));
 
@@ -79,14 +100,27 @@ describe('config command', () => {
     expect(guideOrder).toBeLessThan(firstInputOrder());
   });
 
-  it('should validate Discord webhook URLs during setup', async () => {
+  it('should re-prompt on invalid Discord webhook URL and accept valid one', async () => {
     vi.mocked(tui.select).mockResolvedValue('discord');
-    vi.mocked(tui.input).mockResolvedValue('https://discord.com/api/webhooks/123456789/token-here');
+
+    // First call returns invalid URL, second returns valid
+    let callCount = 0;
+    mockRlInstance.question.mockImplementation((_q: string, cb: (a: string) => void) => {
+      callCount++;
+      if (callCount === 1) {
+        cb('not-a-webhook');
+      } else {
+        cb('https://discord.com/api/webhooks/123456789012345678/mock-token-abc123');
+      }
+    });
 
     await program.parseAsync(['node', 'test', 'config', 'setup']);
 
-    const webhookPrompt = vi.mocked(tui.input).mock.calls[0][0];
-    expect(webhookPrompt.validate?.('not-a-webhook')).toBe('Must be a valid Discord webhook URL (including ID and Token)');
+    expect(mockRlInstance.question).toHaveBeenCalledTimes(2);
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Must be a valid Discord webhook URL'),
+    );
+    expect(configUtils.setConfig).toHaveBeenCalledWith('notification_service', 'discord');
   });
 
   it('should detect existing config and prompt for reconfiguration — cancel keeps current config', async () => {
@@ -105,13 +139,16 @@ describe('config command', () => {
     vi.mocked(tui.select)
       .mockResolvedValueOnce('yes') // confirm reconfiguration
       .mockResolvedValueOnce('discord'); // select discord service
-    vi.mocked(tui.input).mockResolvedValue('https://discord.com/api/webhooks/123456789/token-here');
+    // mockRlInstance.question default resolves with a valid webhook URL (set in beforeEach)
 
     await program.parseAsync(['node', 'test', 'config', 'setup']);
 
     expect(tui.select).toHaveBeenCalledTimes(2); // reconfiguration + service selection
     expect(configUtils.setConfig).toHaveBeenCalledWith('notification_service', 'discord');
-    expect(configUtils.setConfig).toHaveBeenCalledWith('discord_webhook', 'https://discord.com/api/webhooks/123456789/token-here');
+    expect(configUtils.setConfig).toHaveBeenCalledWith(
+      'discord_webhook',
+      'https://discord.com/api/webhooks/123456789012345678/mock-token-abc123',
+    );
   });
 
   it('should skip reconfiguration prompt when no existing config', async () => {
@@ -138,8 +175,7 @@ describe('config command', () => {
 
   it('should handle setConfig failure gracefully during setup', async () => {
     vi.mocked(tui.select).mockResolvedValue('discord');
-    vi.mocked(tui.input).mockResolvedValue('https://discord.com/api/webhooks/123456789/token-here');
-    // Use mockImplementationOnce to avoid polluting subsequent tests
+    // mockRlInstance.question default resolves with a valid webhook URL (set in beforeEach)
     vi.mocked(configUtils.setConfig).mockImplementationOnce(() => { throw new Error('write failed'); });
 
     await program.parseAsync(['node', 'test', 'config', 'setup']);
@@ -168,7 +204,8 @@ describe('config command', () => {
     expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('KDM_SMTP_PASSWORD'));
 
     const guideOrder = consoleLogOrder(/Email SMTP setup/i);
-    expect(guideOrder).toBeLessThan(firstInputOrder());
+    const firstTuiInputOrder = vi.mocked(tui.input).mock.invocationCallOrder[0];
+    expect(guideOrder).toBeLessThan(firstTuiInputOrder);
   });
 
   it('should not save email_password if provided during email setup', async () => {

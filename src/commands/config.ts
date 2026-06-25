@@ -1,7 +1,33 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
+import * as readline from 'readline';
 import { setConfig, getConfig, clearConfig, clearNotificationCredentials } from '../utils/config';
 import { select, input } from '@vr_patel/tui';
+
+/**
+ * Paste-safe text input using Node's readline.
+ * The @vr_patel/tui `input` component processes stdin one character at a time,
+ * which causes pasted multi-character strings to be silently dropped.
+ * readline.createInterface reads the full line regardless of how it arrives.
+ */
+const readlineInput = (question: string): Promise<string> => {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: true,
+    });
+    // Resolve with empty string on EOF (Ctrl+D) so the caller's
+    // while-loop can detect it and throw instead of hanging forever.
+    rl.on('close', () => {
+      resolve('');
+    });
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+};
 
 const promptReconfigurationIfNeeded = async (): Promise<boolean> => {
   const currentConfig = getConfig();
@@ -36,13 +62,23 @@ const handleNoneSetup = async () => {
 
 const handleDiscordSetup = async () => {
   printDiscordWebhookGuide();
-  const webhook = await input({
-    message: 'Discord Webhook URL:',
-    validate: (v) => {
-      const discordWebhookRegex = /^https:\/\/(?:ptb\.|canary\.)?discord\.com\/api\/webhooks\/\d+\/[\w-]+$/;
-      return discordWebhookRegex.test(v) || 'Must be a valid Discord webhook URL (including ID and Token)';
-    },
-  });
+
+  const discordWebhookRegex = /^https:\/\/(?:ptb\.|canary\.)?discord\.com\/api\/webhooks\/\d+\/[\w-]+$/;
+  const question = chalk.bold.green('? ') + chalk.bold('Discord Webhook URL: ');
+
+  // Use readline instead of @vr_patel/tui `input` to support pasting.
+  // The TUI input component handles stdin one character at a time; pasted text
+  // arrives as a multi-character chunk and is silently dropped, causing the
+  // prompt to glitch and re-display without accepting any value.
+  let webhook = '';
+  while (true) {
+    webhook = await readlineInput(question);
+    if (!webhook) {
+      throw new Error('Setup cancelled: no input received (EOF).');
+    }
+    if (discordWebhookRegex.test(webhook)) break;
+    console.log(chalk.red('  ✖ Must be a valid Discord webhook URL (including ID and Token)'));
+  }
 
   clearNotificationCredentials();
   setConfig('discord_webhook', webhook);
