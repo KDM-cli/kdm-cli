@@ -1,0 +1,19 @@
+- name: Merge PR
+  uses: actions/github-script@v8
+  with:
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+    script: |
+      const pr = context.payload.pull_request;
+
+      try {
+        await github.rest.pulls.merge({
+          owner: context.repo.owner,
+          repo: context.repo.repo,
+          pull_number: pr.number,
+          merge_method: "squash"
+        });
+
+        console.log("PR merged successfully.");
+      } catch (error) {
+        console.log("Merge failed:", error.message);
+      }
