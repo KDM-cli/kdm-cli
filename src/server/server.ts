@@ -116,7 +116,7 @@ export const handleConfig = (res: any): void => {
  * @param res The HTTP response object.
  * @param options Server configuration options.
  */
-export const routeRequest = (req: any, res: any, options: ServerOptions): void => {
+export const routeRequest = async (req: any, res: any, options: ServerOptions): Promise<void> => {
   const url = req.url ?? '';
   const method = req.method ?? 'GET';
 
@@ -132,7 +132,7 @@ export const routeRequest = (req: any, res: any, options: ServerOptions): void =
   }
 
   if (method === 'POST' && url === '/analyze') {
-    handleAnalyze(req, res, options);
+    await handleAnalyze(req, res, options);
     return;
   }
 
@@ -148,8 +148,12 @@ export const routeRequest = (req: any, res: any, options: ServerOptions): void =
 export async function createServer(options: ServerOptions): Promise<{ close: () => void; port: number }> {
   const { createServer: createHttpServer } = await import('node:http');
 
-  const server = createHttpServer((req, res) => {
-    routeRequest(req, res, options);
+  const server = createHttpServer(async (req, res) => {
+    try {
+      await routeRequest(req, res, options);
+    } catch (error) {
+      sendJson(res, 500, { error: (error as Error).message });
+    }
   });
 
   return new Promise((resolve) => {
