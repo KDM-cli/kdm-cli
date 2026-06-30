@@ -116,6 +116,19 @@ const calculateMemoryUsage = (memoryStats: any): number => {
   return usage;
 };
 
+type DebugLogger = {
+  debug: (message: string) => void;
+};
+
+const hasDebugLogger = (value: unknown): value is DebugLogger => {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'debug' in value &&
+    typeof (value as { debug?: unknown }).debug === 'function'
+  );
+};
+
 /**
  * Fetches stats for a single container.
  * @param docker The Dockerode client.
@@ -134,8 +147,8 @@ const fetchContainerStats = async (docker: any, containerId: string) => {
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     const msg = `Failed to fetch stats for container ${containerId}: ${errMsg}`;
-    if (typeof (logger as any).debug === 'function') {
-      (logger as any).debug(msg);
+    if (hasDebugLogger(logger)) {
+      logger.debug(msg);
     } else {
       console.debug(msg);
     }
