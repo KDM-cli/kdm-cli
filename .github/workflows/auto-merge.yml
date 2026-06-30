@@ -32,5 +32,10 @@ jobs:
 
               console.log("PR merged successfully.");
             } catch (error) {
+              if (error.status === 405 && error.message.includes("Required status check")) {
+                core.notice(`PR #${pr.number} is approved but required checks are still pending.`);
+                return;
+              }
+
               core.setFailed(error.message);
             }
