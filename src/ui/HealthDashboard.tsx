@@ -114,6 +114,159 @@ const getContainerInspection = (name: string, state: string, data: any): Inspect
   };
 };
 
+const WorkloadInlineInspection: React.FC<{ item: SelectableItem }> = ({ item }) => {
+  const details = item.type === 'pod'
+    ? getPodInspection(item.name, item.status, item.data)
+    : getContainerInspection(item.name, item.status, item.data);
+
+  return (
+    <Box flexDirection="column" paddingLeft={4} marginBottom={1}>
+      <Text color="red">  ├─ Reason:  {details.reason}</Text>
+      <Text color="yellow">  ├─ Events:  {details.events}</Text>
+      <Text color="cyan">  └─ Action:  {details.action}</Text>
+    </Box>
+  );
+};
+
+const WorkloadListItem: React.FC<{
+  item: SelectableItem;
+  isSelected: boolean;
+  inspected: boolean;
+  k8sExpanded: boolean;
+  dockerExpanded: boolean;
+}> = ({ item, isSelected, inspected, k8sExpanded, dockerExpanded }) => {
+  if (item.type === 'header') {
+    const isExpanded = item.id === 'k8s-header' ? k8sExpanded : dockerExpanded;
+    const arrow = isExpanded ? '▼' : '▶';
+    const displayTitle = `${arrow} ${item.name.substring(2)}`;
+    return (
+      <Box marginTop={1} marginBottom={0}>
+        <Text bold color={isSelected ? 'yellow' : 'cyan'}>
+          {isSelected ? '> ' : '  '}
+          {displayTitle}
+        </Text>
+      </Box>
+    );
+  }
+
+  const isFailing = item.type === 'pod'
+    ? (item.status !== 'Running' && item.status !== 'Pending')
+    : (item.status !== 'running');
+  
+  const icon = isFailing ? '✖' : '✔';
+  const iconColor = isFailing ? 'red' : 'green';
+  const showInspected = inspected && isFailing;
+
+  return (
+    <Box flexDirection="column">
+      <Box flexDirection="row">
+        <Text color={isSelected ? 'yellow' : 'white'} width={4}>
+          {isSelected ? '> ' : '  '}
+        </Text>
+        <Text color={iconColor} width={4}>
+          {icon}
+        </Text>
+        <Text color={isSelected ? 'yellow' : 'white'} width={25}>
+          {item.name}
+        </Text>
+        <Text color={isFailing ? 'red' : 'green'} width={20}>
+          {item.status}
+        </Text>
+        <Text color="gray">
+          {item.details}
+        </Text>
+      </Box>
+      {showInspected && <WorkloadInlineInspection item={item} />}
+    </Box>
+  );
+};
+
+const buildSelectableItems = (
+  showK8s: boolean,
+  showDocker: boolean,
+  k8sExpanded: boolean,
+  dockerExpanded: boolean,
+  pods: PodData[],
+  containers: ContainerData[]
+): SelectableItem[] => {
+  const list: SelectableItem[] = [];
+  if (showK8s) {
+    list.push({
+      id: 'k8s-header',
+      type: 'header',
+      name: `▼ Kubernetes Workloads (${pods.length})`,
+      status: '',
+      details: '',
+      data: null,
+    });
+    if (k8sExpanded) {
+      pods.forEach(p => {
+        list.push({
+          id: `pod:${p.namespace}/${p.name}`,
+          type: 'pod',
+          name: p.name,
+          status: p.status,
+          details: `namespace: ${p.namespace}, restarts: ${p.restarts}`,
+          data: p,
+        });
+      });
+    }
+  }
+  if (showDocker) {
+    list.push({
+      id: 'docker-header',
+      type: 'header',
+      name: `▼ Docker Containers (${containers.length})`,
+      status: '',
+      details: '',
+      data: null,
+    });
+    if (dockerExpanded) {
+      containers.forEach(c => {
+        list.push({
+          id: `container:${c.id}`,
+          type: 'container',
+          name: c.name,
+          status: c.state,
+          details: c.status,
+          data: c,
+        });
+      });
+    }
+  }
+  return list;
+};
+
+const handleSpaceKey = (
+  activeItem: SelectableItem | undefined,
+  setK8sExpanded: React.Dispatch<React.SetStateAction<boolean>>,
+  setDockerExpanded: React.Dispatch<React.SetStateAction<boolean>>
+) => {
+  if (!activeItem || activeItem.type !== 'header') return;
+  if (activeItem.id === 'k8s-header') {
+    setK8sExpanded(prev => !prev);
+  } else if (activeItem.id === 'docker-header') {
+    setDockerExpanded(prev => !prev);
+  }
+};
+
+const handleReturnKey = (
+  activeItem: SelectableItem | undefined,
+  setInspectedIds: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
+) => {
+  if (!activeItem || activeItem.type === 'header') return;
+  setInspectedIds(prev => ({
+    ...prev,
+    [activeItem.id]: !prev[activeItem.id],
+  }));
+};
+
+const getNextTarget = (prev: string): string => {
+  if (prev === 'all') return 'pods';
+  if (prev === 'pods') return 'containers';
+  return 'all';
+};
+
 export const HealthDashboard: React.FC<HealthDashboardProps> = ({
   initialTarget,
   initialWatch = false,
@@ -211,56 +364,14 @@ export const HealthDashboard: React.FC<HealthDashboardProps> = ({
     ? podsPercent
     : containersPercent;
 
-  // Build the selectable items list
-  const selectableItems: SelectableItem[] = [];
-
-  if (showK8s) {
-    selectableItems.push({
-      id: 'k8s-header',
-      type: 'header',
-      name: `▼ Kubernetes Workloads (${pods.length})`,
-      status: '',
-      details: '',
-      data: null,
-    });
-    
-    if (k8sExpanded) {
-      pods.forEach(p => {
-        selectableItems.push({
-          id: `pod:${p.name}`,
-          type: 'pod',
-          name: p.name,
-          status: p.status,
-          details: `namespace: ${p.namespace}, restarts: ${p.restarts}`,
-          data: p,
-        });
-      });
-    }
-  }
-
-  if (showDocker) {
-    selectableItems.push({
-      id: 'docker-header',
-      type: 'header',
-      name: `▼ Docker Containers (${containers.length})`,
-      status: '',
-      details: '',
-      data: null,
-    });
-
-    if (dockerExpanded) {
-      containers.forEach(c => {
-        selectableItems.push({
-          id: `container:${c.id}`,
-          type: 'container',
-          name: c.name,
-          status: c.state,
-          details: c.status,
-          data: c,
-        });
-      });
-    }
-  }
+  const selectableItems = buildSelectableItems(
+    showK8s,
+    showDocker,
+    k8sExpanded,
+    dockerExpanded,
+    pods,
+    containers
+  );
 
   // Handle keyboard inputs
   useInput((input, key) => {
@@ -270,24 +381,17 @@ export const HealthDashboard: React.FC<HealthDashboardProps> = ({
       process.exit(0);
     }
 
-    // TAB to switch between targets
     if (key.tab) {
-      setTarget(prev => {
-        if (prev === 'all') return 'pods';
-        if (prev === 'pods') return 'containers';
-        return 'all';
-      });
+      setTarget(prev => getNextTarget(prev));
       setSelectedIndex(0);
       return;
     }
 
-    // w to toggle watch mode
     if (lowerInput === 'w') {
       setWatch(prev => !prev);
       return;
     }
 
-    // +/- to adjust refresh interval
     if (input === '+') {
       setIntervalVal(prev => Math.min(60, prev + 1));
       return;
@@ -297,7 +401,6 @@ export const HealthDashboard: React.FC<HealthDashboardProps> = ({
       return;
     }
 
-    // Up/down navigation
     if (key.upArrow) {
       setSelectedIndex(prev => Math.max(0, prev - 1));
       return;
@@ -307,45 +410,16 @@ export const HealthDashboard: React.FC<HealthDashboardProps> = ({
       return;
     }
 
-    // Space to expand/collapse panel header
     if (input === ' ') {
-      const activeItem = selectableItems[selectedIndex];
-      if (activeItem && activeItem.type === 'header') {
-        if (activeItem.id === 'k8s-header') {
-          setK8sExpanded(prev => !prev);
-        } else if (activeItem.id === 'docker-header') {
-          setDockerExpanded(prev => !prev);
-        }
-      }
+      handleSpaceKey(selectableItems[selectedIndex], setK8sExpanded, setDockerExpanded);
       return;
     }
 
-    // Enter to inspect failing workload
     if (key.return) {
-      const activeItem = selectableItems[selectedIndex];
-      if (activeItem && activeItem.type !== 'header') {
-        setInspectedIds(prev => ({
-          ...prev,
-          [activeItem.id]: !prev[activeItem.id],
-        }));
-      }
+      handleReturnKey(selectableItems[selectedIndex], setInspectedIds);
       return;
     }
   });
-
-  const renderInlineInspection = (item: SelectableItem) => {
-    const details = item.type === 'pod'
-      ? getPodInspection(item.name, item.status, item.data)
-      : getContainerInspection(item.name, item.status, item.data);
-
-    return (
-      <Box flexDirection="column" paddingLeft={4} marginBottom={1}>
-        <Text color="red">  ├─ Reason:  {details.reason}</Text>
-        <Text color="yellow">  ├─ Events:  {details.events}</Text>
-        <Text color="cyan">  └─ Action:  {details.action}</Text>
-      </Box>
-    );
-  };
 
   return (
     <Box flexDirection="column" padding={1} borderStyle="round" borderColor="green">
@@ -365,54 +439,16 @@ export const HealthDashboard: React.FC<HealthDashboardProps> = ({
 
       {/* Workload List */}
       <Box flexDirection="column" minHeight={10}>
-        {selectableItems.map((item, idx) => {
-          const isSelected = idx === selectedIndex;
-          
-          if (item.type === 'header') {
-            const isExpanded = item.id === 'k8s-header' ? k8sExpanded : dockerExpanded;
-            const arrow = isExpanded ? '▼' : '▶';
-            const displayTitle = `${arrow} ${item.name.substring(2)}`;
-            return (
-              <Box key={item.id} marginTop={1} marginBottom={0}>
-                <Text bold color={isSelected ? 'yellow' : 'cyan'}>
-                  {isSelected ? '> ' : '  '}
-                  {displayTitle}
-                </Text>
-              </Box>
-            );
-          }
-
-          const isFailing = item.type === 'pod'
-            ? (item.status !== 'Running' && item.status !== 'Pending')
-            : (item.status !== 'running');
-          
-          const icon = isFailing ? '✖' : '✔';
-          const iconColor = isFailing ? 'red' : 'green';
-          const showInspected = inspectedIds[item.id] === true && isFailing;
-
-          return (
-            <Box key={item.id} flexDirection="column">
-              <Box flexDirection="row">
-                <Text color={isSelected ? 'yellow' : 'white'} width={4}>
-                  {isSelected ? '> ' : '  '}
-                </Text>
-                <Text color={iconColor} width={4}>
-                  {icon}
-                </Text>
-                <Text color={isSelected ? 'yellow' : 'white'} width={25}>
-                  {item.name}
-                </Text>
-                <Text color={isFailing ? 'red' : 'green'} width={20}>
-                  {item.status}
-                </Text>
-                <Text color="gray">
-                  {item.details}
-                </Text>
-              </Box>
-              {showInspected && renderInlineInspection(item)}
-            </Box>
-          );
-        })}
+        {selectableItems.map((item, idx) => (
+          <WorkloadListItem
+            key={item.id}
+            item={item}
+            isSelected={idx === selectedIndex}
+            inspected={inspectedIds[item.id] === true}
+            k8sExpanded={k8sExpanded}
+            dockerExpanded={dockerExpanded}
+          />
+        ))}
       </Box>
 
       {/* Help Bar */}

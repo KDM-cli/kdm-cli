@@ -380,7 +380,7 @@ export const WatchDashboard = () => {
             pods.map((p, idx) => {
               const isSelected = activePane === 'k8s' && idx === k8sSelectedIndex;
               return (
-                <Box key={p.name} flexDirection="row" justifyContent="space-between" marginBottom={0}>
+                <Box key={`${p.namespace}/${p.name}`} flexDirection="row" justifyContent="space-between" marginBottom={0}>
                   <Text color={isSelected ? 'yellow' : 'white'}>
                     {isSelected ? '> ' : '  '}
                     {truncateName(p.name, maxNameLength)}
