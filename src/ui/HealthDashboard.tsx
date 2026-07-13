@@ -41,6 +41,79 @@ const ProgressBar: React.FC<{ label: string; percent: number }> = ({ label, perc
   );
 };
 
+interface InspectionDetails {
+  reason: string;
+  events: string;
+  action: string;
+}
+
+const parseK8sStats = (stats: any): { cpu: number; mem: number } => {
+  if (!stats) return { cpu: 45, mem: 40 };
+  const cpuVal = stats.cpu !== 'N/A' ? parseFloat(stats.cpu) : 0;
+  const cpu = isNaN(cpuVal) ? 45 : Math.min(100, Math.max(10, cpuVal * 10));
+  const mem = stats.memory !== 'N/A' ? 65 : 40;
+  return { cpu, mem };
+};
+
+const parseDockerStats = (stats: any): { cpu: number; mem: number } => {
+  if (!stats) return { cpu: 0, mem: 35 };
+  const cpu = Math.min(100, stats.cpu);
+  const memPercent = stats.memoryLimit > 0 ? (stats.memoryUsage / stats.memoryLimit) * 100 : 35;
+  const mem = Math.min(100, memPercent);
+  return { cpu, mem };
+};
+
+const getPodInspection = (name: string, status: string, data: any): InspectionDetails => {
+  if (status === 'CrashLoopBackOff' || data.restarts > 0) {
+    return {
+      reason: 'CrashLoopBackOff',
+      events: 'Back-off restarting failed container',
+      action: 'Inspect application logs inside the pod: kdm logs ' + name
+    };
+  }
+  if (status === 'ImagePullBackOff') {
+    return {
+      reason: 'ImagePullBackOff',
+      events: 'Failed to pull image, manifest unknown',
+      action: 'Verify the image name, tag, and registry pull secret credentials'
+    };
+  }
+  if (status === 'Failed') {
+    return {
+      reason: 'Failed',
+      events: 'Pod terminated with exit status error',
+      action: 'Describe the pod resources or review config constraints'
+    };
+  }
+  return {
+    reason: 'UnknownError',
+    events: 'No events available',
+    action: 'Check logs or restart the service'
+  };
+};
+
+const getContainerInspection = (name: string, state: string, data: any): InspectionDetails => {
+  if (state === 'restarting') {
+    return {
+      reason: 'Restarting',
+      events: 'Docker daemon auto-restart loop',
+      action: 'Inspect logs for container runtime crashes: kdm logs ' + name
+    };
+  }
+  if (state === 'exited') {
+    return {
+      reason: 'Exited',
+      events: data.status || 'Container exited',
+      action: 'Verify container entrypoint and environment variables'
+    };
+  }
+  return {
+    reason: 'UnknownError',
+    events: 'No events available',
+    action: 'Check logs or restart the service'
+  };
+};
+
 export const HealthDashboard: React.FC<HealthDashboardProps> = ({
   initialTarget,
   initialWatch = false,
@@ -82,18 +155,15 @@ export const HealthDashboard: React.FC<HealthDashboardProps> = ({
       setContainers(containersRes.value);
     }
 
-    if (k8sStatsRes.status === 'fulfilled' && k8sStatsRes.value) {
-      const stats = k8sStatsRes.value;
-      // Parse CPU and memory percentages or estimate them
-      const cpuVal = stats.cpu !== 'N/A' ? parseFloat(stats.cpu) : 0;
-      setK8sCpu(isNaN(cpuVal) ? 45 : Math.min(100, Math.max(10, cpuVal * 10)));
-      setK8sMem(stats.memory !== 'N/A' ? 65 : 40);
+    if (k8sStatsRes.status === 'fulfilled') {
+      const { cpu, mem } = parseK8sStats(k8sStatsRes.value);
+      setK8sCpu(cpu);
+      setK8sMem(mem);
     }
-    if (dockerStatsRes.status === 'fulfilled' && dockerStatsRes.value) {
-      const stats = dockerStatsRes.value;
-      setDockerCpu(Math.min(100, stats.cpu));
-      const memPercent = stats.memoryLimit > 0 ? (stats.memoryUsage / stats.memoryLimit) * 100 : 35;
-      setDockerMem(Math.min(100, memPercent));
+    if (dockerStatsRes.status === 'fulfilled') {
+      const { cpu, mem } = parseDockerStats(dockerStatsRes.value);
+      setDockerCpu(cpu);
+      setDockerMem(mem);
     }
 
     setLastUpdated(new Date().toLocaleTimeString());
@@ -263,46 +333,16 @@ export const HealthDashboard: React.FC<HealthDashboardProps> = ({
     }
   });
 
-  // Helper to get inline inspection contents for failing workload
   const renderInlineInspection = (item: SelectableItem) => {
-    let reason = 'UnknownError';
-    let events = 'No events available';
-    let action = 'Check logs or restart the service';
-
-    if (item.type === 'pod') {
-      const status = item.status;
-      if (status === 'CrashLoopBackOff' || item.data.restarts > 0) {
-        reason = 'CrashLoopBackOff';
-        events = 'Back-off restarting failed container';
-        action = 'Inspect application logs inside the pod: kdm logs ' + item.name;
-      } else if (status === 'ImagePullBackOff') {
-        reason = 'ImagePullBackOff';
-        events = 'Failed to pull image, manifest unknown';
-        action = 'Verify the image name, tag, and registry pull secret credentials';
-      } else if (status === 'Failed') {
-        reason = 'Failed';
-        events = 'Pod terminated with exit status error';
-        action = 'Describe the pod resources or review config constraints';
-      }
-    } else if (item.type === 'container') {
-      const state = item.status;
-      const statusStr = item.data.status || '';
-      if (state === 'restarting') {
-        reason = 'Restarting';
-        events = 'Docker daemon auto-restart loop';
-        action = 'Inspect logs for container runtime crashes: kdm logs ' + item.name;
-      } else if (state === 'exited') {
-        reason = 'Exited';
-        events = statusStr;
-        action = 'Verify container entrypoint and environment variables';
-      }
-    }
+    const details = item.type === 'pod'
+      ? getPodInspection(item.name, item.status, item.data)
+      : getContainerInspection(item.name, item.status, item.data);
 
     return (
       <Box flexDirection="column" paddingLeft={4} marginBottom={1}>
-        <Text color="red">  ├─ Reason:  {reason}</Text>
-        <Text color="yellow">  ├─ Events:  {events}</Text>
-        <Text color="cyan">  └─ Action:  {action}</Text>
+        <Text color="red">  ├─ Reason:  {details.reason}</Text>
+        <Text color="yellow">  ├─ Events:  {details.events}</Text>
+        <Text color="cyan">  └─ Action:  {details.action}</Text>
       </Box>
     );
   };

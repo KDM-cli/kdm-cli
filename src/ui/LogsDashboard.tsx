@@ -35,6 +35,32 @@ const colorizeLine = (line: string): string => {
   return line;
 };
 
+const findContainerMatch = (containers: ContainerData[], name: string): SelectorResource | null => {
+  const found = containers.find(c =>
+    c.id.startsWith(name) || c.name === name || c.name.replace(/^\//, '') === name
+  );
+  if (!found) return null;
+  return {
+    id: `container:${found.id}`,
+    name: found.name,
+    type: 'container',
+    details: `(docker container)`,
+    data: found,
+  };
+};
+
+const findPodMatch = (pods: PodData[], name: string): SelectorResource | null => {
+  const found = pods.find(p => p.name === name);
+  if (!found) return null;
+  return {
+    id: `pod:${found.name}`,
+    name: found.name,
+    type: 'pod',
+    details: `(k8s pod)`,
+    data: found,
+  };
+};
+
 export const LogsDashboard: React.FC<LogsDashboardProps> = ({ initialName }) => {
   // Stage 1: Resource Selector state
   const [resources, setResources] = useState<SelectorResource[]>([]);
@@ -97,7 +123,6 @@ export const LogsDashboard: React.FC<LogsDashboardProps> = ({ initialName }) => 
     }
   };
 
-  // If initialName is provided, find it directly
   const resolveInitialResource = async (name: string) => {
     try {
       const [podsResult, containersResult] = await Promise.allSettled([
@@ -108,31 +133,11 @@ export const LogsDashboard: React.FC<LogsDashboardProps> = ({ initialName }) => 
       let match: SelectorResource | null = null;
 
       if (containersResult.status === 'fulfilled') {
-        const found = containersResult.value.find(c =>
-          c.id.startsWith(name) || c.name === name || c.name.replace(/^\//, '') === name
-        );
-        if (found) {
-          match = {
-            id: `container:${found.id}`,
-            name: found.name,
-            type: 'container',
-            details: `(docker container)`,
-            data: found,
-          };
-        }
+        match = findContainerMatch(containersResult.value, name);
       }
 
       if (!match && podsResult.status === 'fulfilled') {
-        const found = podsResult.value.find(p => p.name === name);
-        if (found) {
-          match = {
-            id: `pod:${found.name}`,
-            name: found.name,
-            type: 'pod',
-            details: `(k8s pod)`,
-            data: found,
-          };
-        }
+        match = findPodMatch(podsResult.value, name);
       }
 
       if (match) {
