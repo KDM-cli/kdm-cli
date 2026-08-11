@@ -7,7 +7,7 @@ function detectType(title) {
   if (!title || typeof title !== 'string') return null;
   const upper = title.toUpperCase();
 
-  const kdm = upper.match(/\[KDM-\d+-(FIX|FEAT|REFACTOR)/);
+  const kdm = upper.match(/^\[KDM-[A-Z0-9-]+-(FIX|FEAT|REFACTOR)-\d+\]/);
   if (kdm) {
     const map = { FIX: 'bugFix', FEAT: 'feature', REFACTOR: 'refactor' };
     return map[kdm[1]] || null;
@@ -96,8 +96,8 @@ function buildPRIdentityTitle(title, module, typeKey, prNumber) {
   const prefix = `[KDM-${module.toUpperCase()}-${type}-${prNumber}]`;
 
   const cleanedTitle = title
-  .replace(/^\[KDM-[A-Z0-9-]+-\d+\]\s*/i, '')
-  .trim();
+    .replace(/^\[KDM-(?:[A-Z0-9-]+-(?:FIX|FEAT|REFACTOR)-\d+|\d+-(?:FIX|FEAT|REFACTOR))\]\s*/i, '')
+    .trim();
 
 return `${prefix} ${cleanedTitle}`.trim();
 }
