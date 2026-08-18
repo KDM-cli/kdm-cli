@@ -29,22 +29,111 @@ const readlineInput = (question: string): Promise<string> => {
   });
 };
 
+const readlineSelect = (
+  message: string,
+  options: Array<{ label: string; value: string }>,
+): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    let index = 0;
+
+    const render = () => {
+      console.log(`\n${message}`);
+
+      options.forEach((option, i) => {
+        const marker = i === index ? '❯' : ' ';
+        console.log(`${marker} ${option.label}`);
+      });
+
+      console.log(chalk.dim('Use ↑/↓ to navigate, Enter to select.'));
+    };
+
+    const cleanup = () => {
+      if (process.stdin.isTTY) {
+        process.stdin.setRawMode?.(false);
+      }
+
+      process.stdin.pause();
+      process.stdin.removeListener('data', onData);
+    };
+
+    const onData = (chunk: Buffer) => {
+      const key = chunk.toString();
+
+      if (key === '\u0003') {
+        cleanup();
+        reject(new Error('Cancelled'));
+        return;
+      }
+
+      if (key === '\r' || key === '\n') {
+        const selected = options[index];
+        cleanup();
+        resolve(selected.value);
+        return;
+      }
+
+      if (key === '\u001b[A') {
+        index = (index - 1 + options.length) % options.length;
+        console.clear();
+        render();
+        return;
+      }
+
+      if (key === '\u001b[B') {
+        index = (index + 1) % options.length;
+        console.clear();
+        render();
+      }
+    };
+
+    if (!process.stdin.isTTY) {
+      reject(new Error('Interactive terminal is required.'));
+      return;
+    }
+
+    process.stdin.resume();
+    process.stdin.setRawMode?.(true);
+    process.stdin.on('data', onData);
+
+    render();
+  });
+};
+
+const promptSelect = async (
+  message: string,
+  options: Array<{ label: string; value: string; description?: string }>,
+): Promise<string> => {
+  try {
+    return await select({
+      message,
+      options,
+    });
+  } catch (error) {
+    if ((error as Error).message !== 'Cancelled') {
+      throw error;
+    }
+
+    return readlineSelect(
+      message,
+      options.map(({ label, value }) => ({
+        label,
+        value,
+      })),
+    );
+  }
+};
+
 const promptReconfigurationIfNeeded = async (): Promise<boolean> => {
   const currentConfig = getConfig();
   if (!currentConfig.notification_service || currentConfig.notification_service === 'none') {
     return true;
   }
-
   const serviceLabel = currentConfig.notification_service === 'discord' ? 'Discord' : 'Email (SMTP)';
   console.log(chalk.yellow(`\n⚠ Current notification service is set to: ${chalk.bold(serviceLabel)}`));
-
-  const shouldReconfigure = await select({
-    message: 'Would you like to reconfigure?',
-    options: [
-      { label: 'Yes', value: 'yes' },
-      { label: 'No', value: 'no' },
-    ],
-  });
+  const shouldReconfigure = await promptSelect('Would you like to reconfigure?', [
+    { label: 'Yes', value: 'yes' },
+    { label: 'No', value: 'no' },
+  ]);
 
   if (shouldReconfigure === 'no') {
     console.log(chalk.dim('Setup cancelled. Current configuration unchanged.'));
@@ -115,11 +204,6 @@ const handleEmailSetup = async () => {
     validate: (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) || 'Must be a valid email address',
   });
 
-  const password = await input({
-    message: 'SMTP Password (optional):',
-    validate: () => true,
-  });
-
   clearNotificationCredentials();
   setConfig('email_host', host);
   setConfig('email_port', parseInt(portStr, 10));
@@ -145,15 +229,23 @@ export const registerConfigCommand = (program: Command) => {
       try {
         if (!(await promptReconfigurationIfNeeded())) return;
 
-        const choice = await select({
-          message: 'Select notification service:',
-          options: [
-            { label: 'Discord', value: 'discord', description: 'Send alerts to a Discord channel via Webhook' },
-            { label: 'Email (SMTP)', value: 'email', description: 'Send alerts via Email SMTP' },
-            { label: 'None', value: 'none', description: 'Disable notifications' },
-          ],
-        });
-
+        const choice = await promptSelect('Select notification service:', [
+          {
+            label: 'Discord',
+            value: 'discord',
+            description: 'Send alerts to a Discord channel via Webhook',
+          },
+          {
+            label: 'Email (SMTP)',
+            value: 'email',
+            description: 'Send alerts via Email SMTP',
+          },
+          {
+            label: 'None',
+            value: 'none',
+            description: 'Disable notifications',
+          },
+        ]);
         const handlers: Record<string, () => Promise<void>> = {
           none: handleNoneSetup,
           discord: handleDiscordSetup,
@@ -247,7 +339,7 @@ const printEmailSmtpGuide = () => {
   console.log(chalk.white('  1. Find your provider SMTP settings before continuing.'));
   console.log(chalk.white('  2. Common hosts: smtp.gmail.com for Gmail, smtp.office365.com for Outlook.'));
   console.log(chalk.white('  3. Use port 587 for STARTTLS unless your provider says otherwise.'));
-  console.log(chalk.white('  4. Provide the SMTP password during setup or via the KDM_SMTP_PASSWORD environment variable.'));
+  console.log(chalk.white('  4. Set the SMTP password via the KDM_SMTP_PASSWORD environment variable.'));
   console.log(chalk.dim('     Gmail accounts with 2FA usually require an App Password.'));
   console.log(chalk.gray('──────────────────────────────────────────────────\n'));
 };
