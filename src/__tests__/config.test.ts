@@ -173,6 +173,143 @@ describe('config command', () => {
     expect(configUtils.setConfig).not.toHaveBeenCalled();
   });
 
+  it('should fallback to readline selection when TUI select is cancelled', async () => {
+    vi.mocked(tui.select).mockRejectedValueOnce(new Error('Cancelled'));
+
+    const stdin = process.stdin as NodeJS.ReadStream & {
+      setRawMode?: (mode: boolean) => void;
+    };
+
+    const originalIsTTY = stdin.isTTY;
+    const originalSetRawMode = stdin.setRawMode;
+    const originalResume = stdin.resume;
+    const originalPause = stdin.pause;
+    const originalOn = stdin.on;
+    const originalRemoveListener = stdin.removeListener;
+
+    let dataHandler: ((chunk: Buffer) => void) | undefined;
+
+    Object.defineProperty(stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    stdin.setRawMode = vi.fn();
+    stdin.resume = vi.fn();
+    stdin.pause = vi.fn();
+
+    stdin.on = vi.fn((event: string, handler: (chunk: Buffer) => void) => {
+      if (event === 'data') {
+        dataHandler = handler;
+      }
+      return stdin;
+    });
+
+    stdin.removeListener = vi.fn();
+
+    const promise = program.parseAsync([
+      'node',
+      'test',
+      'config',
+      'setup',
+    ]);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(dataHandler).toBeDefined();
+
+    dataHandler!(Buffer.from('\u001b[B'));
+    dataHandler!(Buffer.from('\u001b[A'));
+    dataHandler!(Buffer.from('\r'));
+
+    await promise;
+
+    expect(stdin.setRawMode).toHaveBeenCalledWith(true);
+    expect(stdin.setRawMode).toHaveBeenCalledWith(false);
+    expect(stdin.resume).toHaveBeenCalled();
+    expect(stdin.pause).toHaveBeenCalled();
+    expect(stdin.removeListener).toHaveBeenCalledWith(
+      'data',
+      expect.any(Function),
+    );
+
+    Object.defineProperty(stdin, 'isTTY', {
+      value: originalIsTTY,
+      configurable: true,
+    });
+
+    stdin.setRawMode = originalSetRawMode;
+    stdin.resume = originalResume;
+    stdin.pause = originalPause;
+    stdin.on = originalOn;
+    stdin.removeListener = originalRemoveListener;
+  });
+
+  it('should cancel readline selection on Ctrl+C', async () => {
+    vi.mocked(tui.select).mockRejectedValueOnce(new Error('Cancelled'));
+
+    const stdin = process.stdin as NodeJS.ReadStream & {
+      setRawMode?: (mode: boolean) => void;
+    };
+
+    const originalIsTTY = stdin.isTTY;
+    const originalSetRawMode = stdin.setRawMode;
+    const originalResume = stdin.resume;
+    const originalPause = stdin.pause;
+    const originalOn = stdin.on;
+    const originalRemoveListener = stdin.removeListener;
+
+    let dataHandler: ((chunk: Buffer) => void) | undefined;
+
+    Object.defineProperty(stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    stdin.setRawMode = vi.fn();
+    stdin.resume = vi.fn();
+    stdin.pause = vi.fn();
+
+    stdin.on = vi.fn((event: string, handler: (chunk: Buffer) => void) => {
+      if (event === 'data') {
+        dataHandler = handler;
+      }
+      return stdin;
+    });
+
+    stdin.removeListener = vi.fn();
+
+    const promise = program.parseAsync([
+      'node',
+      'test',
+      'config',
+      'setup',
+    ]);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(dataHandler).toBeDefined();
+
+    dataHandler!(Buffer.from('\u0003'));
+
+    await promise;
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Cancelled'),
+    );
+
+    Object.defineProperty(stdin, 'isTTY', {
+      value: originalIsTTY,
+      configurable: true,
+    });
+
+    stdin.setRawMode = originalSetRawMode;
+    stdin.resume = originalResume;
+    stdin.pause = originalPause;
+    stdin.on = originalOn;
+    stdin.removeListener = originalRemoveListener;
+  });
+
   it('should handle setConfig failure gracefully during setup', async () => {
     vi.mocked(tui.select).mockResolvedValue('discord');
     // mockRlInstance.question default resolves with a valid webhook URL (set in beforeEach)
@@ -258,20 +395,22 @@ describe('config command', () => {
       expect.any(String),
     );
   });
-it('should require an SMTP host during email setup and validate optional SMTP password', async () => {
+it('should require an SMTP host during email setup', async () => {
   vi.mocked(tui.select).mockResolvedValue('email');
+
   vi.mocked(tui.input)
     .mockResolvedValueOnce('smtp.gmail.com')
     .mockResolvedValueOnce('587')
     .mockResolvedValueOnce('user@test.com')
-    .mockResolvedValueOnce('to@test.com')
-    .mockResolvedValueOnce('');
+    .mockResolvedValueOnce('to@test.com');
 
   await program.parseAsync(['node', 'test', 'config', 'setup']);
 
   const smtpHostPrompt = vi.mocked(tui.input).mock.calls[0][0];
+
   expect(smtpHostPrompt.validate?.('')).toBe('Host is required');
   expect(smtpHostPrompt.validate?.('smtp.gmail.com')).toBe(true);
+
   expect(tui.input).toHaveBeenCalledTimes(4);
 });
 

@@ -214,54 +214,52 @@ const handleEmailSetup = async () => {
   console.log(chalk.dim('  Set the SMTP password via the KDM_SMTP_PASSWORD environment variable.'));
   console.log(chalk.green('\n✓ Email SMTP configured.'));
 };
+const handleConfigSetup = async (): Promise<void> => {
+  try {
+    if (!(await promptReconfigurationIfNeeded())) return;
+
+    const choice = await promptSelect('Select notification service:', [
+      {
+        label: 'Discord',
+        value: 'discord',
+        description: 'Send alerts to a Discord channel via Webhook',
+      },
+      {
+        label: 'Email (SMTP)',
+        value: 'email',
+        description: 'Send alerts via Email SMTP',
+      },
+      {
+        label: 'None',
+        value: 'none',
+        description: 'Disable notifications',
+      },
+    ]);
+
+    const handlers: Record<string, () => Promise<void>> = {
+      none: handleNoneSetup,
+      discord: handleDiscordSetup,
+      email: handleEmailSetup,
+    };
+
+    await handlers[choice]();
+  } catch (error) {
+    console.error(`✖ ${(error as Error).message}`);
+  }
+};
 
 /**
  * Registers the config CLI command group and subcommands on the Commander program.
  * @param program Commander program instance.
  */
-export const registerConfigCommand = (program: Command) => {
-  const config = program.command('config').description('Manage KDM configuration');
-
+const registerConfigSetupCommand = (config: Command) => {
   config
     .command('setup')
     .description('Interactively set up notification service')
-    .action(async () => {
-      try {
-        if (!(await promptReconfigurationIfNeeded())) return;
+    .action(handleConfigSetup);
+};
 
-        const choice = await promptSelect('Select notification service:', [
-          {
-            label: 'Discord',
-            value: 'discord',
-            description: 'Send alerts to a Discord channel via Webhook',
-          },
-          {
-            label: 'Email (SMTP)',
-            value: 'email',
-            description: 'Send alerts via Email SMTP',
-          },
-          {
-            label: 'None',
-            value: 'none',
-            description: 'Disable notifications',
-          },
-        ]);
-        const handlers: Record<string, () => Promise<void>> = {
-          none: handleNoneSetup,
-          discord: handleDiscordSetup,
-          email: handleEmailSetup,
-        };
-
-        const handler = handlers[choice];
-        if (handler) {
-          await handler();
-          console.log(chalk.green(`\n✓ Notification service set to: ${chalk.bold(choice.toUpperCase())}`));
-        }
-      } catch (error) {
-        console.error(chalk.red(`\n✗ Set up cancelled or failed: ${(error as Error).message}`));
-      }
-    });
-
+const registerConfigSetCommand = (config: Command) => {
   config
     .command('set <key> <value>')
     .description('Set a configuration value')
@@ -272,28 +270,52 @@ export const registerConfigCommand = (program: Command) => {
         setConfig(key as any, finalValue);
         console.log(chalk.green(`✓ Set ${key} to ${finalValue}`));
       } catch (error) {
-        console.error(chalk.red(`✗ Failed to set config: ${(error as Error).message}`));
+        console.error(
+          chalk.red(`✗ Failed to set config: ${(error as Error).message}`),
+        );
       }
     });
+};
 
+const registerConfigListCommand = (config: Command) => {
   config
     .command('list')
     .description('List current configuration')
     .action(() => {
       const current = getConfig();
+
       console.log(chalk.bold('\nCurrent KDM Configuration:'));
-      console.log(chalk.gray('──────────────────────────────────────────────────'));
+      console.log(
+        chalk.gray('──────────────────────────────────────────────────'),
+      );
+
       if (Object.keys(current).length === 0) {
-        console.log(chalk.yellow(' No configuration found. Use "kdm config set <key> <value>"'));
+        console.log(
+          chalk.yellow(
+            ' No configuration found. Use "kdm config set <key> <value>"',
+          ),
+        );
       } else {
         Object.entries(current).forEach(([key, value]) => {
-          console.log(`${chalk.cyan(key.padEnd(20))} : ${chalk.white(value)}`);
+          console.log(
+            `${chalk.cyan(key.padEnd(20))} : ${chalk.white(value)}`,
+          );
         });
       }
-      console.log(chalk.gray('──────────────────────────────────────────────────'));
-      console.log(chalk.dim('\n Note: SMTP password can be set either in config or via the KDM_SMTP_PASSWORD environment variable, which takes precedence if both are set.\n'));
-    });
 
+      console.log(
+        chalk.gray('──────────────────────────────────────────────────'),
+      );
+
+      console.log(
+        chalk.dim(
+          '\n Note: SMTP password can be set either in config or via the KDM_SMTP_PASSWORD environment variable, which takes precedence if both are set.\n',
+        ),
+      );
+    });
+};
+
+const registerConfigClearCommand = (config: Command) => {
   config
     .command('clear')
     .description('Clear all configuration')
@@ -301,6 +323,17 @@ export const registerConfigCommand = (program: Command) => {
       clearConfig();
       console.log(chalk.green('✓ Configuration cleared.'));
     });
+};
+
+export const registerConfigCommand = (program: Command) => {
+  const config = program
+    .command('config')
+    .description('Manage KDM configuration');
+
+  registerConfigSetupCommand(config);
+  registerConfigSetCommand(config);
+  registerConfigListCommand(config);
+  registerConfigClearCommand(config);
 };
 
 const checkDeprecation = (key: string) => {
