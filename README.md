@@ -357,56 +357,19 @@ Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/d
 <table>
   <tbody>
     <tr>
-      <td align="center" valign="top" width="14.28%">
-        <a href="https://yuvraj-sarathe.github.io/Portfolio/">
-          <img src="https://avatars.githubusercontent.com/u/216678101?v=4" width="100px;" alt="Yuvraj Sarathe"/><br/>
-          <sub><b>Yuvraj Sarathe</b></sub>
-        </a>
-        <br/>
-        <a href="#infra-Yuvraj-Sarathe" title="Infrastructure">🚇</a>
-        <a href="https://github.com/KDM-cli/kdm-cli/pull/43" title="Documentation Automation">📖</a>
-      </td>
-      <td align="center" valign="top" width="14.28%">
-        <a href="https://github.com/utkarsh232005">
-          <img src="https://avatars.githubusercontent.com/u/137105846?v=4" width="100px;" alt="Utkarsh Patrikar"/><br/>
-          <sub><b>Utkarsh Patrikar</b></sub>
-        </a>
-        <br/>
-        <a href="#code-utkarsh232005" title="Code">💻</a>
-        <a href="#infra-utkarsh232005" title="CI/CD & Infrastructure">🚇</a>
-        <a href="#maintenance-utkarsh232005" title="Maintenance">🚧</a>
-      </td>
-      <td align="center" valign="top" width="14.28%">
-        <a href="https://github.com/blut-agent">
-          <img src="https://avatars.githubusercontent.com/u/278569635?v=4" width="100px;" alt="blut-agent"/><br/>
-          <sub><b>blut-agent</b></sub>
-        </a>
-        <br/>
-        <a href="https://github.com/KDM-cli/kdm-cli/pull/29" title="Version Check Feature">✨</a>
-        <a href="https://github.com/KDM-cli/kdm-cli/pull/28" title="Docs Structure">📖</a>
-        <a href="https://github.com/KDM-cli/kdm-cli/pull/23" title="Credential Setup">🔐</a>
-      </td>
-      <td align="center" valign="top" width="14.28%">
-        <a href="https://github.com/Rishiraj-Pathak-27">
-          <img src="https://avatars.githubusercontent.com/u/180004050?v=4" width="100px;" alt="Rishiraj Pathak"/><br/>
-          <sub><b>Rishiraj Pathak</b></sub>
-        </a>
-        <br/>
-        <a href="https://github.com/KDM-cli/kdm-cli/pull/40" title="Logs & Health Implementation">💻</a>
-      </td>
-      <td align="center" valign="top" width="14.28%">
-        <a href="https://github.com/fizyxbt">
-          <img src="https://avatars.githubusercontent.com/u/17788586?v=4" width="100px;" alt="fizyxbt"/><br/>
-          <sub><b>fizyxbt</b></sub>
-        </a>
-        <br/>
-        <a href="https://github.com/KDM-cli/kdm-cli/pull/23" title="Credential Setup Guidance">✨</a>
-      </td>
+      <td align="center" valign="top" width="14.28%"><a href="https://yuvraj-sarathe.github.io/Portfolio/"><img src="https://avatars.githubusercontent.com/u/216678101?v=4?s=100" width="100px;" alt="Yuvraj Sarathe"/><br /><sub><b>Yuvraj Sarathe</b></sub></a><br /><a href="#infra-Yuvraj-Sarathe" title="Infrastructure (Hosting, Build-Tools, etc)">🚇</a> <a href="https://github.com/KDM-cli/kdm-cli/commits?author=Yuvraj-Sarathe" title="Documentation">📖</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/utkarsh232005"><img src="https://avatars.githubusercontent.com/u/137105846?v=4?s=100" width="100px;" alt="Utkarsh Patrikar"/><br /><sub><b>Utkarsh Patrikar</b></sub></a><br /><a href="https://github.com/KDM-cli/kdm-cli/commits?author=utkarsh232005" title="Code">💻</a> <a href="#infra-utkarsh232005" title="Infrastructure (Hosting, Build-Tools, etc)">🚇</a> <a href="#maintenance-utkarsh232005" title="Maintenance">🚧</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/blut-agent"><img src="https://avatars.githubusercontent.com/u/278569635?v=4?s=100" width="100px;" alt="blut-agent"/><br /><sub><b>blut-agent</b></sub></a><br /><a href="https://github.com/KDM-cli/kdm-cli/commits?author=blut-agent" title="Code">💻</a> <a href="https://github.com/KDM-cli/kdm-cli/commits?author=blut-agent" title="Documentation">📖</a> <a href="#security-blut-agent" title="Security">🛡️</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/Rishiraj-Pathak-27"><img src="https://avatars.githubusercontent.com/u/180004050?v=4?s=100" width="100px;" alt="Rishiraj Pathak"/><br /><sub><b>Rishiraj Pathak</b></sub></a><br /><a href="https://github.com/KDM-cli/kdm-cli/commits?author=Rishiraj-Pathak-27" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/fizyxbt"><img src="https://avatars.githubusercontent.com/u/17788586?v=4?s=100" width="100px;" alt="fizyxbt"/><br /><sub><b>fizyxbt</b></sub></a><br /><a href="#security-fizyxbt" title="Security">🛡️</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/Akanshagore"><img src="https://avatars.githubusercontent.com/u/271256844?v=4?s=100" width="100px;" alt="Akansha Gore"/><br /><sub><b>Akansha Gore</b></sub></a><br /><a href="https://github.com/KDM-cli/kdm-cli/commits?author=akanshagore" title="Code">💻</a></td>
     </tr>
   </tbody>
 </table>
+
 <!-- markdownlint-restore -->
 <!-- prettier-ignore-end -->
+
 <!-- ALL-CONTRIBUTORS-LIST:END -->
 
 </div>
