@@ -14,7 +14,48 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/216678101?v=4",
       "profile": "https://yuvraj-sarathe.github.io/Portfolio/",
       "contributions": [
-        "infra"
+        "infra",
+        "doc"
+      ]
+    },
+    {
+      "login": "utkarsh232005",
+      "name": "Utkarsh Patrikar",
+      "avatar_url": "https://avatars.githubusercontent.com/u/137105846?v=4",
+      "profile": "https://github.com/utkarsh232005",
+      "contributions": [
+        "code",
+        "infra",
+        "maintenance"
+      ]
+    },
+    {
+      "login": "blut-agent",
+      "name": "blut-agent",
+      "avatar_url": "https://avatars.githubusercontent.com/u/278569635?v=4",
+      "profile": "https://github.com/blut-agent",
+      "contributions": [
+        "code",
+        "doc",
+        "security"
+      ]
+    },
+    {
+      "login": "Rishiraj-Pathak-27",
+      "name": "Rishiraj Pathak",
+      "avatar_url": "https://avatars.githubusercontent.com/u/180004050?v=4",
+      "profile": "https://github.com/Rishiraj-Pathak-27",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "fizyxbt",
+      "name": "fizyxbt",
+      "avatar_url": "https://avatars.githubusercontent.com/u/17788586?v=4",
+      "profile": "https://github.com/fizyxbt",
+      "contributions": [
+        "security"
       ]
     },
     {
