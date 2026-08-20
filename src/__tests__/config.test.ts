@@ -173,6 +173,143 @@ describe('config command', () => {
     expect(configUtils.setConfig).not.toHaveBeenCalled();
   });
 
+  it('should fallback to readline selection when TUI select is cancelled', async () => {
+    vi.mocked(tui.select).mockRejectedValueOnce(new Error('Cancelled'));
+
+    const stdin = process.stdin as NodeJS.ReadStream & {
+      setRawMode?: (mode: boolean) => void;
+    };
+
+    const originalIsTTY = stdin.isTTY;
+    const originalSetRawMode = stdin.setRawMode;
+    const originalResume = stdin.resume;
+    const originalPause = stdin.pause;
+    const originalOn = stdin.on;
+    const originalRemoveListener = stdin.removeListener;
+
+    let dataHandler: ((chunk: Buffer) => void) | undefined;
+
+    Object.defineProperty(stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    stdin.setRawMode = vi.fn();
+    stdin.resume = vi.fn();
+    stdin.pause = vi.fn();
+
+    stdin.on = vi.fn((event: string, handler: (chunk: Buffer) => void) => {
+      if (event === 'data') {
+        dataHandler = handler;
+      }
+      return stdin;
+    });
+
+    stdin.removeListener = vi.fn();
+
+    const promise = program.parseAsync([
+      'node',
+      'test',
+      'config',
+      'setup',
+    ]);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(dataHandler).toBeDefined();
+
+    dataHandler!(Buffer.from('\u001b[B'));
+    dataHandler!(Buffer.from('\u001b[A'));
+    dataHandler!(Buffer.from('\r'));
+
+    await promise;
+
+    expect(stdin.setRawMode).toHaveBeenCalledWith(true);
+    expect(stdin.setRawMode).toHaveBeenCalledWith(false);
+    expect(stdin.resume).toHaveBeenCalled();
+    expect(stdin.pause).toHaveBeenCalled();
+    expect(stdin.removeListener).toHaveBeenCalledWith(
+      'data',
+      expect.any(Function),
+    );
+
+    Object.defineProperty(stdin, 'isTTY', {
+      value: originalIsTTY,
+      configurable: true,
+    });
+
+    stdin.setRawMode = originalSetRawMode;
+    stdin.resume = originalResume;
+    stdin.pause = originalPause;
+    stdin.on = originalOn;
+    stdin.removeListener = originalRemoveListener;
+  });
+
+  it('should cancel readline selection on Ctrl+C', async () => {
+    vi.mocked(tui.select).mockRejectedValueOnce(new Error('Cancelled'));
+
+    const stdin = process.stdin as NodeJS.ReadStream & {
+      setRawMode?: (mode: boolean) => void;
+    };
+
+    const originalIsTTY = stdin.isTTY;
+    const originalSetRawMode = stdin.setRawMode;
+    const originalResume = stdin.resume;
+    const originalPause = stdin.pause;
+    const originalOn = stdin.on;
+    const originalRemoveListener = stdin.removeListener;
+
+    let dataHandler: ((chunk: Buffer) => void) | undefined;
+
+    Object.defineProperty(stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+
+    stdin.setRawMode = vi.fn();
+    stdin.resume = vi.fn();
+    stdin.pause = vi.fn();
+
+    stdin.on = vi.fn((event: string, handler: (chunk: Buffer) => void) => {
+      if (event === 'data') {
+        dataHandler = handler;
+      }
+      return stdin;
+    });
+
+    stdin.removeListener = vi.fn();
+
+    const promise = program.parseAsync([
+      'node',
+      'test',
+      'config',
+      'setup',
+    ]);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(dataHandler).toBeDefined();
+
+    dataHandler!(Buffer.from('\u0003'));
+
+    await promise;
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Cancelled'),
+    );
+
+    Object.defineProperty(stdin, 'isTTY', {
+      value: originalIsTTY,
+      configurable: true,
+    });
+
+    stdin.setRawMode = originalSetRawMode;
+    stdin.resume = originalResume;
+    stdin.pause = originalPause;
+    stdin.on = originalOn;
+    stdin.removeListener = originalRemoveListener;
+  });
+
   it('should handle setConfig failure gracefully during setup', async () => {
     vi.mocked(tui.select).mockResolvedValue('discord');
     // mockRlInstance.question default resolves with a valid webhook URL (set in beforeEach)
@@ -185,65 +322,96 @@ describe('config command', () => {
 
   it('should call select, multiple inputs and setConfig on email setup without password', async () => {
     vi.mocked(tui.select).mockResolvedValue('email');
+
     vi.mocked(tui.input)
       .mockResolvedValueOnce('smtp.gmail.com') // host
-      .mockResolvedValueOnce('587')            // port
-      .mockResolvedValueOnce('user@test.com')  // user
-      .mockResolvedValueOnce('to@test.com')    // to
-      .mockResolvedValueOnce('');              // password (empty)
+      .mockResolvedValueOnce('587') // port
+      .mockResolvedValueOnce('user@test.com') // user
+      .mockResolvedValueOnce('to@test.com'); // recipient
 
     await program.parseAsync(['node', 'test', 'config', 'setup']);
-    
-    expect(configUtils.setConfig).toHaveBeenCalledWith('notification_service', 'email');
-    expect(configUtils.setConfig).toHaveBeenCalledWith('email_host', 'smtp.gmail.com');
-    expect(configUtils.setConfig).toHaveBeenCalledWith('email_port', 587);
-    expect(configUtils.setConfig).toHaveBeenCalledWith('email_user', 'user@test.com');
-    expect(configUtils.setConfig).toHaveBeenCalledWith('email_to', 'to@test.com');
-    expect(configUtils.setConfig).not.toHaveBeenCalledWith('email_password', expect.any(String));
-    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringMatching(/Email SMTP setup/i));
-    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('KDM_SMTP_PASSWORD'));
+
+    expect(tui.select).toHaveBeenCalled();
+    expect(tui.input).toHaveBeenCalledTimes(4);
+
+    expect(configUtils.setConfig).toHaveBeenCalledWith(
+      'notification_service',
+      'email',
+    );
+    expect(configUtils.setConfig).toHaveBeenCalledWith(
+      'email_host',
+      'smtp.gmail.com',
+    );
+    expect(configUtils.setConfig).toHaveBeenCalledWith(
+      'email_port',
+      587,
+    );
+    expect(configUtils.setConfig).toHaveBeenCalledWith(
+      'email_user',
+      'user@test.com',
+    );
+    expect(configUtils.setConfig).toHaveBeenCalledWith(
+      'email_to',
+      'to@test.com',
+    );
+
+    expect(configUtils.setConfig).not.toHaveBeenCalledWith(
+      'email_password',
+      expect.any(String),
+    );
+
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/Email SMTP setup/i),
+    );
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      expect.stringContaining('KDM_SMTP_PASSWORD'),
+    );
 
     const guideOrder = consoleLogOrder(/Email SMTP setup/i);
     const firstTuiInputOrder = vi.mocked(tui.input).mock.invocationCallOrder[0];
     expect(guideOrder).toBeLessThan(firstTuiInputOrder);
   });
 
-  it('should not save email_password if provided during email setup', async () => {
+  it('should not prompt for or save email_password during email setup', async () => {
     vi.mocked(tui.select).mockResolvedValue('email');
     vi.mocked(tui.input)
-      .mockResolvedValueOnce('smtp.gmail.com') // host
-      .mockResolvedValueOnce('587')            // port
-      .mockResolvedValueOnce('user@test.com')  // user
-      .mockResolvedValueOnce('to@test.com')    // to
-      .mockResolvedValueOnce('pass123');       // password
+      .mockResolvedValueOnce('smtp.gmail.com')
+      .mockResolvedValueOnce('587')
+      .mockResolvedValueOnce('user@test.com')
+      .mockResolvedValueOnce('to@test.com');
 
     await program.parseAsync(['node', 'test', 'config', 'setup']);
 
-    const passwordCall = vi.mocked(configUtils.setConfig).mock.calls.find(
-      (call) => (call[0] as any) === 'email_password',
-    );
-    expect(passwordCall).toBeUndefined();
-  });
+    expect(tui.input).toHaveBeenCalledTimes(4);
 
-it('should require an SMTP host during email setup and validate optional SMTP password', async () => {
+    expect(
+      vi.mocked(tui.input).mock.calls.some(
+        ([prompt]) => prompt.message === 'SMTP Password (optional):',
+      ),
+    ).toBe(false);
+
+    expect(configUtils.setConfig).not.toHaveBeenCalledWith(
+      'email_password',
+      expect.any(String),
+    );
+  });
+it('should require an SMTP host during email setup', async () => {
   vi.mocked(tui.select).mockResolvedValue('email');
+
   vi.mocked(tui.input)
     .mockResolvedValueOnce('smtp.gmail.com')
     .mockResolvedValueOnce('587')
     .mockResolvedValueOnce('user@test.com')
-    .mockResolvedValueOnce('to@test.com')
-    .mockResolvedValueOnce('');
+    .mockResolvedValueOnce('to@test.com');
 
   await program.parseAsync(['node', 'test', 'config', 'setup']);
 
   const smtpHostPrompt = vi.mocked(tui.input).mock.calls[0][0];
-  expect(smtpHostPrompt.validate?.('')).toBe('Host is required');
 
-  // Find the password prompt by looking for the last input call
-  const passwordPromptIndex = vi.mocked(tui.input).mock.calls.length - 1;
-  const smtpPasswordPrompt = vi.mocked(tui.input).mock.calls[passwordPromptIndex][0];
-  expect(smtpPasswordPrompt.validate?.('')).toBe(true);
-  expect(smtpPasswordPrompt.validate?.('anything')).toBe(true);
+  expect(smtpHostPrompt.validate?.('')).toBe('Host is required');
+  expect(smtpHostPrompt.validate?.('smtp.gmail.com')).toBe(true);
+
+  expect(tui.input).toHaveBeenCalledTimes(4);
 });
 
   it('should call setConfig on config set', async () => {
