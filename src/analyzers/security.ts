@@ -55,7 +55,11 @@ export const SecurityAnalyzer: Analyzer = {
     return pods.flatMap((pod) => {
       const podSecCtx = pod.spec?.securityContext;
       const allErrors: Failure[] = [];
-      for (const container of pod.spec?.containers ?? []) {
+      const allContainers = [
+        ...(pod.spec?.containers ?? []),
+        ...(pod.spec?.initContainers ?? []),
+      ];
+      for (const container of allContainers) {
         allErrors.push(
           ...checkRunAsRoot(container, podSecCtx),
           ...checkPrivileged(container),
