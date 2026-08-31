@@ -17,13 +17,15 @@ import { registerCustomAnalyzerCommand } from './custom-analyzer';
 import { logger } from '../utils/logger';
 import { showWelcomeBanner } from '../ui/banner';
 import { createSpinner } from '../ui/spinner';
-import { checkForUpdates } from '../utils/version-check';
+import { checkForUpdates, getInstalledVersion } from '../utils/version-check';
 import { registerIntegrations } from '../integrations/integrations';
+
+const VERSION = getInstalledVersion();
 
 program
   .name('kdm')
   .description('Kubernetes and Docker Monitoring CLI')
-  .version('1.2.5');
+  .version(VERSION);
 
 // Register modular commands
 registerShowCommand(program);
@@ -43,7 +45,7 @@ registerIntegrations();
 
 const run = async () => {
   if (!process.argv.slice(2).length) {
-    showWelcomeBanner('1.2.5');
+    showWelcomeBanner(VERSION);
 
     const spinner = createSpinner('Checking connections...').start();
     let hadError = false;
