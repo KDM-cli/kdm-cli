@@ -12,6 +12,9 @@ interface Alert {
 // In-memory cooldown tracker: ID -> timestamp
 const cooldownTracker = new Map<string, number>();
 
+// Evict expired entries when map exceeds this size to prevent unbounded growth
+const EVICTION_THRESHOLD = 500;
+
 const sendDiscordNotification = async (alert: Alert) => {
   const { discord_webhook } = getConfig();
   if (!discord_webhook) return;
@@ -81,6 +84,13 @@ export const triggerAlert = async (alert: Alert, options?: { force?: boolean }) 
   }
 
   cooldownTracker.set(alert.id, now);
+
+  if (cooldownTracker.size > EVICTION_THRESHOLD) {
+    for (const [id, ts] of cooldownTracker) {
+      if (now - ts >= cooldownMs) cooldownTracker.delete(id);
+    }
+  }
+
   logger.info(`🚨 Triggering alert for ${alert.id}: ${alert.message}`);
 
   await Promise.allSettled([
