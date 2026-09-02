@@ -85,11 +85,20 @@ export const triggerAlert = async (alert: Alert, options?: { force?: boolean }) 
 
   cooldownTracker.set(alert.id, now);
 
-  if (cooldownTracker.size > EVICTION_THRESHOLD) {
-    for (const [id, ts] of cooldownTracker) {
-      if (now - ts >= cooldownMs) cooldownTracker.delete(id);
-    }
+if (cooldownTracker.size > EVICTION_THRESHOLD) {
+  // First remove entries that are definitely past cooldown
+  for (const [id, ts] of cooldownTracker) {
+    if (now - ts >= cooldownMs) cooldownTracker.delete(id);
   }
+
+  // Hard cap: if we still exceed the threshold, evict the oldest entries.
+  // (Map iteration preserves insertion order.)
+  while (cooldownTracker.size > EVICTION_THRESHOLD) {
+    const oldestId = cooldownTracker.keys().next().value as string | undefined;
+    if (!oldestId) break;
+    cooldownTracker.delete(oldestId);
+  }
+}
 
   logger.info(`🚨 Triggering alert for ${alert.id}: ${alert.message}`);
 
