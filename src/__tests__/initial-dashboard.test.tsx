@@ -79,16 +79,21 @@ describe('InitialDashboard', () => {
     vi.clearAllMocks();
   });
 
-  it('renders banner, version, connection status, and command list', async () => {
-    const { unmount } = render(
+  const renderDashboard = (props: Partial<React.ComponentProps<typeof InitialDashboard>> = {}) => {
+    return render(
       <InitialDashboard
         version="2.0.1"
         initialDocker={mockDockerConnected}
         initialK8s={mockK8sConnected}
         initialMinikube={mockMinikubeRunning}
+        {...props}
       />,
       { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
     );
+  };
+
+  it('renders banner, version, connection status, and command list', async () => {
+    const { unmount } = renderDashboard();
 
     await waitForFrame(mockStdout, 'Kubernetes & Docker Monitor v2.0.1');
     const output = mockStdout.frames.join('\n');
@@ -104,15 +109,7 @@ describe('InitialDashboard', () => {
   });
 
   it('navigates through menu items with arrow keys and updates preview', async () => {
-    const { unmount } = render(
-      <InitialDashboard
-        version="2.0.1"
-        initialDocker={mockDockerConnected}
-        initialK8s={mockK8sConnected}
-        initialMinikube={mockMinikubeRunning}
-      />,
-      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
-    );
+    const { unmount } = renderDashboard();
 
     await waitForFrame(mockStdout, '> 🔍 Analyze Cluster');
     mockStdin.sendKey('down');
@@ -126,16 +123,7 @@ describe('InitialDashboard', () => {
   it('launches selected action on Enter', async () => {
     const selectSpy = vi.fn();
 
-    const { unmount } = render(
-      <InitialDashboard
-        version="2.0.1"
-        onSelect={selectSpy}
-        initialDocker={mockDockerConnected}
-        initialK8s={mockK8sConnected}
-        initialMinikube={mockMinikubeRunning}
-      />,
-      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
-    );
+    const { unmount } = renderDashboard({ onSelect: selectSpy });
 
     await waitForFrame(mockStdout, '> 🔍 Analyze Cluster');
     mockStdin.sendKey('return');
@@ -148,16 +136,7 @@ describe('InitialDashboard', () => {
   it('launches action directly via shortcut hotkey', async () => {
     const selectSpy = vi.fn();
 
-    const { unmount } = render(
-      <InitialDashboard
-        version="2.0.1"
-        onSelect={selectSpy}
-        initialDocker={mockDockerConnected}
-        initialK8s={mockK8sConnected}
-        initialMinikube={mockMinikubeRunning}
-      />,
-      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
-    );
+    const { unmount } = renderDashboard({ onSelect: selectSpy });
 
     await waitForFrame(mockStdout, 'Kubernetes & Docker Monitor');
     mockStdin.sendChar('w');
@@ -181,15 +160,7 @@ describe('InitialDashboard', () => {
       running: true,
     });
 
-    const { unmount } = render(
-      <InitialDashboard
-        version="2.0.1"
-        initialDocker={mockDockerConnected}
-        initialK8s={mockK8sConnected}
-        initialMinikube={mockMinikubeRunning}
-      />,
-      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
-    );
+    const { unmount } = renderDashboard();
 
     await waitForFrame(mockStdout, 'Kubernetes & Docker Monitor');
     mockStdin.sendChar('r');
@@ -204,35 +175,24 @@ describe('InitialDashboard', () => {
   it('triggers onExit when q or escape is pressed', async () => {
     const exitSpy = vi.fn();
 
-    const { unmount } = render(
-      <InitialDashboard
-        version="2.0.1"
-        onExit={exitSpy}
-        initialDocker={mockDockerConnected}
-        initialK8s={mockK8sConnected}
-        initialMinikube={mockMinikubeRunning}
-      />,
-      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
-    );
+    const { unmount } = renderDashboard({ onExit: exitSpy });
 
     await waitForFrame(mockStdout, 'Kubernetes & Docker Monitor');
     mockStdin.sendChar('q');
     await sleep(50);
 
-    expect(exitSpy).toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledTimes(1);
+
+    exitSpy.mockClear();
+    mockStdin.sendKey('escape');
+    await sleep(50);
+
+    expect(exitSpy).toHaveBeenCalledTimes(1);
     unmount();
   });
 
   it('navigates to help screen and returns back to main dashboard on Esc or B', async () => {
-    const { unmount } = render(
-      <InitialDashboard
-        version="2.0.1"
-        initialDocker={mockDockerConnected}
-        initialK8s={mockK8sConnected}
-        initialMinikube={mockMinikubeRunning}
-      />,
-      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
-    );
+    const { unmount } = renderDashboard();
 
     await waitForFrame(mockStdout, 'Kubernetes & Docker Monitor');
     mockStdin.sendChar('?');
@@ -246,15 +206,7 @@ describe('InitialDashboard', () => {
   });
 
   it('navigates to analyze subscreen and returns back to home dashboard on Esc', async () => {
-    const { unmount } = render(
-      <InitialDashboard
-        version="2.0.1"
-        initialDocker={mockDockerConnected}
-        initialK8s={mockK8sConnected}
-        initialMinikube={mockMinikubeRunning}
-      />,
-      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
-    );
+    const { unmount } = renderDashboard();
 
     await waitForFrame(mockStdout, 'Kubernetes & Docker Monitor');
     mockStdin.sendChar('a');

@@ -122,13 +122,18 @@ async function launchInteractiveDashboard(): Promise<void> {
       onSelect: async (cmdArgs: string[]) => {
         instance.unmount();
         process.stdout.write('\x1Bc');
-        if (cmdArgs.length === 0) {
-          process.exit(0);
-        } else if (cmdArgs.includes('--help')) {
-          program.outputHelp();
-          process.exit(0);
-        } else {
-          await program.parseAsync(['node', 'kdm', ...cmdArgs]);
+        try {
+          if (cmdArgs.length === 0) {
+            process.exit(0);
+          } else if (cmdArgs.includes('--help')) {
+            program.outputHelp();
+            process.exit(0);
+          } else {
+            await program.parseAsync(['node', 'kdm', ...cmdArgs]);
+          }
+        } catch (error) {
+          console.error(chalk.red(`Command failed: ${(error as Error).message}`));
+          process.exit(1);
         }
       },
       onExit: () => {

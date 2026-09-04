@@ -174,6 +174,27 @@ const ConnectionBadge: React.FC<{ label: string; active: boolean; warn?: boolean
 };
 
 /**
+ * Renders an individual service status card.
+ */
+interface StatusCardProps {
+  title: string;
+  label: string;
+  active: boolean;
+  warn?: boolean;
+  detail?: string;
+}
+
+const StatusCard: React.FC<StatusCardProps> = ({ title, label, active, warn, detail }) => (
+  <Box flexDirection="column" width="33%">
+    <Text bold>{title}:</Text>
+    <Box flexDirection="row" gap={1}>
+      <ConnectionBadge label={label} active={active} warn={warn} />
+      {detail && <Text dimColor>({detail})</Text>}
+    </Box>
+  </Box>
+);
+
+/**
  * Displays status cards for Docker, Kubernetes, and Minikube connections.
  */
 const ConnectionPanel: React.FC<{
@@ -183,7 +204,7 @@ const ConnectionPanel: React.FC<{
   minikube: MinikubeSummary | null;
 }> = ({ loading, docker, k8s, minikube }) => {
   const minikubeLabel = minikube?.installed ? (minikube.running ? 'RUNNING' : 'STOPPED') : 'NOT INSTALLED';
-  const minikubeWarn = minikube?.installed && !minikube.running;
+  const minikubeWarn = Boolean(minikube?.installed && !minikube.running);
 
   return (
     <Box
@@ -202,34 +223,24 @@ const ConnectionPanel: React.FC<{
         )}
       </Box>
       <Box flexDirection="row" justifyContent="space-between">
-        <Box flexDirection="column" width="33%">
-          <Text bold>Docker:</Text>
-          <Box flexDirection="row" gap={1}>
-            <ConnectionBadge
-              label={docker?.connected ? 'CONNECTED' : 'DISCONNECTED'}
-              active={Boolean(docker?.connected)}
-            />
-            <Text dimColor>({docker?.containerCount ?? 0} containers)</Text>
-          </Box>
-        </Box>
-        <Box flexDirection="column" width="33%">
-          <Text bold>Kubernetes:</Text>
-          <Box flexDirection="row" gap={1}>
-            <ConnectionBadge
-              label={k8s?.connected ? 'CONNECTED' : 'DISCONNECTED'}
-              active={Boolean(k8s?.connected)}
-            />
-            <Text dimColor>({k8s?.podCount ?? 0} pods)</Text>
-          </Box>
-        </Box>
-        <Box flexDirection="column" width="33%">
-          <Text bold>Minikube:</Text>
-          <ConnectionBadge
-            label={minikubeLabel}
-            active={Boolean(minikube?.running)}
-            warn={minikubeWarn}
-          />
-        </Box>
+        <StatusCard
+          title="Docker"
+          label={docker?.connected ? 'CONNECTED' : 'DISCONNECTED'}
+          active={Boolean(docker?.connected)}
+          detail={`${docker?.containerCount ?? 0} containers`}
+        />
+        <StatusCard
+          title="Kubernetes"
+          label={k8s?.connected ? 'CONNECTED' : 'DISCONNECTED'}
+          active={Boolean(k8s?.connected)}
+          detail={`${k8s?.podCount ?? 0} pods`}
+        />
+        <StatusCard
+          title="Minikube"
+          label={minikubeLabel}
+          active={Boolean(minikube?.running)}
+          warn={minikubeWarn}
+        />
       </Box>
     </Box>
   );
@@ -243,7 +254,9 @@ const MenuList: React.FC<{
   selectedIndex: number;
 }> = ({ items, selectedIndex }) => (
   <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1} marginBottom={1}>
-    <Text bold color="yellow" marginBottom={1}>Select an Action to Launch:</Text>
+    <Box marginBottom={1}>
+      <Text bold color="yellow">Select an Action to Launch:</Text>
+    </Box>
     {items.map((item, idx) => {
       const isSelected = idx === selectedIndex;
       return (
@@ -258,6 +271,21 @@ const MenuList: React.FC<{
     })}
   </Box>
 );
+
+/**
+ * Determines whether cluster connections should be fetched asynchronously.
+ * Skips fetching only when all three initial status objects are supplied.
+ */
+export function shouldFetchStatus(
+  docker?: DockerSummary,
+  k8s?: K8sSummary,
+  minikube?: MinikubeSummary
+): boolean {
+  if (!docker) return true;
+  if (!k8s) return true;
+  if (!minikube) return true;
+  return false;
+}
 
 /**
  * Shows details and description for the currently selected command.
@@ -364,7 +392,7 @@ export const InitialDashboard: React.FC<InitialDashboardProps> = ({
   }, []);
 
   useEffect(() => {
-    if (!initialDocker && !initialK8s && !initialMinikube) {
+    if (shouldFetchStatus(initialDocker, initialK8s, initialMinikube)) {
       void fetchStatus();
     }
   }, [fetchStatus, initialDocker, initialK8s, initialMinikube]);
