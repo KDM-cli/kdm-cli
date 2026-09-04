@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, useApp } from 'ink';
 import { getRunningPods, PodData } from '../kubernetes/pods';
 import { getRunningContainers, ContainerData } from '../docker/containers';
 import { getK8sClusterStats } from '../kubernetes/pods';
 import { getDockerSystemStats } from '../docker/containers';
 import chalk from 'chalk';
+import { triggerBack, triggerExit } from './navigation-utils';
 
-interface HealthDashboardProps {
+export interface HealthDashboardProps {
   initialTarget: string;
   initialWatch?: boolean;
   initialInterval?: number;
+  onBack?: () => void;
+  onExit?: () => void;
 }
 
 interface SelectableItem {
@@ -267,11 +270,26 @@ const getNextTarget = (prev: string): string => {
   return 'all';
 };
 
+const calculateCompositePercent = (
+  showK8s: boolean,
+  showDocker: boolean,
+  k8sVal: number,
+  dockerVal: number
+): number => {
+  if (showK8s && showDocker) {
+    return (k8sVal + dockerVal) / 2;
+  }
+  return showK8s ? k8sVal : dockerVal;
+};
+
 export const HealthDashboard: React.FC<HealthDashboardProps> = ({
   initialTarget,
   initialWatch = false,
   initialInterval = 5,
+  onBack,
+  onExit,
 }) => {
+  const { exit } = useApp();
   const [target, setTarget] = useState(initialTarget);
   const [watch, setWatch] = useState(initialWatch);
   const [interval, setIntervalVal] = useState(initialInterval);
@@ -346,23 +364,9 @@ export const HealthDashboard: React.FC<HealthDashboardProps> = ({
   const showK8s = target === 'all' || target === 'pods';
   const showDocker = target === 'all' || target === 'containers';
 
-  const cpuPercent = showK8s && showDocker
-    ? (k8sCpu + dockerCpu) / 2
-    : showK8s
-    ? k8sCpu
-    : dockerCpu;
-
-  const memPercent = showK8s && showDocker
-    ? (k8sMem + dockerMem) / 2
-    : showK8s
-    ? k8sMem
-    : dockerMem;
-
-  const workloadPercent = showK8s && showDocker
-    ? (podsPercent + containersPercent) / 2
-    : showK8s
-    ? podsPercent
-    : containersPercent;
+  const cpuPercent = calculateCompositePercent(showK8s, showDocker, k8sCpu, dockerCpu);
+  const memPercent = calculateCompositePercent(showK8s, showDocker, k8sMem, dockerMem);
+  const workloadPercent = calculateCompositePercent(showK8s, showDocker, podsPercent, containersPercent);
 
   const selectableItems = buildSelectableItems(
     showK8s,
@@ -377,8 +381,19 @@ export const HealthDashboard: React.FC<HealthDashboardProps> = ({
   useInput((input, key) => {
     const lowerInput = input.toLowerCase();
 
+    if (key.escape || lowerInput === 'b') {
+      const hasInspected = Object.values(inspectedIds).some(Boolean);
+      if (hasInspected) {
+        setInspectedIds({});
+        return;
+      }
+      triggerBack(onBack, exit);
+      return;
+    }
+
     if (lowerInput === 'q' || (key.ctrl && input === 'c')) {
-      process.exit(0);
+      triggerExit(onExit, exit);
+      return;
     }
 
     if (key.tab) {
@@ -454,7 +469,7 @@ export const HealthDashboard: React.FC<HealthDashboardProps> = ({
       {/* Help Bar */}
       <Box marginTop={1} borderStyle="single" borderColor="gray" paddingX={1}>
         <Text dimColor>
-          TAB: Target ({target.toUpperCase()}) | SPACE: Expand/Collapse | W: Watch ({watch ? 'ON' : 'OFF'}) | +/-: Interval ({interval}s) | ENTER: Inspect | Q: Quit
+          TAB: Target ({target.toUpperCase()}) | SPACE: Expand/Collapse | W: Watch ({watch ? 'ON' : 'OFF'}) | +/-: Interval ({interval}s) | ENTER: Inspect | [Esc/B] Back | [Q] Quit
         </Text>
       </Box>
     </Box>

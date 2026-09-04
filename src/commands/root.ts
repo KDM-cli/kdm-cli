@@ -43,54 +43,116 @@ registerCustomAnalyzerCommand(program);
 // Register integration analyzers
 registerIntegrations();
 
+import React from 'react';
+import { render } from 'ink';
+import { InitialDashboard } from '../ui/InitialDashboard';
+
+/**
+ * Renders connection status badges and resource metrics in non-interactive mode.
+ * @param dockerStatus Result from checkDockerConnection.
+ * @param k8sStatus Result from checkK8sConnection.
+ * @param minikubeStatus Result from checkMinikubeConnection.
+ */
+function printStatusBadges(
+  dockerStatus: { connected: boolean; containerCount: number },
+  k8sStatus: { connected: boolean; podCount: number },
+  minikubeStatus: { installed: boolean; running: boolean }
+): void {
+  const badge = (text: string, color: 'green' | 'red' | 'yellow') => {
+    const styles = {
+      green: chalk.bgGreen.black.bold,
+      red: chalk.bgRed.white.bold,
+      yellow: chalk.bgYellow.black.bold,
+    };
+    return styles[color](` ${text} `);
+  };
+
+  const dockerStr = dockerStatus.connected ? badge('CONNECTED', 'green') : badge('DISCONNECTED', 'red');
+  const k8sStr = k8sStatus.connected ? badge('CONNECTED', 'green') : badge('DISCONNECTED', 'red');
+
+  let minikubeStr = badge('NOT INSTALLED', 'red');
+  if (minikubeStatus.installed) {
+    minikubeStr = minikubeStatus.running ? badge('RUNNING', 'green') : badge('STOPPED', 'yellow');
+  }
+
+  console.log(`${chalk.bold('Docker:')}      ${dockerStr}`);
+  console.log(`${chalk.bold('Kubernetes:')}  ${k8sStr}`);
+  console.log(`${chalk.bold('Minikube:')}    ${minikubeStr}\n`);
+
+  console.log(`${chalk.cyan('󰡨')} Running Containers: ${chalk.yellow.bold(dockerStatus.containerCount)}`);
+  console.log(`${chalk.blue('󱔎')} Running Pods:       ${chalk.yellow.bold(k8sStatus.podCount)}`);
+  console.log(`${chalk.red('󰒑')} Unhealthy Services: ${chalk.yellow.bold('0')} (Mocked)\n`);
+  console.log(chalk.bold('Commands:\n'));
+  console.log(`  kdm show runners\n  kdm health all\n  kdm watch\n  kdm logs <name>\n`);
+}
+
+/**
+ * Runs the fallback non-interactive connection check and prints output.
+ */
+async function runNonInteractiveSummary(): Promise<void> {
+  showWelcomeBanner(VERSION);
+  const spinner = createSpinner('Checking connections...').start();
+  let hadError = false;
+  try {
+    const [dockerStatus, k8sStatus, minikubeStatus] = await Promise.all([
+      checkDockerConnection(),
+      checkK8sConnection(),
+      checkMinikubeConnection(),
+    ]);
+    spinner.stop('Connection check complete');
+    console.log();
+    printStatusBadges(dockerStatus, k8sStatus, minikubeStatus);
+  } catch (error) {
+    hadError = true;
+    spinner.fail(`Connection check failed: ${(error as Error).message}`);
+  } finally {
+    program.outputHelp();
+    process.exit(hadError ? 1 : 0);
+  }
+}
+
+/**
+ * Launches the interactive InitialDashboard TUI.
+ */
+async function launchInteractiveDashboard(): Promise<void> {
+  process.stdout.write('\x1Bc');
+  const instance = render(
+    React.createElement(InitialDashboard, {
+      version: VERSION,
+      onSelect: async (cmdArgs: string[]) => {
+        instance.unmount();
+        process.stdout.write('\x1Bc');
+        try {
+          if (cmdArgs.length === 0) {
+            process.exit(0);
+          } else if (cmdArgs.includes('--help')) {
+            program.outputHelp();
+            process.exit(0);
+          } else {
+            await program.parseAsync(['node', 'kdm', ...cmdArgs]);
+          }
+        } catch (error) {
+          console.error(chalk.red(`Command failed: ${(error as Error).message}`));
+          process.exit(1);
+        }
+      },
+      onExit: () => {
+        instance.unmount();
+        process.exit(0);
+      },
+    })
+  );
+  await instance.waitUntilExit();
+}
+
 const run = async () => {
   if (!process.argv.slice(2).length) {
-    showWelcomeBanner(VERSION);
-
-    const spinner = createSpinner('Checking connections...').start();
-    let hadError = false;
-    try {
-      const [dockerStatus, k8sStatus, minikubeStatus] = await Promise.all([
-        checkDockerConnection(),
-        checkK8sConnection(),
-        checkMinikubeConnection()
-      ]);
-      spinner.stop('Connection check complete');
-      console.log();
-
-      const badge = (text: string, color: 'green' | 'red' | 'yellow') => {
-        const styles = {
-          green: chalk.bgGreen.black.bold,
-          red: chalk.bgRed.white.bold,
-          yellow: chalk.bgYellow.black.bold,
-        };
-        return styles[color](` ${text} `);
-      };
-
-      const dockerStr = dockerStatus.connected ? badge('CONNECTED', 'green') : badge('DISCONNECTED', 'red');
-      const k8sStr = k8sStatus.connected ? badge('CONNECTED', 'green') : badge('DISCONNECTED', 'red');
-      
-      let minikubeStr = badge('NOT INSTALLED', 'red');
-      if (minikubeStatus.installed) {
-        minikubeStr = minikubeStatus.running ? badge('RUNNING', 'green') : badge('STOPPED', 'yellow');
-      }
-
-      console.log(`${chalk.bold('Docker:')}      ${dockerStr}`);
-      console.log(`${chalk.bold('Kubernetes:')}  ${k8sStr}`);
-      console.log(`${chalk.bold('Minikube:')}    ${minikubeStr}\n`);
-      
-      console.log(`${chalk.cyan('󰡨')} Running Containers: ${chalk.yellow.bold(dockerStatus.containerCount)}`);
-      console.log(`${chalk.blue('󱔎')} Running Pods:       ${chalk.yellow.bold(k8sStatus.podCount)}`);
-      console.log(`${chalk.red('󰒑')} Unhealthy Services: ${chalk.yellow.bold('0')} (Mocked)\n`);
-      console.log(chalk.bold('Commands:\n'));
-      console.log(`  kdm show runners\n  kdm health all\n  kdm watch\n  kdm logs <name>\n`);
-    } catch (error) {
-      hadError = true;
-      spinner.fail(`Connection check failed: ${(error as Error).message}`);
-    } finally {
-      program.outputHelp();
-      process.exit(hadError ? 1 : 0);
+    if (process.stdout.isTTY && process.stdin.isTTY) {
+      await launchInteractiveDashboard();
+      return;
     }
+    await runNonInteractiveSummary();
+    return;
   }
 
   program.parse(process.argv);
@@ -100,3 +162,4 @@ const run = async () => {
 };
 
 run();
+

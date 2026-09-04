@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, useApp } from 'ink';
 import { getAIConfig, setAIConfig } from '../config/store';
 import { type AIProviderConfig } from '../config/schema';
+import { triggerBack, triggerExit } from './navigation-utils';
 
 const VALID_BACKENDS = [
   'openai',
@@ -143,6 +144,8 @@ const ProviderList = ({
             <Text> Set Default  </Text>
             <Text bold>[R]</Text>
             <Text> Remove  </Text>
+            <Text bold>[Esc/B]</Text>
+            <Text> Back  </Text>
             <Text bold>[Q]</Text>
             <Text> Quit</Text>
           </Box>
@@ -216,7 +219,7 @@ const WizardForm = ({ title, steps, activeStep, errorMsg }: WizardFormProps) => 
       )}
 
       <Text dimColor>
-        [ENTER] Next/Submit   [ESC] Cancel   [↑/↓] Change fields
+        [ENTER] Next/Submit   [ESC] Back   [↑/↓] Change fields
       </Text>
     </Box>
   );
@@ -242,7 +245,7 @@ const RemoveConfirm = ({ selectedProviderName }: RemoveConfirmProps) => {
       </Box>
       <Text>
         Press <Text bold color="green">[Y]</Text> to confirm, or{' '}
-        <Text bold color="red">[N]</Text> (or Esc) to cancel.
+        <Text bold color="red">[N]</Text> (or Esc) to go Back.
       </Text>
     </Box>
   );
@@ -250,7 +253,13 @@ const RemoveConfirm = ({ selectedProviderName }: RemoveConfirmProps) => {
 
 // --- Main AuthDashboard Component ---
 
-export const AuthDashboard = () => {
+export interface AuthDashboardProps {
+  onBack?: () => void;
+  onExit?: () => void;
+}
+
+export const AuthDashboard: React.FC<AuthDashboardProps> = ({ onBack, onExit }) => {
+  const { exit } = useApp();
   const [config, setConfig] = useState(() => getAIConfig());
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [mode, setMode] = useState<Mode>('list');
@@ -484,8 +493,13 @@ export const AuthDashboard = () => {
       selectRemoveProvider();
       return;
     }
-    if (lowerInput === 'q') {
-      process.exit(0);
+    if (key.escape || lowerInput === 'b') {
+      triggerBack(onBack, exit);
+      return;
+    }
+    if (lowerInput === 'q' || (key.ctrl && input === 'c')) {
+      triggerExit(onExit, exit);
+      return;
     }
   };
 
