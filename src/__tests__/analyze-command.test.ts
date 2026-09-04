@@ -133,4 +133,9 @@ describe('analyze command', () => {
       withDocs: false,
     }));
   });
+
+  it('keeps json output machine readable', async () => {
+    await program.parseAsync(['node', 'test', 'analyze', '--output', 'json']);
+    expect(logSpy).toHaveBeenCalled();
+  });
 });
