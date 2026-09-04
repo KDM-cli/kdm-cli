@@ -8,3 +8,6 @@ BLUEPRINT.md
 implemented.md
 coverage/
 .vscode/
+__pycache__/
+*.pyc
+*.pyo

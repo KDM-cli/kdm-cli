@@ -168,7 +168,8 @@ const ProblemDetailsPane: React.FC<{
   item: ProblemItem | null;
   isExplaining: boolean;
   explainError: string | null;
-}> = ({ item, isExplaining, explainError }) => {
+  agentProgressMessage?: string | null;
+}> = ({ item, isExplaining, explainError, agentProgressMessage }) => {
   if (!item) {
     return (
       <Box flexDirection="column" width="52%" paddingLeft={1}>
@@ -203,9 +204,11 @@ const ProblemDetailsPane: React.FC<{
           AI Explanation:
         </Text>
         {isExplaining && (
-          <Text color="yellow">
-            <InkSpinner /> Loading AI explanation...
-          </Text>
+          <Box flexDirection="column" marginY={1}>
+            <Text color="yellow">
+              <InkSpinner /> {agentProgressMessage || 'Loading AI explanation...'}
+            </Text>
+          </Box>
         )}
         {explainError && (
           <Text color="red">Explanation failed: {explainError}</Text>
@@ -337,6 +340,7 @@ export function AnalyzeDashboard({
   });
 
   const [isExplaining, setIsExplaining] = useState(false);
+  const [agentProgressMessage, setAgentProgressMessage] = useState<string | null>(null);
   const [explainError, setExplainError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<{
     text: string;
@@ -388,6 +392,7 @@ export function AnalyzeDashboard({
     if (!selectedItem || isExplaining) return;
     setIsExplaining(true);
     setExplainError(null);
+    setAgentProgressMessage(null);
     try {
       await explainSingleResult({
         result: selectedItem.result,
@@ -396,6 +401,9 @@ export function AnalyzeDashboard({
         shouldAnonymize: Boolean(options.anonymize),
         noCache: Boolean(options.noCache),
         customHeaders: options.customHeaders,
+        onAgentProgress: (event) => {
+          setAgentProgressMessage(event.message);
+        },
       });
       setResult((prev) => (prev ? { ...prev } : null));
     } catch (err) {
@@ -403,6 +411,7 @@ export function AnalyzeDashboard({
       setExplainError(errMsg);
     } finally {
       setIsExplaining(false);
+      setAgentProgressMessage(null);
     }
   };
 
@@ -509,6 +518,7 @@ export function AnalyzeDashboard({
           item={selectedItem}
           isExplaining={isExplaining}
           explainError={explainError}
+          agentProgressMessage={agentProgressMessage}
         />
       </Box>
 

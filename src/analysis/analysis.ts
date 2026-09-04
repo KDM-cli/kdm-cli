@@ -9,6 +9,8 @@ import { anonymize, deanonymize } from '../utils/text';
 import { createCacheProvider } from '../cache';
 import { logger } from '../utils/logger';
 import type { SuggestedFix } from './types';
+import { runPythonAgentCouncil, isPythonAgentAvailable } from '../agent/python-bridge';
+import type { ConsensusDiagnosis, AgentProgressEvent } from '../agent/types';
 
 const DEFAULT_FILTERS = ['Pod', 'Deployment', 'Service', 'PersistentVolumeClaim', 'Node'];
 const MAX_ALLOWED_CONCURRENCY = 100;
@@ -159,6 +161,72 @@ export interface ExplainSingleParams {
   shouldAnonymize: boolean;
   noCache: boolean;
   customHeaders?: Record<string, string>;
+  onAgentProgress?: (event: AgentProgressEvent) => void;
+}
+
+/**
+ * Formats consensus diagnosis from the multi-agent council for terminal display.
+ *
+ * @param consensus The consensus diagnosis from the Python agent council.
+ * @returns Human-readable multi-agent report string.
+ */
+export function formatConsensusExplanation(consensus: ConsensusDiagnosis): string {
+  const lines: string[] = [
+    `🎯 Root Cause (${consensus.confidence.toUpperCase()} confidence):`,
+    `  ${consensus.rootCause}`,
+    '',
+    '💡 Recommended Solution:',
+    `  ${consensus.bestSolution.actionTitle}`,
+  ];
+
+  for (const step of consensus.bestSolution.steps) {
+    lines.push(`  • ${step}`);
+  }
+
+  if (consensus.bestSolution.commandToRun) {
+    lines.push('');
+    lines.push(`  Command: ${consensus.bestSolution.commandToRun}`);
+  }
+
+  lines.push('');
+  lines.push('📋 Specialist Agent Findings:');
+  for (const finding of consensus.findings) {
+    const icon = finding.icon || '▸';
+    lines.push(`  ${icon} [${finding.agentName}]: ${finding.summary || finding.statusText}`);
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Attempts to execute the Python Multi-Agent Council for Ollama backends.
+ */
+async function tryRunAgentCouncil(
+  params: ExplainSingleParams,
+  promptText: string,
+  model: string
+): Promise<string | null> {
+  if (params.backend !== 'ollama') return null;
+
+  const isAvailable = await isPythonAgentAvailable();
+  if (!isAvailable) return null;
+
+  try {
+    const consensus = await runPythonAgentCouncil({
+      failureText: promptText,
+      context: {
+        kind: params.result.kind,
+        name: params.result.name,
+        namespace: params.result.namespace,
+      },
+      model,
+      onProgress: params.onAgentProgress,
+    });
+    return formatConsensusExplanation(consensus);
+  } catch (err) {
+    logger.warn(`Multi-agent council failed, using direct completion: ${(err as Error).message}`);
+    return null;
+  }
 }
 
 /**
@@ -199,12 +267,13 @@ export async function explainSingleResult(params: ExplainSingleParams): Promise<
     return;
   }
 
-  const response = await client.getCompletion(prompt);
-  const explanation = params.shouldAnonymize ? deanonymize(response, mapping) : response;
+  const agentResponse = await tryRunAgentCouncil(params, promptText, model);
+  const rawResponse = agentResponse || (await client.getCompletion(prompt));
+  const explanation = params.shouldAnonymize ? deanonymize(rawResponse, mapping) : rawResponse;
   params.result.details = explanation;
 
   if (!params.noCache) {
-    await tryStoreToCache(cacheKey, response);
+    await tryStoreToCache(cacheKey, rawResponse);
   }
 }
 
