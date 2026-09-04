@@ -11,6 +11,7 @@ import { getRunningContainers, ContainerData, getDockerSystemStats, DockerSystem
 import { listNodes } from '../../kubernetes/resources';
 import { getMinikubeStatus } from '../../minikube/client';
 import type * as k8s from '@kubernetes/client-node';
+import { triggerBack, triggerExit } from '../navigation-utils';
 
 const columnConfigs: Record<TabType, Column[]> = {
   [TabType.Pods]: [
@@ -272,22 +273,12 @@ export const ShowDashboard: React.FC<ShowDashboardProps> = ({ onBack, onExit }) 
     }
 
     if (key.escape || input.toLowerCase() === 'b') {
-      if (onBack) {
-        onBack();
-      } else {
-        exit();
-        process.exit(0);
-      }
+      triggerBack(onBack, exit);
       return;
     }
 
     if (input.toLowerCase() === 'q' || (key.ctrl && input === 'c')) {
-      if (onExit) {
-        onExit();
-      } else {
-        exit();
-        process.exit(0);
-      }
+      triggerExit(onExit, exit);
       return;
     }
 

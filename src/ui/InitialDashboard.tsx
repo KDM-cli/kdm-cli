@@ -195,6 +195,47 @@ const StatusCard: React.FC<StatusCardProps> = ({ title, label, active, warn, det
 );
 
 /**
+ * Helper to build status card model for Docker.
+ */
+function getDockerCard(docker: DockerSummary | null): StatusCardProps {
+  const isConnected = docker ? docker.connected : false;
+  const count = docker ? docker.containerCount : 0;
+  return {
+    title: 'Docker',
+    label: isConnected ? 'CONNECTED' : 'DISCONNECTED',
+    active: isConnected,
+    detail: `${count} containers`,
+  };
+}
+
+/**
+ * Helper to build status card model for Kubernetes.
+ */
+function getK8sCard(k8s: K8sSummary | null): StatusCardProps {
+  const isConnected = k8s ? k8s.connected : false;
+  const count = k8s ? k8s.podCount : 0;
+  return {
+    title: 'Kubernetes',
+    label: isConnected ? 'CONNECTED' : 'DISCONNECTED',
+    active: isConnected,
+    detail: `${count} pods`,
+  };
+}
+
+/**
+ * Helper to build status card model for Minikube.
+ */
+function getMinikubeCard(minikube: MinikubeSummary | null): StatusCardProps {
+  if (!minikube || !minikube.installed) {
+    return { title: 'Minikube', label: 'NOT INSTALLED', active: false };
+  }
+  if (minikube.running) {
+    return { title: 'Minikube', label: 'RUNNING', active: true };
+  }
+  return { title: 'Minikube', label: 'STOPPED', active: false, warn: true };
+}
+
+/**
  * Displays status cards for Docker, Kubernetes, and Minikube connections.
  */
 const ConnectionPanel: React.FC<{
@@ -202,49 +243,29 @@ const ConnectionPanel: React.FC<{
   docker: DockerSummary | null;
   k8s: K8sSummary | null;
   minikube: MinikubeSummary | null;
-}> = ({ loading, docker, k8s, minikube }) => {
-  const minikubeLabel = minikube?.installed ? (minikube.running ? 'RUNNING' : 'STOPPED') : 'NOT INSTALLED';
-  const minikubeWarn = Boolean(minikube?.installed && !minikube.running);
-
-  return (
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor="cyan"
-      paddingX={1}
-      marginBottom={1}
-    >
-      <Box justifyContent="space-between" marginBottom={1}>
-        <Text bold color="cyan">Cluster & Service Status</Text>
-        {loading && (
-          <Text color="yellow">
-            <InkSpinner /> Checking connections...
-          </Text>
-        )}
-      </Box>
-      <Box flexDirection="row" justifyContent="space-between">
-        <StatusCard
-          title="Docker"
-          label={docker?.connected ? 'CONNECTED' : 'DISCONNECTED'}
-          active={Boolean(docker?.connected)}
-          detail={`${docker?.containerCount ?? 0} containers`}
-        />
-        <StatusCard
-          title="Kubernetes"
-          label={k8s?.connected ? 'CONNECTED' : 'DISCONNECTED'}
-          active={Boolean(k8s?.connected)}
-          detail={`${k8s?.podCount ?? 0} pods`}
-        />
-        <StatusCard
-          title="Minikube"
-          label={minikubeLabel}
-          active={Boolean(minikube?.running)}
-          warn={minikubeWarn}
-        />
-      </Box>
+}> = ({ loading, docker, k8s, minikube }) => (
+  <Box
+    flexDirection="column"
+    borderStyle="round"
+    borderColor="cyan"
+    paddingX={1}
+    marginBottom={1}
+  >
+    <Box justifyContent="space-between" marginBottom={1}>
+      <Text bold color="cyan">Cluster & Service Status</Text>
+      {loading && (
+        <Text color="yellow">
+          <InkSpinner /> Checking connections...
+        </Text>
+      )}
     </Box>
-  );
-};
+    <Box flexDirection="row" justifyContent="space-between">
+      <StatusCard {...getDockerCard(docker)} />
+      <StatusCard {...getK8sCard(k8s)} />
+      <StatusCard {...getMinikubeCard(minikube)} />
+    </Box>
+  </Box>
+);
 
 /**
  * Renders the command menu with navigation highlight.
@@ -326,6 +347,21 @@ const HelpScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   );
 };
 
+const SUB_SCREENS: Record<
+  string,
+  (onBack: () => void, onExit?: () => void) => React.ReactNode
+> = {
+  analyze: (onBack, onExit) => (
+    <AnalyzeDashboard initialOptions={{ output: 'text' }} onBack={onBack} onExit={onExit} />
+  ),
+  show: (onBack, onExit) => <ShowDashboard onBack={onBack} onExit={onExit} />,
+  watch: (onBack, onExit) => <WatchDashboard onBack={onBack} onExit={onExit} />,
+  health: (onBack, onExit) => <HealthDashboard initialTarget="all" onBack={onBack} onExit={onExit} />,
+  logs: (onBack, onExit) => <LogsDashboard onBack={onBack} onExit={onExit} />,
+  auth: (onBack, onExit) => <AuthDashboard onBack={onBack} onExit={onExit} />,
+  help: (onBack) => <HelpScreen onBack={onBack} />,
+};
+
 /**
  * Renders the active sub-dashboard screen with a Back button back to home.
  */
@@ -334,25 +370,47 @@ const renderSubScreen = (
   onBack: () => void,
   onExit?: () => void
 ): React.ReactNode => {
-  switch (activeScreen) {
-    case 'analyze':
-      return <AnalyzeDashboard initialOptions={{ output: 'text' }} onBack={onBack} onExit={onExit} />;
-    case 'show':
-      return <ShowDashboard onBack={onBack} onExit={onExit} />;
-    case 'watch':
-      return <WatchDashboard onBack={onBack} onExit={onExit} />;
-    case 'health':
-      return <HealthDashboard initialTarget="all" onBack={onBack} onExit={onExit} />;
-    case 'logs':
-      return <LogsDashboard onBack={onBack} onExit={onExit} />;
-    case 'auth':
-      return <AuthDashboard onBack={onBack} onExit={onExit} />;
-    case 'help':
-      return <HelpScreen onBack={onBack} />;
-    default:
-      return null;
-  }
+  const screenRenderer = SUB_SCREENS[activeScreen];
+  return screenRenderer ? screenRenderer(onBack, onExit) : null;
 };
+
+/**
+ * Handles keyboard input for main menu navigation and execution.
+ */
+function handleMenuKeyInput(
+  input: string,
+  key: { upArrow?: boolean; downArrow?: boolean; return?: boolean; escape?: boolean },
+  selectedIndex: number,
+  setSelectedIndex: React.Dispatch<React.SetStateAction<number>>,
+  onExecute: (action: MenuAction) => void,
+  onRefresh: () => void,
+  onExit?: () => void
+): void {
+  if (key.upArrow) {
+    setSelectedIndex((i) => Math.max(0, i - 1));
+    return;
+  }
+  if (key.downArrow) {
+    setSelectedIndex((i) => Math.min(MENU_ACTIONS.length - 1, i + 1));
+    return;
+  }
+  if (key.return) {
+    onExecute(MENU_ACTIONS[selectedIndex]);
+    return;
+  }
+  if (input === 'r') {
+    onRefresh();
+    return;
+  }
+  if (input === 'q' || key.escape) {
+    onExit?.();
+    return;
+  }
+  const matched = MENU_ACTIONS.find((item) => item.key === input);
+  if (matched) {
+    onExecute(matched);
+  }
+}
 
 /**
  * Interactive initial home dashboard for KDM CLI.
@@ -407,23 +465,16 @@ export const InitialDashboard: React.FC<InitialDashboardProps> = ({
   }, [onExit, onSelect]);
 
   useInput((input, key) => {
-    if (activeScreen !== 'home') return;
-
-    if (key.upArrow) {
-      setSelectedIndex((i) => Math.max(0, i - 1));
-    } else if (key.downArrow) {
-      setSelectedIndex((i) => Math.min(MENU_ACTIONS.length - 1, i + 1));
-    } else if (key.return) {
-      handleExecute(MENU_ACTIONS[selectedIndex]);
-    } else if (input === 'r') {
-      void fetchStatus();
-    } else if (input === 'q' || key.escape) {
-      onExit?.();
-    } else {
-      const matched = MENU_ACTIONS.find((item) => item.key === input);
-      if (matched) {
-        handleExecute(matched);
-      }
+    if (activeScreen === 'home') {
+      handleMenuKeyInput(
+        input,
+        key,
+        selectedIndex,
+        setSelectedIndex,
+        handleExecute,
+        () => void fetchStatus(),
+        onExit
+      );
     }
   });
 

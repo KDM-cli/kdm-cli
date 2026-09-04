@@ -7,6 +7,7 @@ import { getDockerClient } from '../docker/client';
 import { createAIClient } from '../ai/factory';
 import { getAIConfig } from '../config/store';
 import chalk from 'chalk';
+import { triggerBack, triggerExit } from './navigation-utils';
 
 const StatusBadge = ({ status, type }: { status: string, type: 'pod' | 'container' }) => {
   const isRunning = type === 'pod' ? status === 'Running' : status === 'running';
@@ -260,22 +261,12 @@ export const WatchDashboard: React.FC<WatchDashboardProps> = ({ onBack, onExit }
     }
 
     if (key.escape || lowerInput === 'b') {
-      if (onBack) {
-        onBack();
-      } else {
-        exit();
-        process.exit(0);
-      }
+      triggerBack(onBack, exit);
       return;
     }
 
     if (lowerInput === 'q' || (key.ctrl && input === 'c')) {
-      if (onExit) {
-        onExit();
-      } else {
-        exit();
-        process.exit(0);
-      }
+      triggerExit(onExit, exit);
       return;
     }
 

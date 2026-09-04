@@ -6,6 +6,7 @@ import { getRunningContainers, ContainerData } from '../docker/containers';
 import { getK8sApi } from '../kubernetes/client';
 import { getDockerClient } from '../docker/client';
 import chalk from 'chalk';
+import { triggerBack, triggerExit } from './navigation-utils';
 
 export interface LogsDashboardProps {
   initialName?: string;
@@ -247,24 +248,14 @@ export const LogsDashboard: React.FC<LogsDashboardProps> = ({ initialName, onBac
     }
 
     if (lowerInput === 'q' || (key.ctrl && input === 'c')) {
-      if (onExit) {
-        onExit();
-      } else {
-        exit();
-        process.exit(0);
-      }
+      triggerExit(onExit, exit);
       return;
     }
 
     // Selector Mode keys
     if (!selectedResource) {
       if (key.escape || (!searchQuery && lowerInput === 'b')) {
-        if (onBack) {
-          onBack();
-        } else {
-          exit();
-          process.exit(0);
-        }
+        triggerBack(onBack, exit);
         return;
       }
       if (key.upArrow) {
@@ -294,12 +285,7 @@ export const LogsDashboard: React.FC<LogsDashboardProps> = ({ initialName, onBac
         setLogSearchQuery('');
         setSearchMode(false);
       } else {
-        if (onBack) {
-          onBack();
-        } else {
-          exit();
-          process.exit(0);
-        }
+        triggerBack(onBack, exit);
       }
       return;
     }

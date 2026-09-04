@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Box, Text, useInput, useApp } from 'ink';
 import { getAIConfig, setAIConfig } from '../config/store';
 import { type AIProviderConfig } from '../config/schema';
+import { triggerBack, triggerExit } from './navigation-utils';
 
 const VALID_BACKENDS = [
   'openai',
@@ -493,21 +494,11 @@ export const AuthDashboard: React.FC<AuthDashboardProps> = ({ onBack, onExit }) 
       return;
     }
     if (key.escape || lowerInput === 'b') {
-      if (onBack) {
-        onBack();
-      } else {
-        exit();
-        process.exit(0);
-      }
+      triggerBack(onBack, exit);
       return;
     }
     if (lowerInput === 'q' || (key.ctrl && input === 'c')) {
-      if (onExit) {
-        onExit();
-      } else {
-        exit();
-        process.exit(0);
-      }
+      triggerExit(onExit, exit);
       return;
     }
   };

@@ -5,6 +5,7 @@ import { getRunningContainers, ContainerData } from '../docker/containers';
 import { getK8sClusterStats } from '../kubernetes/pods';
 import { getDockerSystemStats } from '../docker/containers';
 import chalk from 'chalk';
+import { triggerBack, triggerExit } from './navigation-utils';
 
 export interface HealthDashboardProps {
   initialTarget: string;
@@ -269,6 +270,18 @@ const getNextTarget = (prev: string): string => {
   return 'all';
 };
 
+const calculateCompositePercent = (
+  showK8s: boolean,
+  showDocker: boolean,
+  k8sVal: number,
+  dockerVal: number
+): number => {
+  if (showK8s && showDocker) {
+    return (k8sVal + dockerVal) / 2;
+  }
+  return showK8s ? k8sVal : dockerVal;
+};
+
 export const HealthDashboard: React.FC<HealthDashboardProps> = ({
   initialTarget,
   initialWatch = false,
@@ -351,23 +364,9 @@ export const HealthDashboard: React.FC<HealthDashboardProps> = ({
   const showK8s = target === 'all' || target === 'pods';
   const showDocker = target === 'all' || target === 'containers';
 
-  const cpuPercent = showK8s && showDocker
-    ? (k8sCpu + dockerCpu) / 2
-    : showK8s
-    ? k8sCpu
-    : dockerCpu;
-
-  const memPercent = showK8s && showDocker
-    ? (k8sMem + dockerMem) / 2
-    : showK8s
-    ? k8sMem
-    : dockerMem;
-
-  const workloadPercent = showK8s && showDocker
-    ? (podsPercent + containersPercent) / 2
-    : showK8s
-    ? podsPercent
-    : containersPercent;
+  const cpuPercent = calculateCompositePercent(showK8s, showDocker, k8sCpu, dockerCpu);
+  const memPercent = calculateCompositePercent(showK8s, showDocker, k8sMem, dockerMem);
+  const workloadPercent = calculateCompositePercent(showK8s, showDocker, podsPercent, containersPercent);
 
   const selectableItems = buildSelectableItems(
     showK8s,
@@ -388,22 +387,12 @@ export const HealthDashboard: React.FC<HealthDashboardProps> = ({
         setInspectedIds({});
         return;
       }
-      if (onBack) {
-        onBack();
-      } else {
-        exit();
-        process.exit(0);
-      }
+      triggerBack(onBack, exit);
       return;
     }
 
     if (lowerInput === 'q' || (key.ctrl && input === 'c')) {
-      if (onExit) {
-        onExit();
-      } else {
-        exit();
-        process.exit(0);
-      }
+      triggerExit(onExit, exit);
       return;
     }
 
