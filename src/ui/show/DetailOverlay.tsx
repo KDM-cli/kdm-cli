@@ -104,7 +104,7 @@ export const DetailOverlay: React.FC<DetailOverlayProps> = ({ resource, onClose 
             </Box>
           ))}
         </Box>
-        <Text dimColor>  Press ESC to close</Text>
+        <Text dimColor>  Press [ESC/B] Back</Text>
       </Box>
     </Box>
   );

@@ -3,6 +3,12 @@ import { Box, Text, useInput } from 'ink';
 import { checkDockerConnection } from '../docker/client';
 import { checkK8sConnection } from '../kubernetes/client';
 import { checkMinikubeConnection } from '../minikube/client';
+import { AnalyzeDashboard } from './AnalyzeDashboard';
+import { WatchDashboard } from './WatchDashboard';
+import { HealthDashboard } from './HealthDashboard';
+import { ShowDashboard } from './show/ShowDashboard';
+import { LogsDashboard } from './LogsDashboard';
+import { AuthDashboard } from './AuthDashboard';
 
 /**
  * Docker connection status summary.
@@ -50,6 +56,7 @@ export interface InitialDashboardProps {
   initialDocker?: DockerSummary;
   initialK8s?: K8sSummary;
   initialMinikube?: MinikubeSummary;
+  initialScreen?: string;
 }
 
 const MENU_ACTIONS: MenuAction[] = [
@@ -264,6 +271,62 @@ const SelectedPreview: React.FC<{ item: MenuAction }> = ({ item }) => (
 );
 
 /**
+ * Screen displaying KDM CLI help documentation with back action.
+ */
+const HelpScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+  useInput((input, key) => {
+    if (key.escape || input.toLowerCase() === 'b' || input.toLowerCase() === 'q') {
+      onBack();
+    }
+  });
+
+  return (
+    <Box flexDirection="column" padding={1} borderStyle="round" borderColor="cyan">
+      <Text bold color="cyan" marginBottom={1}>KDM - Kubernetes & Docker Monitoring CLI Help</Text>
+      <Text bold color="yellow">Available Commands:</Text>
+      <Text>  kdm analyze        - Analyze Kubernetes resources for common workload problems</Text>
+      <Text>  kdm show [target]  - Show running containers, pods, or runners</Text>
+      <Text>  kdm watch          - Live monitoring mode using Ink split-pane dashboard</Text>
+      <Text>  kdm health [target]- Show health status for pods, containers, or all</Text>
+      <Text>  kdm logs [name]    - Search and stream container and pod logs</Text>
+      <Text>  kdm auth           - Manage AI provider authentication and credentials</Text>
+      <Text>  kdm config         - Manage KDM configuration</Text>
+      <Box marginTop={1} borderStyle="single" borderColor="gray" paddingX={1}>
+        <Text dimColor>[Esc/B] Back to Main Menu   [Q] Back</Text>
+      </Box>
+    </Box>
+  );
+};
+
+/**
+ * Renders the active sub-dashboard screen with a Back button back to home.
+ */
+const renderSubScreen = (
+  activeScreen: string,
+  onBack: () => void,
+  onExit?: () => void
+): React.ReactNode => {
+  switch (activeScreen) {
+    case 'analyze':
+      return <AnalyzeDashboard initialOptions={{ output: 'text' }} onBack={onBack} onExit={onExit} />;
+    case 'show':
+      return <ShowDashboard onBack={onBack} onExit={onExit} />;
+    case 'watch':
+      return <WatchDashboard onBack={onBack} onExit={onExit} />;
+    case 'health':
+      return <HealthDashboard initialTarget="all" onBack={onBack} onExit={onExit} />;
+    case 'logs':
+      return <LogsDashboard onBack={onBack} onExit={onExit} />;
+    case 'auth':
+      return <AuthDashboard onBack={onBack} onExit={onExit} />;
+    case 'help':
+      return <HelpScreen onBack={onBack} />;
+    default:
+      return null;
+  }
+};
+
+/**
  * Interactive initial home dashboard for KDM CLI.
  */
 export const InitialDashboard: React.FC<InitialDashboardProps> = ({
@@ -273,7 +336,9 @@ export const InitialDashboard: React.FC<InitialDashboardProps> = ({
   initialDocker,
   initialK8s,
   initialMinikube,
+  initialScreen = 'home',
 }) => {
+  const [activeScreen, setActiveScreen] = useState<string>(initialScreen);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [docker, setDocker] = useState<DockerSummary | null>(initialDocker ?? null);
@@ -305,14 +370,17 @@ export const InitialDashboard: React.FC<InitialDashboardProps> = ({
   }, [fetchStatus, initialDocker, initialK8s, initialMinikube]);
 
   const handleExecute = useCallback((action: MenuAction) => {
+    onSelect?.(action.args);
     if (action.id === 'exit') {
       onExit?.();
     } else {
-      onSelect?.(action.args);
+      setActiveScreen(action.id);
     }
   }, [onExit, onSelect]);
 
   useInput((input, key) => {
+    if (activeScreen !== 'home') return;
+
     if (key.upArrow) {
       setSelectedIndex((i) => Math.max(0, i - 1));
     } else if (key.downArrow) {
@@ -331,6 +399,14 @@ export const InitialDashboard: React.FC<InitialDashboardProps> = ({
     }
   });
 
+  if (activeScreen !== 'home') {
+    return (
+      <Box flexDirection="column">
+        {renderSubScreen(activeScreen, () => setActiveScreen('home'), onExit)}
+      </Box>
+    );
+  }
+
   const selectedItem = MENU_ACTIONS[selectedIndex];
 
   return (
@@ -341,7 +417,7 @@ export const InitialDashboard: React.FC<InitialDashboardProps> = ({
       <SelectedPreview item={selectedItem} />
       <Box borderStyle="single" borderColor="gray" paddingX={1}>
         <Text dimColor>
-          [↑/↓] Navigate   [Enter] Launch   [a] Analyze   [s] Show   [w] Watch   [r] Refresh   [q] Quit
+          [↑/↓] Navigate   [Enter] Launch   [a] Analyze   [s] Show   [w] Watch   [r] Refresh   [Esc/q] Quit
         </Text>
       </Box>
     </Box>

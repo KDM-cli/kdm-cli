@@ -222,4 +222,48 @@ describe('InitialDashboard', () => {
     expect(exitSpy).toHaveBeenCalled();
     unmount();
   });
+
+  it('navigates to help screen and returns back to main dashboard on Esc or B', async () => {
+    const { unmount } = render(
+      <InitialDashboard
+        version="2.0.1"
+        initialDocker={mockDockerConnected}
+        initialK8s={mockK8sConnected}
+        initialMinikube={mockMinikubeRunning}
+      />,
+      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
+    );
+
+    await waitForFrame(mockStdout, 'Kubernetes & Docker Monitor');
+    mockStdin.sendChar('?');
+    await waitForFrame(mockStdout, 'KDM - Kubernetes & Docker Monitoring CLI Help');
+
+    // Press 'b' to go back
+    mockStdin.sendChar('b');
+    await waitForFrame(mockStdout, 'Select an Action to Launch:');
+
+    unmount();
+  });
+
+  it('navigates to analyze subscreen and returns back to home dashboard on Esc', async () => {
+    const { unmount } = render(
+      <InitialDashboard
+        version="2.0.1"
+        initialDocker={mockDockerConnected}
+        initialK8s={mockK8sConnected}
+        initialMinikube={mockMinikubeRunning}
+      />,
+      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
+    );
+
+    await waitForFrame(mockStdout, 'Kubernetes & Docker Monitor');
+    mockStdin.sendChar('a');
+    await waitForFrame(mockStdout, 'KDM Analyze Dashboard');
+
+    // Press Escape to go back
+    mockStdin.sendKey('escape');
+    await waitForFrame(mockStdout, 'Select an Action to Launch:');
+
+    unmount();
+  });
 });

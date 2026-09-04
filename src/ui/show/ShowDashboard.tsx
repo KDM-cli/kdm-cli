@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, useApp } from 'ink';
 import { TabType, TabConfig, Column, ResourceRow, PodRow, ContainerRow, NodeRow, RunnerRow, MinikubeRow, DataError } from './types';
 import { TabBar } from './TabBar';
 import { SearchInput } from './SearchInput';
@@ -133,7 +133,13 @@ const ErrorBanner: React.FC<{ errors: DataError[] }> = ({ errors }) => {
   );
 };
 
-export const ShowDashboard: React.FC = () => {
+export interface ShowDashboardProps {
+  onBack?: () => void;
+  onExit?: () => void;
+}
+
+export const ShowDashboard: React.FC<ShowDashboardProps> = ({ onBack, onExit }) => {
+  const { exit } = useApp();
   const [activeTab, setActiveTab] = useState<TabType>(TabType.Pods);
   const [selectedRow, setSelectedRow] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
@@ -253,12 +259,36 @@ export const ShowDashboard: React.FC = () => {
 
   useInput((input, key) => {
     if (showDetail) {
-      if (key.escape) setShowDetail(false);
+      if (key.escape || input.toLowerCase() === 'b') setShowDetail(false);
+      return;
+    }
+
+    if (showSearch) {
+      if (key.escape) {
+        setShowSearch(false);
+        setSearchQuery('');
+      }
+      return;
+    }
+
+    if (key.escape || input.toLowerCase() === 'b') {
+      if (onBack) {
+        onBack();
+      } else {
+        exit();
+        process.exit(0);
+      }
       return;
     }
 
     if (input.toLowerCase() === 'q' || (key.ctrl && input === 'c')) {
-      process.exit(0);
+      if (onExit) {
+        onExit();
+      } else {
+        exit();
+        process.exit(0);
+      }
+      return;
     }
 
     if (key.tab || key.rightArrow) {

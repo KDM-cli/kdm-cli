@@ -48,6 +48,7 @@ export interface AnalyzeDashboardProps {
   initialOptions: AnalysisOptions;
   initialResult?: AnalysisOutput;
   onExit?: () => void;
+  onBack?: () => void;
 }
 
 /** Flatten analysis results into a flat list of selectable ProblemItems. */
@@ -250,7 +251,7 @@ const NamespaceModal: React.FC<{
       <Text>Namespace (leave empty for all): </Text>
       <TextInput value={value} onChange={onChange} onSubmit={onSubmit} />
     </Box>
-    <Text dimColor>[Enter] Apply & Re-analyze   [Esc] Cancel</Text>
+    <Text dimColor>[Enter] Apply & Re-analyze   [Esc] Back</Text>
   </Box>
 );
 
@@ -271,13 +272,13 @@ const BackendModal: React.FC<{
     {AVAILABLE_BACKENDS.map((b, idx) => {
       const isSelected = idx === selectedIndex;
       return (
-        <Text key={b} color={isSelected ? 'magenta' : undefined} bold={isSelected}>
+        <Text key={b} bold={isSelected} color={isSelected ? 'yellow' : undefined}>
           {isSelected ? '> ' : '  '}
           {b}
         </Text>
       );
     })}
-    <Text dimColor>[↑/↓] Choose   [Enter] Select & Re-analyze   [Esc] Cancel</Text>
+    <Text dimColor>[↑/↓] Choose   [Enter] Select & Re-analyze   [Esc] Back</Text>
   </Box>
 );
 
@@ -301,7 +302,7 @@ const ConfirmDialog: React.FC<{
     </Text>
     <Text>
       Press <Text bold color="green">[y]</Text> to execute, or{' '}
-      <Text bold color="red">[n / Esc]</Text> to cancel.
+      <Text bold color="red">[n / Esc]</Text> to go Back.
     </Text>
   </Box>
 );
@@ -314,6 +315,7 @@ export function AnalyzeDashboard({
   initialOptions,
   initialResult,
   onExit,
+  onBack,
 }: AnalyzeDashboardProps) {
   const { exit } = useApp();
   const [options, setOptions] = useState<AnalysisOptions>(() => ({
@@ -443,7 +445,17 @@ export function AnalyzeDashboard({
       return;
     }
 
-    // Default dashboard controls
+    // Back or Exit dashboard controls
+    if (key.escape) {
+      if (onBack) {
+        onBack();
+      } else {
+        onExit?.();
+        exit();
+      }
+      return;
+    }
+
     if (input === 'q' || (key.ctrl && input === 'c')) {
       onExit?.();
       exit();
@@ -530,7 +542,7 @@ export function AnalyzeDashboard({
 
       <Box marginTop={1}>
         <Text dimColor>
-          [↑/↓] Navigate  [f] Fix  [e] Explain  [n] Namespace  [b] Backend  [r] Refresh  [q] Quit
+          [↑/↓] Navigate  [f] Fix  [e] Explain  [n] Namespace  [b] Backend  [r] Refresh  [Esc] Back  [q] Quit
         </Text>
       </Box>
     </Box>

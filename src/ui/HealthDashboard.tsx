@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, useApp } from 'ink';
 import { getRunningPods, PodData } from '../kubernetes/pods';
 import { getRunningContainers, ContainerData } from '../docker/containers';
 import { getK8sClusterStats } from '../kubernetes/pods';
 import { getDockerSystemStats } from '../docker/containers';
 import chalk from 'chalk';
 
-interface HealthDashboardProps {
+export interface HealthDashboardProps {
   initialTarget: string;
   initialWatch?: boolean;
   initialInterval?: number;
+  onBack?: () => void;
+  onExit?: () => void;
 }
 
 interface SelectableItem {
@@ -271,7 +273,10 @@ export const HealthDashboard: React.FC<HealthDashboardProps> = ({
   initialTarget,
   initialWatch = false,
   initialInterval = 5,
+  onBack,
+  onExit,
 }) => {
+  const { exit } = useApp();
   const [target, setTarget] = useState(initialTarget);
   const [watch, setWatch] = useState(initialWatch);
   const [interval, setIntervalVal] = useState(initialInterval);
@@ -377,8 +382,29 @@ export const HealthDashboard: React.FC<HealthDashboardProps> = ({
   useInput((input, key) => {
     const lowerInput = input.toLowerCase();
 
+    if (key.escape || lowerInput === 'b') {
+      const hasInspected = Object.values(inspectedIds).some(Boolean);
+      if (hasInspected) {
+        setInspectedIds({});
+        return;
+      }
+      if (onBack) {
+        onBack();
+      } else {
+        exit();
+        process.exit(0);
+      }
+      return;
+    }
+
     if (lowerInput === 'q' || (key.ctrl && input === 'c')) {
-      process.exit(0);
+      if (onExit) {
+        onExit();
+      } else {
+        exit();
+        process.exit(0);
+      }
+      return;
     }
 
     if (key.tab) {
@@ -454,7 +480,7 @@ export const HealthDashboard: React.FC<HealthDashboardProps> = ({
       {/* Help Bar */}
       <Box marginTop={1} borderStyle="single" borderColor="gray" paddingX={1}>
         <Text dimColor>
-          TAB: Target ({target.toUpperCase()}) | SPACE: Expand/Collapse | W: Watch ({watch ? 'ON' : 'OFF'}) | +/-: Interval ({interval}s) | ENTER: Inspect | Q: Quit
+          TAB: Target ({target.toUpperCase()}) | SPACE: Expand/Collapse | W: Watch ({watch ? 'ON' : 'OFF'}) | +/-: Interval ({interval}s) | ENTER: Inspect | [Esc/B] Back | [Q] Quit
         </Text>
       </Box>
     </Box>

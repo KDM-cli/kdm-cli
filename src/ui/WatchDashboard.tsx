@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, useApp } from 'ink';
 import { getRunningPods, PodData, getK8sClusterStats, K8sClusterStats } from '../kubernetes/pods';
 import { getRunningContainers, ContainerData, getDockerSystemStats, DockerSystemStats, formatDockerBytes } from '../docker/containers';
 import { getK8sApi } from '../kubernetes/client';
@@ -27,7 +27,13 @@ export const truncateName = (name: string, maxLength: number): string => {
   return name.substring(0, maxLength - 3) + '...';
 };
 
-export const WatchDashboard = () => {
+export interface WatchDashboardProps {
+  onBack?: () => void;
+  onExit?: () => void;
+}
+
+export const WatchDashboard: React.FC<WatchDashboardProps> = ({ onBack, onExit }) => {
+  const { exit } = useApp();
   const [pods, setPods] = useState<PodData[]>([]);
   const [containers, setContainers] = useState<ContainerData[]>([]);
   const [k8sStats, setK8sStats] = useState<K8sClusterStats | null>(null);
@@ -240,14 +246,37 @@ export const WatchDashboard = () => {
     }
 
     if (aiDiagnosis) {
-      if (key.escape || lowerInput === 'q') {
+      if (key.escape || lowerInput === 'q' || lowerInput === 'b') {
         setAiDiagnosis(null);
       }
       return;
     }
 
+    if (showLogs) {
+      if (key.escape || lowerInput === 'q' || lowerInput === 'b') {
+        setShowLogs(false);
+      }
+      return;
+    }
+
+    if (key.escape || lowerInput === 'b') {
+      if (onBack) {
+        onBack();
+      } else {
+        exit();
+        process.exit(0);
+      }
+      return;
+    }
+
     if (lowerInput === 'q' || (key.ctrl && input === 'c')) {
-      process.exit(0);
+      if (onExit) {
+        onExit();
+      } else {
+        exit();
+        process.exit(0);
+      }
+      return;
     }
 
     // Switch focus
@@ -308,7 +337,7 @@ export const WatchDashboard = () => {
       <Box flexDirection="column" padding={1} borderStyle="round" borderColor="cyan">
         <Box justifyContent="space-between" marginBottom={1}>
           <Text bold color="cyan"> Logs: {selectedResource?.name} [STREAMING] </Text>
-          <Text dimColor>Press ESC or Q to go back</Text>
+          <Text dimColor>Press [ESC/B] Back</Text>
         </Box>
         <Box borderStyle="single" borderColor="gray" minHeight={15} padding={1} flexDirection="column">
           {loadingLogs ? (
@@ -327,7 +356,7 @@ export const WatchDashboard = () => {
       <Box flexDirection="column" padding={1} borderStyle="round" borderColor="magenta">
         <Box justifyContent="space-between" marginBottom={1}>
           <Text bold color="magenta"> AI Diagnosis for {selectedResource?.name} </Text>
-          <Text dimColor>Press ESC or Q to go back</Text>
+          <Text dimColor>Press [ESC/B] Back</Text>
         </Box>
         <Box borderStyle="single" borderColor="gray" minHeight={12} padding={1}>
           <Text color="white">{aiDiagnosis}</Text>
@@ -483,7 +512,7 @@ export const WatchDashboard = () => {
 
       {/* Footer / Shortcuts */}
       <Box marginTop={1}>
-        <Text bold>[L] Logs  [A] AI Analysis  [R] Restart  [TAB] Switch Focus  [Q] Quit</Text>
+        <Text bold>[L] Logs  [A] AI Analysis  [R] Restart  [TAB] Switch Focus  [Esc/B] Back  [Q] Quit</Text>
       </Box>
     </Box>
   );

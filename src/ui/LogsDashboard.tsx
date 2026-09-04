@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, useApp } from 'ink';
 import TextInput from 'ink-text-input';
 import { getRunningPods, PodData } from '../kubernetes/pods';
 import { getRunningContainers, ContainerData } from '../docker/containers';
@@ -7,8 +7,10 @@ import { getK8sApi } from '../kubernetes/client';
 import { getDockerClient } from '../docker/client';
 import chalk from 'chalk';
 
-interface LogsDashboardProps {
+export interface LogsDashboardProps {
   initialName?: string;
+  onBack?: () => void;
+  onExit?: () => void;
 }
 
 interface SelectorResource {
@@ -61,7 +63,8 @@ const findPodMatch = (pods: PodData[], name: string): SelectorResource | null =>
   };
 };
 
-export const LogsDashboard: React.FC<LogsDashboardProps> = ({ initialName }) => {
+export const LogsDashboard: React.FC<LogsDashboardProps> = ({ initialName, onBack, onExit }) => {
+  const { exit } = useApp();
   // Stage 1: Resource Selector state
   const [resources, setResources] = useState<SelectorResource[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -244,11 +247,26 @@ export const LogsDashboard: React.FC<LogsDashboardProps> = ({ initialName }) => 
     }
 
     if (lowerInput === 'q' || (key.ctrl && input === 'c')) {
-      process.exit(0);
+      if (onExit) {
+        onExit();
+      } else {
+        exit();
+        process.exit(0);
+      }
+      return;
     }
 
     // Selector Mode keys
     if (!selectedResource) {
+      if (key.escape || (!searchQuery && lowerInput === 'b')) {
+        if (onBack) {
+          onBack();
+        } else {
+          exit();
+          process.exit(0);
+        }
+        return;
+      }
       if (key.upArrow) {
         setSelectedIndex(prev => Math.max(0, prev - 1));
         return;
@@ -268,7 +286,7 @@ export const LogsDashboard: React.FC<LogsDashboardProps> = ({ initialName }) => 
     }
 
     // Log Viewer Mode keys
-    if (key.escape) {
+    if (key.escape || lowerInput === 'b') {
       // Go back to selector if it wasn't pre-specified
       if (!initialName) {
         setSelectedResource(null);
@@ -276,7 +294,12 @@ export const LogsDashboard: React.FC<LogsDashboardProps> = ({ initialName }) => 
         setLogSearchQuery('');
         setSearchMode(false);
       } else {
-        process.exit(0);
+        if (onBack) {
+          onBack();
+        } else {
+          exit();
+          process.exit(0);
+        }
       }
       return;
     }
@@ -351,7 +374,7 @@ export const LogsDashboard: React.FC<LogsDashboardProps> = ({ initialName }) => 
           )}
         </Box>
         <Box marginTop={1} borderStyle="single" borderColor="gray" paddingX={1}>
-          <Text dimColor>↑↓: Navigate | ENTER: Select | Q: Quit</Text>
+          <Text dimColor>↑↓: Navigate | ENTER: Select | [Esc/B] Back | [Q] Quit</Text>
         </Box>
       </Box>
     );
@@ -430,7 +453,7 @@ export const LogsDashboard: React.FC<LogsDashboardProps> = ({ initialName }) => 
 
       <Box marginTop={1} borderStyle="single" borderColor="gray" paddingX={1}>
         <Text dimColor>
-          SPACE: {streaming ? 'Pause' : 'Resume'} | /: Search | T: Timestamps ({showTimestamps ? 'ON' : 'OFF'}) | {logSearchQuery ? 'n/N: Match | ' : ''}ESC: Back | Q: Quit
+          SPACE: {streaming ? 'Pause' : 'Resume'} | /: Search | T: Timestamps ({showTimestamps ? 'ON' : 'OFF'}) | {logSearchQuery ? 'n/N: Match | ' : ''}[Esc/B] Back | [Q] Quit
         </Text>
       </Box>
     </Box>
