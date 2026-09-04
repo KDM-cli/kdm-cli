@@ -9,6 +9,8 @@ export interface ServerOptions {
   metricsPort?: number;
   backend?: string;
   filter?: string[];
+  // Optional callback invoked on each request for logging/metrics
+  onRequest?: (info: { timestamp: string; method: string; path: string; status: number; responseTimeMs: number }) => void;
 }
 
 /** Simplified request body for the /analyze endpoint. */
@@ -147,8 +149,45 @@ export const routeRequest = (req: any, res: any, options: ServerOptions): void =
  */
 export async function createServer(options: ServerOptions): Promise<{ close: () => void; port: number }> {
   const { createServer: createHttpServer } = await import('node:http');
+  const os = await import('node:os');
 
   const server = createHttpServer((req, res) => {
+    const startMs = Date.now();
+    let recordedStatus = 200;
+
+    // Wrap writeHead to capture status codes set by handlers
+    const origWriteHead = res.writeHead?.bind(res);
+    if (origWriteHead) {
+      // @ts-ignore
+      res.writeHead = function writeHead(statusCode: number, ...rest: any[]) {
+        recordedStatus = statusCode;
+        // @ts-ignore
+        return origWriteHead(statusCode, ...rest);
+      };
+    }
+
+    // Wrap end so we can compute response time once response completes
+    const origEnd = res.end?.bind(res);
+    if (origEnd) {
+      // @ts-ignore
+      res.end = function end(...args: any[]) {
+        const duration = Date.now() - startMs;
+        try {
+          options.onRequest?.({
+            timestamp: new Date(startMs).toISOString(),
+            method: req.method ?? 'GET',
+            path: req.url ?? '/',
+            status: recordedStatus ?? (res.statusCode ?? 200),
+            responseTimeMs: duration,
+          });
+        } catch (e) {
+          // Ignore logging errors
+        }
+        // @ts-ignore
+        return origEnd(...args);
+      };
+    }
+
     routeRequest(req, res, options);
   });
 

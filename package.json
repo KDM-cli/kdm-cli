@@ -48,6 +48,7 @@
     "dockerode": "^5.0.0",
     "ink": "^7.0.5",
     "ink-text-input": "^6.0.0",
+    "ink-spinner": "^4.0.0",
     "nodemailer": "^9.0.0",
     "react": "^19.2.7"
   },
