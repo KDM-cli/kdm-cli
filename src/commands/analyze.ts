@@ -5,6 +5,9 @@ import { formatJsonOutput, formatTextOutput } from '../analysis/output';
 import type { AnalysisOptions } from '../analysis/types';
 import { createSpinner } from '../ui/spinner';
 import { logger } from '../utils/logger';
+import { AnalyzeDashboard } from '../ui/AnalyzeDashboard';
+import { render } from 'ink';
+import React from 'react';
 
 /**
  * Helper to collect multiple filter flags from the CLI options into an array.
@@ -69,6 +72,7 @@ const buildAnalysisOptions = (options: any, signal: AbortSignal): AnalysisOption
   anonymize: Boolean(options.anonymize),
   customHeaders: options.customHeaders,
   noCache: Boolean(options.noCache),
+  interactive: options.output !== 'json',
 });
 
 /**
@@ -123,14 +127,20 @@ async function handleAnalyze(options: any): Promise<void> {
 
   try {
     output = parseOutput(options.output);
-    if (output !== 'json') {
-      spinner = createSpinner('Analyzing Kubernetes resources...').start();
-    }
     const runOpts = buildAnalysisOptions(options, abortController.signal);
-    const result = await runAnalysis(runOpts);
 
-    spinner?.stop('Analysis complete');
-    printAnalysisResult(result, output);
+    if (output === 'json') {
+      const result = await runAnalysis(runOpts);
+      printAnalysisResult(result, 'json');
+      return;
+    }
+
+    spinner = createSpinner('Analyzing Kubernetes resources...').start();
+    const result = await runAnalysis(runOpts);
+    spinner.stop('Analysis complete');
+
+    process.stdout.write('\x1Bc');
+    render(React.createElement(AnalyzeDashboard, { initialOptions: runOpts, initialResult: result }));
   } catch (error) {
     handleAnalysisError(error, output, spinner);
   } finally {

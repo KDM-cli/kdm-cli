@@ -8,6 +8,7 @@ import { buildPrompt } from '../ai/prompts';
 import { anonymize, deanonymize } from '../utils/text';
 import { createCacheProvider } from '../cache';
 import { logger } from '../utils/logger';
+import type { SuggestedFix } from './types';
 
 const DEFAULT_FILTERS = ['Pod', 'Deployment', 'Service', 'PersistentVolumeClaim', 'Node'];
 const MAX_ALLOWED_CONCURRENCY = 100;
@@ -83,7 +84,7 @@ function tryAttachProvider(output: AnalysisOutput): void {
  * @param options The analysis options.
  * @returns The resolved backend name string.
  */
-function resolveBackend(options: AnalysisOptions): string {
+export function resolveBackend(options: AnalysisOptions): string {
   if (options.backend) return options.backend;
   try {
     const aiConfig = getAIConfig();
@@ -151,7 +152,7 @@ async function tryStoreToCache(cacheKey: string, data: string): Promise<void> {
 }
 
 /** Parameters for explaining a single analyzer result via AI. */
-interface ExplainSingleParams {
+export interface ExplainSingleParams {
   result: AnalyzerResult;
   backend: string;
   language: string;
@@ -165,7 +166,7 @@ interface ExplainSingleParams {
  * and attaching the response to the result's details field.
  * @param params Parameters for the explain operation.
  */
-async function explainSingleResult(params: ExplainSingleParams): Promise<void> {
+export async function explainSingleResult(params: ExplainSingleParams): Promise<void> {
   const failureText = params.result.errors.map((e) => e.text).join('\n');
   let promptText = failureText;
   let mapping: { original: string; placeholder: string }[] = [];
@@ -205,6 +206,24 @@ async function explainSingleResult(params: ExplainSingleParams): Promise<void> {
   if (!params.noCache) {
     await tryStoreToCache(cacheKey, response);
   }
+}
+
+/**
+ * Constructs suggested fix models for each detected issue in the analyzer results.
+ * @param results The analyzer results containing resource problems.
+ * @returns Array of suggested fixes.
+ */
+export function buildSuggestedFixes(results: AnalyzerResult[]): SuggestedFix[] {
+  return results.flatMap((result, index) =>
+    result.errors.map((failure, failureIndex) => ({
+      id: `${result.kind.toLowerCase()}-${index}-${failureIndex}`,
+      title: `Review ${result.kind} ${result.name}`,
+      description: failure.text,
+      namespace: result.namespace,
+      kind: result.kind,
+      resourceName: result.name,
+    }))
+  );
 }
 
 /**
@@ -312,6 +331,7 @@ export async function runAnalysis(options: AnalysisOptions): Promise<AnalysisOut
   await explainResults(results, options);
 
   const problems = results.reduce((acc, curr) => acc + curr.errors.length, 0);
+  const suggestedFixes = options.interactive ? buildSuggestedFixes(results) : undefined;
 
   const output: AnalysisOutput = {
     errors,
@@ -319,6 +339,7 @@ export async function runAnalysis(options: AnalysisOptions): Promise<AnalysisOut
     problems,
     results,
     ...(options.withStats ? { stats } : {}),
+    ...(suggestedFixes ? { suggestedFixes } : {}),
   };
 
   tryAttachProvider(output);
