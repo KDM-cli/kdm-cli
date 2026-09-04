@@ -44,7 +44,7 @@
     "cli-table3": "^0.6.3",
     "commander": "^15.0.0",
     "conf": "^15.1.0",
-    "cosmiconfig": "^9.0.0",
+    "cosmiconfig": "^10.0.1",
     "dockerode": "^5.0.0",
     "ink": "^7.0.5",
     "ink-text-input": "^6.0.0",
