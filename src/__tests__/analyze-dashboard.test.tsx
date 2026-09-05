@@ -327,4 +327,32 @@ describe('AnalyzeDashboard', () => {
     expect(reanalyzeSpy).toHaveBeenCalled();
     unmount();
   });
+
+  it('displays agent loader message when multi-agent progress event is received', async () => {
+    vi.spyOn(analysisModule, 'explainSingleResult').mockImplementation(async (params) => {
+      params.onAgentProgress?.({
+        agent: 'RuntimeLogAgent',
+        status: 'working',
+        message: 'Runtime Log Agent is inspecting container logs...',
+      });
+      await sleep(100);
+    });
+
+    const { unmount } = render(
+      <AnalyzeDashboard
+        initialOptions={{ namespace: 'default', output: 'text', backend: 'ollama' }}
+        initialResult={mockProblemResult}
+      />,
+      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
+    );
+
+    await waitForFrame(mockStdout, 'web-pod');
+    mockStdin.sendChar('e');
+    await waitForFrame(mockStdout, 'Runtime Log Agent is inspecting container logs...');
+
+    const output = mockStdout.frames.join('\n');
+    expect(output).toContain('Runtime Log Agent is inspecting container logs...');
+    unmount();
+  });
 });
+
