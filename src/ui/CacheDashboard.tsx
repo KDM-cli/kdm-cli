@@ -29,9 +29,167 @@ function truncateKey(key: string): string {
 
 interface PreviewState {
   key: string;
-  content: string;
   lines: string[];
 }
+
+interface StatusMsg {
+  text: string;
+  isError: boolean;
+}
+
+// --- Sub-components ---
+
+const PurgeConfirmView: React.FC<{ count: number }> = ({ count }) => (
+  <Box flexDirection="column" padding={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor="red" paddingX={3} paddingY={1} width={50}>
+      <Text bold color="red">
+        {'Delete all '}
+        <Text color="white">{count}</Text>
+        {` cached ${count === 1 ? 'entry' : 'entries'}?`}
+      </Text>
+      <Text> </Text>
+      <Box flexDirection="row">
+        <Text bold color="green">[Y] Yes</Text>
+        <Text>{'        '}</Text>
+        <Text bold color="white">[N] No</Text>
+      </Box>
+    </Box>
+  </Box>
+);
+
+const PreviewView: React.FC<{ preview: PreviewState }> = ({ preview }) => {
+  const MAX_LINES = 22;
+  const visible = preview.lines.slice(0, MAX_LINES);
+  const remaining = preview.lines.length - MAX_LINES;
+  return (
+    <Box flexDirection="column" padding={1}>
+      <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={2} paddingY={1} width={80}>
+        <Text bold color="cyan">{truncateKey(preview.key)}</Text>
+        <Text> </Text>
+        {visible.map((line, i) => (
+          <Text key={i} wrap="wrap">{line.length > 0 ? line : ' '}</Text>
+        ))}
+        {remaining > 0 && (
+          <Text dimColor>{`... (${remaining} more line${remaining === 1 ? '' : 's'})`}</Text>
+        )}
+        <Text> </Text>
+        <Text dimColor>[ESC] Close</Text>
+      </Box>
+    </Box>
+  );
+};
+
+const EntryRow: React.FC<{ entry: CacheEntry; index: number; isSelected: boolean }> = ({
+  entry,
+  index,
+  isSelected,
+}) => {
+  const relTime = entry.createdAt ? formatRelativeTime(entry.createdAt) : '—';
+  const size = entry.sizeBytes != null ? formatBytes(entry.sizeBytes) : '—';
+  const label = `#${String(index + 1).padStart(3, '0')}`;
+  return (
+    <Box flexDirection="row">
+      <Text color="cyan" bold={isSelected}>{isSelected ? '> ' : '  '}</Text>
+      <Text color={isSelected ? 'cyan' : 'white'} bold={isSelected}>{`${label}  `}</Text>
+      <Text color={isSelected ? 'yellow' : 'white'}>{truncateKey(entry.key).padEnd(22)}</Text>
+      <Text dimColor>{relTime.padEnd(14)}</Text>
+      <Text color="green">{size}</Text>
+    </Box>
+  );
+};
+
+const EntryListView: React.FC<{
+  entries: CacheEntry[];
+  selectedIndex: number;
+  statusMsg: StatusMsg | null;
+  loadingPreview: boolean;
+}> = ({ entries, selectedIndex, statusMsg, loadingPreview }) => (
+  <Box flexDirection="column" padding={1}>
+    <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
+      <Text bold color="cyan">Cache Browser</Text>
+      <Text dimColor>{entries.length} {entries.length === 1 ? 'entry' : 'entries'}</Text>
+    </Box>
+
+    <Box borderStyle="single" borderColor="gray" flexDirection="column" paddingX={1}>
+      {entries.length === 0 ? (
+        <Box paddingY={1}>
+          <Text dimColor>
+            {'No cached entries. Run '}
+            <Text color="cyan">kdm analyze --explain</Text>
+            {' to generate some.'}
+          </Text>
+        </Box>
+      ) : (
+        entries.map((entry, i) => (
+          <EntryRow key={entry.key} entry={entry} index={i} isSelected={i === selectedIndex} />
+        ))
+      )}
+    </Box>
+
+    {statusMsg && (
+      <Box marginTop={1}>
+        <Text color={statusMsg.isError ? 'red' : 'green'}>{statusMsg.text}</Text>
+      </Box>
+    )}
+
+    {loadingPreview && (
+      <Box marginTop={1}>
+        <Text color="cyan">Loading preview...</Text>
+      </Box>
+    )}
+
+    <Box marginTop={1} flexDirection="row">
+      <Text dimColor>{'↑↓ Navigate  '}</Text>
+      <Text color="cyan">ENTER</Text>
+      <Text dimColor>{' View  '}</Text>
+      <Text color="red">D</Text>
+      <Text dimColor>{' Delete  '}</Text>
+      <Text color="yellow">P</Text>
+      <Text dimColor>{' Purge All  '}</Text>
+      <Text color="white">Q</Text>
+      <Text dimColor>{' Quit'}</Text>
+    </Box>
+  </Box>
+);
+
+// --- Keyboard hook ---
+
+interface KeyboardHandlers {
+  onUp: () => void;
+  onDown: () => void;
+  onEnter: () => void;
+  onDelete: () => void;
+  onPurge: () => void;
+  onEscape: () => void;
+  onQuit: () => void;
+  onConfirmYes: () => void;
+  onConfirmNo: () => void;
+}
+
+function useCacheKeyboard(
+  mode: 'list' | 'preview' | 'confirm',
+  handlers: KeyboardHandlers,
+): void {
+  useInput((input, key) => {
+    if (mode === 'confirm') {
+      if (input === 'y' || input === 'Y') handlers.onConfirmYes();
+      else if (input === 'n' || input === 'N' || key.escape) handlers.onConfirmNo();
+      return;
+    }
+    if (mode === 'preview') {
+      if (key.escape) handlers.onEscape();
+      return;
+    }
+    if (key.upArrow) handlers.onUp();
+    else if (key.downArrow) handlers.onDown();
+    else if (key.return) handlers.onEnter();
+    else if (input === 'd' || input === 'D' || key.delete || key.backspace) handlers.onDelete();
+    else if (input === 'p' || input === 'P') handlers.onPurge();
+    else if (input === 'q' || input === 'Q') handlers.onQuit();
+  });
+}
+
+// --- Main component ---
 
 export const CacheDashboard: React.FC = () => {
   const { exit } = useApp();
@@ -41,15 +199,19 @@ export const CacheDashboard: React.FC = () => {
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [showPurgeConfirm, setShowPurgeConfirm] = useState(false);
-  const [statusMsg, setStatusMsg] = useState<{ text: string; isError: boolean } | null>(null);
+  const [statusMsg, setStatusMsg] = useState<StatusMsg | null>(null);
+
+  const mode = showPurgeConfirm ? 'confirm' : preview ? 'preview' : 'list';
 
   const loadEntries = useCallback(async () => {
     try {
       const cache = getCache();
       const list = await cache.list();
+      // Fix: use 0 as sentinel for missing timestamps so sort is always deterministic
       list.sort((a, b) => {
-        if (!a.createdAt || !b.createdAt) return 0;
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return bTime - aTime;
       });
       setEntries(list);
     } catch {
@@ -97,7 +259,7 @@ export const CacheDashboard: React.FC = () => {
       const cache = getCache();
       const content = await cache.load(entry.key);
       const text = content ?? '(empty entry)';
-      setPreview({ key: entry.key, content: text, lines: text.split('\n') });
+      setPreview({ key: entry.key, lines: text.split('\n') });
     } catch {
       setStatusMsg({ text: 'Failed to load entry', isError: true });
     } finally {
@@ -105,31 +267,17 @@ export const CacheDashboard: React.FC = () => {
     }
   }, []);
 
-  useInput((input, key) => {
-    if (showPurgeConfirm) {
-      if (input === 'y' || input === 'Y') handlePurge();
-      else if (input === 'n' || input === 'N' || key.escape) setShowPurgeConfirm(false);
-      return;
-    }
-
-    if (preview) {
-      if (key.escape) setPreview(null);
-      return;
-    }
-
-    if (key.upArrow) {
-      setSelectedIndex(i => Math.max(0, i - 1));
-    } else if (key.downArrow) {
-      setSelectedIndex(i => Math.min(entries.length - 1, i + 1));
-    } else if (key.return && entries.length > 0) {
-      handlePreview(entries[selectedIndex]);
-    } else if ((input === 'd' || input === 'D' || key.delete || key.backspace) && entries.length > 0) {
-      handleRemove(entries[selectedIndex]);
-    } else if ((input === 'p' || input === 'P') && entries.length > 0) {
-      setShowPurgeConfirm(true);
-    } else if (input === 'q' || input === 'Q') {
-      exit();
-    }
+  useCacheKeyboard(mode, {
+    onUp: () => setSelectedIndex(i => Math.max(0, i - 1)),
+    // Fix: guard entries.length so index never goes to -1 on an empty list
+    onDown: () => setSelectedIndex(i => entries.length > 0 ? Math.min(entries.length - 1, i + 1) : 0),
+    onEnter: () => { if (entries.length > 0) handlePreview(entries[selectedIndex]); },
+    onDelete: () => { if (entries.length > 0) handleRemove(entries[selectedIndex]); },
+    onPurge: () => { if (entries.length > 0) setShowPurgeConfirm(true); },
+    onEscape: () => setPreview(null),
+    onQuit: () => exit(),
+    onConfirmYes: handlePurge,
+    onConfirmNo: () => setShowPurgeConfirm(false),
   });
 
   if (loading) {
@@ -140,134 +288,15 @@ export const CacheDashboard: React.FC = () => {
     );
   }
 
-  // Purge confirmation overlay
-  if (showPurgeConfirm) {
-    return (
-      <Box flexDirection="column" padding={1}>
-        <Box
-          flexDirection="column"
-          borderStyle="round"
-          borderColor="red"
-          paddingX={3}
-          paddingY={1}
-          width={50}
-        >
-          <Text bold color="red">
-            {'Delete all '}
-            <Text color="white">{entries.length}</Text>
-            {` cached ${entries.length === 1 ? 'entry' : 'entries'}?`}
-          </Text>
-          <Text> </Text>
-          <Box flexDirection="row">
-            <Text bold color="green">[Y] Yes</Text>
-            <Text>{'        '}</Text>
-            <Text bold color="white">[N] No</Text>
-          </Box>
-        </Box>
-      </Box>
-    );
-  }
+  if (showPurgeConfirm) return <PurgeConfirmView count={entries.length} />;
+  if (preview) return <PreviewView preview={preview} />;
 
-  // Preview overlay
-  if (preview) {
-    const MAX_LINES = 22;
-    const visible = preview.lines.slice(0, MAX_LINES);
-    const remaining = preview.lines.length - MAX_LINES;
-    return (
-      <Box flexDirection="column" padding={1}>
-        <Box
-          flexDirection="column"
-          borderStyle="round"
-          borderColor="cyan"
-          paddingX={2}
-          paddingY={1}
-          width={80}
-        >
-          <Text bold color="cyan">{truncateKey(preview.key)}</Text>
-          <Text> </Text>
-          {visible.map((line, i) => (
-            <Text key={i} wrap="wrap">{line.length > 0 ? line : ' '}</Text>
-          ))}
-          {remaining > 0 && (
-            <Text dimColor>{`... (${remaining} more line${remaining === 1 ? '' : 's'})`}</Text>
-          )}
-          <Text> </Text>
-          <Text dimColor>[ESC] Close</Text>
-        </Box>
-      </Box>
-    );
-  }
-
-  // Main list view
-  const entryCount = entries.length;
   return (
-    <Box flexDirection="column" padding={1}>
-      <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
-        <Text bold color="cyan">Cache Browser</Text>
-        <Text dimColor>
-          {entryCount} {entryCount === 1 ? 'entry' : 'entries'}
-        </Text>
-      </Box>
-
-      <Box borderStyle="single" borderColor="gray" flexDirection="column" paddingX={1}>
-        {entryCount === 0 ? (
-          <Box paddingY={1}>
-            <Text dimColor>
-              {'No cached entries. Run '}
-              <Text color="cyan">kdm analyze --explain</Text>
-              {' to generate some.'}
-            </Text>
-          </Box>
-        ) : (
-          entries.map((entry, i) => {
-            const isSelected = i === selectedIndex;
-            const relTime = entry.createdAt ? formatRelativeTime(entry.createdAt) : '—';
-            const size = entry.sizeBytes != null ? formatBytes(entry.sizeBytes) : '—';
-            const label = `#${String(i + 1).padStart(3, '0')}`;
-            const keyStr = truncateKey(entry.key);
-
-            return (
-              <Box key={entry.key} flexDirection="row">
-                <Text color="cyan" bold={isSelected}>
-                  {isSelected ? '> ' : '  '}
-                </Text>
-                <Text color={isSelected ? 'cyan' : 'white'} bold={isSelected}>
-                  {`${label}  `}
-                </Text>
-                <Text color={isSelected ? 'yellow' : 'white'}>
-                  {keyStr.padEnd(22)}
-                </Text>
-                <Text dimColor>{relTime.padEnd(14)}</Text>
-                <Text color="green">{size}</Text>
-              </Box>
-            );
-          })
-        )}
-      </Box>
-
-      {statusMsg && (
-        <Box marginTop={1}>
-          <Text color={statusMsg.isError ? 'red' : 'green'}>{statusMsg.text}</Text>
-        </Box>
-      )}
-
-      {loadingPreview && (
-        <Box marginTop={1}>
-          <Text color="cyan">Loading preview...</Text>
-        </Box>
-      )}
-
-      <Box marginTop={1} flexDirection="row">
-        <Text dimColor>{'↑↓ Navigate  '}</Text>
-        <Text color="cyan">ENTER</Text>
-        <Text dimColor>{' View  '}</Text>
-        <Text color="red">D</Text>
-        <Text dimColor>{' Delete  '}</Text>
-        <Text color="yellow">P</Text>
-        <Text dimColor>{' Purge All  '}</Text>
-        <Text color="white">Q</Text>
-        <Text dimColor>{' Quit'}</Text>
-      </Box>
-    </Box>
+    <EntryListView
+      entries={entries}
+      selectedIndex={selectedIndex}
+      statusMsg={statusMsg}
+      loadingPreview={loadingPreview}
+    />
   );
 };
