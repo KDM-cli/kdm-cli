@@ -229,16 +229,18 @@ export const CacheDashboard: React.FC = () => {
     try {
       const cache = getCache();
       await cache.remove(entry.key);
-      setEntries(prev => {
-        const next = prev.filter(e => e.key !== entry.key);
-        setSelectedIndex(i => Math.min(i, Math.max(0, next.length - 1)));
-        return next;
+
+      setEntries(prev => prev.filter(e => e.key !== entry.key));
+      setSelectedIndex(i => {
+        const nextLen = Math.max(0, entries.length - 1);
+        return nextLen === 0 ? 0 : Math.min(i, nextLen - 1);
       });
+
       setStatusMsg({ text: `Removed: ${truncateKey(entry.key)}`, isError: false });
     } catch {
       setStatusMsg({ text: 'Failed to remove entry', isError: true });
     }
-  }, []);
+  }, [entries.length]);
 
   const handlePurge = useCallback(async () => {
     setShowPurgeConfirm(false);
