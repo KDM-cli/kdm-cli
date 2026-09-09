@@ -328,7 +328,7 @@ export const LogsDashboard: React.FC<LogsDashboardProps> = ({ initialName, onBac
           <Text bold color="yellow"> Select a resource to view logs: </Text>
         </Box>
         <Box marginBottom={1} borderStyle="single" borderColor="cyan" paddingX={1}>
-          <Text bold color="cyan"> 🔍 Search: </Text>
+          <Text bold color="cyan"> Search: </Text>
           <TextInput
             value={searchQuery}
             onChange={setSearchQuery}
@@ -345,12 +345,16 @@ export const LogsDashboard: React.FC<LogsDashboardProps> = ({ initialName, onBac
               const isSelected = idx === selectedIndex;
               return (
                 <Box key={res.id} flexDirection="row">
-                  <Text color={isSelected ? 'yellow' : 'white'} width={4}>
-                    {isSelected ? '> ' : '  '}
-                  </Text>
-                  <Text color={isSelected ? 'yellow' : 'white'} width={30}>
-                    {res.name}
-                  </Text>
+                  <Box width={4}>
+                    <Text color={isSelected ? 'yellow' : 'white'}>
+                      {isSelected ? '> ' : '  '}
+                    </Text>
+                  </Box>
+                  <Box width={30}>
+                    <Text color={isSelected ? 'yellow' : 'white'}>
+                      {res.name}
+                    </Text>
+                  </Box>
                   <Text color="gray">
                     {res.details}
                   </Text>

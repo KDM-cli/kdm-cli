@@ -95,7 +95,7 @@ export const registerCustomAnalyzerCommand = (program: Command) => {
   const cmd = program
     .command('custom-analyzer')
     .description('Manage custom analyzers')
-    .action(() => {
+    .action(async () => {
       if (!process.stdout.isTTY || !process.stdin.isTTY) {
         logger.error('Interactive custom analyzer dashboard requires a TTY terminal.');
         process.exitCode = 1;
@@ -116,7 +116,7 @@ export const registerCustomAnalyzerCommand = (program: Command) => {
         }),
         { alternateScreen: true },
       );
-      return instance.waitUntilExit();
+      await instance.waitUntilExit();
     });
 
   cmd

@@ -297,7 +297,7 @@ const ConfirmDialog: React.FC<{
     marginTop={1}
   >
     <Text bold color="yellow">
-      ⚠️ Confirm Remediation
+      Confirm Remediation
     </Text>
     <Text>
       Apply fix "{fix.title}" for {fix.kind ?? 'workload'}{' '}

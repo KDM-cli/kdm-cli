@@ -16,7 +16,7 @@ export const TabBar: React.FC<TabBarProps> = ({ activeTab, tabs, onTabChange }) 
       return (
         <Box key={tab.key} marginRight={1}>
           {isActive ? (
-            <Text backgroundColor="blue" white bold>{` ${label} `}</Text>
+            <Text backgroundColor="blue" color="white" bold>{` ${label} `}</Text>
           ) : (
             <Text dimColor>{` ${label} `}</Text>
           )}

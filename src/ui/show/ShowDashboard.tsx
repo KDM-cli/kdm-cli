@@ -125,7 +125,7 @@ const ErrorBanner: React.FC<{ errors: DataError[] }> = ({ errors }) => {
     <Box marginBottom={1} paddingX={1} flexDirection="column">
       {errors.map((err, i) => (
         <Box key={i} marginBottom={i < errors.length - 1 ? 1 : 0}>
-          <Text backgroundColor="red" white bold>
+          <Text backgroundColor="red" color="white" bold>
             {` ${err.source.toUpperCase()}: ${err.message} `}
           </Text>
         </Box>
@@ -286,7 +286,8 @@ export const ShowDashboard: React.FC<ShowDashboardProps> = ({ onBack, onExit }) 
       setActiveTab(prev => {
         const keys = Object.values(TabType);
         const idx = keys.indexOf(prev);
-        const next = key.shiftTab ? (idx - 1 + keys.length) % keys.length : (idx + 1) % keys.length;
+        const isShiftTab = Boolean(key.shift && key.tab);
+        const next = isShiftTab ? (idx - 1 + keys.length) % keys.length : (idx + 1) % keys.length;
         setSelectedRow(0);
         return keys[next];
       });

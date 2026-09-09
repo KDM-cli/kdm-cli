@@ -360,7 +360,7 @@ export const WatchDashboard: React.FC<WatchDashboardProps> = ({ onBack, onExit }
     <Box flexDirection="column" padding={1} borderStyle="round" borderColor="cyan">
       <Box marginBottom={1} flexDirection={columns < 50 ? 'column' : 'row'} justifyContent="space-between">
         <Box>
-          <Text color="cyan" bold> 󱔎 KDM Split-Pane Monitoring Dashboard </Text>
+          <Text color="cyan" bold> KDM Split-Pane Monitoring Dashboard </Text>
         </Box>
         <Box>
           <Text dimColor>(Press Ctrl+C to exit)</Text>

@@ -19,7 +19,8 @@ export const registerShowCommand = (program: Command) => {
     .action(async (target) => {
       if (!target) {
         process.stdout.write('\x1Bc');
-        render(<ShowDashboard />);
+        const app = render(<ShowDashboard />);
+        await app?.waitUntilExit?.();
         return;
       }
       if (target === 'containers') {

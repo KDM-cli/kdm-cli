@@ -111,9 +111,9 @@ describe('InitialDashboard', () => {
   it('navigates through menu items with arrow keys and updates preview', async () => {
     const { unmount } = renderDashboard();
 
-    await waitForFrame(mockStdout, '> 🔍 Analyze Cluster');
+    await waitForFrame(mockStdout, '> Analyze Cluster');
     mockStdin.sendKey('down');
-    await waitForFrame(mockStdout, '> 📊 Show Resources');
+    await waitForFrame(mockStdout, '> Show Resources');
 
     const output = mockStdout.frames.join('\n');
     expect(output).toContain('Command: kdm show runners');
@@ -125,7 +125,7 @@ describe('InitialDashboard', () => {
 
     const { unmount } = renderDashboard({ onSelect: selectSpy });
 
-    await waitForFrame(mockStdout, '> 🔍 Analyze Cluster');
+    await waitForFrame(mockStdout, '> Analyze Cluster');
     mockStdin.sendKey('return');
     await sleep(50);
 
