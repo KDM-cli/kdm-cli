@@ -38,8 +38,8 @@ class MockStdin extends Readable {
 const wait = () => new Promise((resolve) => setTimeout(resolve, 30));
 
 describe('CustomAnalyzerDashboard', () => {
-  let stdin: MockStdin;
-  let stdout: MockStdout;
+  let stdin: any;
+  let stdout: any;
   let app: ReturnType<typeof render> | undefined;
 
   afterEach(() => {

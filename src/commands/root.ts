@@ -79,9 +79,9 @@ function printStatusBadges(
   console.log(`${chalk.bold('Kubernetes:')}  ${k8sStr}`);
   console.log(`${chalk.bold('Minikube:')}    ${minikubeStr}\n`);
 
-  console.log(`${chalk.cyan('󰡨')} Running Containers: ${chalk.yellow.bold(dockerStatus.containerCount)}`);
-  console.log(`${chalk.blue('󱔎')} Running Pods:       ${chalk.yellow.bold(k8sStatus.podCount)}`);
-  console.log(`${chalk.red('󰒑')} Unhealthy Services: ${chalk.yellow.bold('0')} (Mocked)\n`);
+  console.log(`Running Containers: ${chalk.yellow.bold(dockerStatus.containerCount)}`);
+  console.log(`Running Pods:       ${chalk.yellow.bold(k8sStatus.podCount)}`);
+  console.log(`Unhealthy Services: ${chalk.yellow.bold('0')} (Mocked)\n`);
   console.log(chalk.bold('Commands:\n'));
   console.log(`  kdm show runners\n  kdm health all\n  kdm watch\n  kdm logs <name>\n`);
 }
@@ -119,23 +119,6 @@ async function launchInteractiveDashboard(): Promise<void> {
   const instance = render(
     React.createElement(InitialDashboard, {
       version: VERSION,
-      onSelect: async (cmdArgs: string[]) => {
-        instance.unmount();
-        process.stdout.write('\x1Bc');
-        try {
-          if (cmdArgs.length === 0) {
-            process.exit(0);
-          } else if (cmdArgs.includes('--help')) {
-            program.outputHelp();
-            process.exit(0);
-          } else {
-            await program.parseAsync(['node', 'kdm', ...cmdArgs]);
-          }
-        } catch (error) {
-          console.error(chalk.red(`Command failed: ${(error as Error).message}`));
-          process.exit(1);
-        }
-      },
       onExit: () => {
         instance.unmount();
         process.exit(0);

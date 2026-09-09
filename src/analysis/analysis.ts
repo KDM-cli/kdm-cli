@@ -172,10 +172,10 @@ export interface ExplainSingleParams {
  */
 export function formatConsensusExplanation(consensus: ConsensusDiagnosis): string {
   const lines: string[] = [
-    `🎯 Root Cause (${consensus.confidence.toUpperCase()} confidence):`,
+    `Root Cause (${consensus.confidence.toUpperCase()} confidence):`,
     `  ${consensus.rootCause}`,
     '',
-    '💡 Recommended Solution:',
+    'Recommended Solution:',
     `  ${consensus.bestSolution.actionTitle}`,
   ];
 
@@ -189,7 +189,7 @@ export function formatConsensusExplanation(consensus: ConsensusDiagnosis): strin
   }
 
   lines.push('');
-  lines.push('📋 Specialist Agent Findings:');
+  lines.push('Specialist Agent Findings:');
   for (const finding of consensus.findings) {
     const icon = finding.icon || '▸';
     lines.push(`  ${icon} [${finding.agentName}]: ${finding.summary || finding.statusText}`);

@@ -11,7 +11,7 @@ class RuntimeLogAgent:
 
     ROLE = "runtime"
     NAME = "Runtime & Log Agent"
-    ICON = "🔍"
+    ICON = ""
 
     def __init__(self, client: ollama.Client, model: str):
         self.client = client
@@ -67,7 +67,7 @@ class ConfigDependencyAgent:
 
     ROLE = "config"
     NAME = "Config & Dependency Agent"
-    ICON = "⚙️"
+    ICON = ""
 
     def __init__(self, client: ollama.Client, model: str):
         self.client = client
@@ -122,7 +122,7 @@ class ClusterResourceAgent:
 
     ROLE = "resource"
     NAME = "Cluster & Resource Agent"
-    ICON = "🛡️"
+    ICON = ""
 
     def __init__(self, client: ollama.Client, model: str):
         self.client = client
@@ -177,7 +177,7 @@ class SynthesizerAgent:
 
     ROLE = "synthesizer"
     NAME = "Lead SRE Synthesizer"
-    ICON = "🎯"
+    ICON = ""
 
     def __init__(self, client: ollama.Client, model: str):
         self.client = client

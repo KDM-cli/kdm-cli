@@ -37,7 +37,9 @@ const ProgressBar: React.FC<{ label: string; percent: number }> = ({ label, perc
 
   return (
     <Box flexDirection="row">
-      <Text width={9}>{label}</Text>
+      <Box width={9}>
+        <Text>{label}</Text>
+      </Box>
       <Text color={barColor}>{bar}</Text>
       <Text> {Math.round(percent)}%</Text>
     </Box>
@@ -163,18 +165,26 @@ const WorkloadListItem: React.FC<{
   return (
     <Box flexDirection="column">
       <Box flexDirection="row">
-        <Text color={isSelected ? 'yellow' : 'white'} width={4}>
-          {isSelected ? '> ' : '  '}
-        </Text>
-        <Text color={iconColor} width={4}>
-          {icon}
-        </Text>
-        <Text color={isSelected ? 'yellow' : 'white'} width={25}>
-          {item.name}
-        </Text>
-        <Text color={isFailing ? 'red' : 'green'} width={20}>
-          {item.status}
-        </Text>
+        <Box width={4}>
+          <Text color={isSelected ? 'yellow' : 'white'}>
+            {isSelected ? '> ' : '  '}
+          </Text>
+        </Box>
+        <Box width={4}>
+          <Text color={iconColor}>
+            {icon}
+          </Text>
+        </Box>
+        <Box width={25}>
+          <Text color={isSelected ? 'yellow' : 'white'}>
+            {item.name}
+          </Text>
+        </Box>
+        <Box width={20}>
+          <Text color={isFailing ? 'red' : 'green'}>
+            {item.status}
+          </Text>
+        </Box>
         <Text color="gray">
           {item.details}
         </Text>

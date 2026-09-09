@@ -360,7 +360,7 @@ export const registerAuthCommand = (program: Command): void => {
   const auth = program
     .command('auth')
     .description('Manage AI provider authentication and credentials')
-    .action(() => {
+    .action(async () => {
       if (!process.stdout.isTTY || !process.stdin.isTTY) {
         console.error('Interactive auth dashboard requires a TTY terminal.');
         process.exitCode = 1;
@@ -368,7 +368,8 @@ export const registerAuthCommand = (program: Command): void => {
       }
       // Clear terminal screen before showing the dashboard
       process.stdout.write('\x1Bc');
-      render(<AuthDashboard />);
+      const app = render(<AuthDashboard />);
+      await app?.waitUntilExit?.();
     });
 
   auth

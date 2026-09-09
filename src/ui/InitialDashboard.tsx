@@ -63,7 +63,7 @@ const MENU_ACTIONS: MenuAction[] = [
   {
     id: 'analyze',
     key: 'a',
-    name: '🔍 Analyze Cluster',
+    name: 'Analyze Cluster',
     cmd: 'kdm analyze',
     description: 'Diagnose Kubernetes workloads for failures and review remediation suggestions',
     args: ['analyze'],
@@ -71,7 +71,7 @@ const MENU_ACTIONS: MenuAction[] = [
   {
     id: 'show',
     key: 's',
-    name: '📊 Show Resources',
+    name: 'Show Resources',
     cmd: 'kdm show runners',
     description: 'Interactive dashboard to inspect running pods, containers, and runners',
     args: ['show', 'runners'],
@@ -79,7 +79,7 @@ const MENU_ACTIONS: MenuAction[] = [
   {
     id: 'watch',
     key: 'w',
-    name: '⏱️  Live Watch',
+    name: 'Live Watch',
     cmd: 'kdm watch',
     description: 'Live real-time monitoring of cluster resources and containers',
     args: ['watch'],
@@ -87,7 +87,7 @@ const MENU_ACTIONS: MenuAction[] = [
   {
     id: 'health',
     key: 'h',
-    name: '🩺 Health Status',
+    name: 'Health Status',
     cmd: 'kdm health all',
     description: 'Evaluate health checks and readiness probes across all workloads',
     args: ['health', 'all'],
@@ -95,7 +95,7 @@ const MENU_ACTIONS: MenuAction[] = [
   {
     id: 'logs',
     key: 'l',
-    name: '📜 View Logs',
+    name: 'View Logs',
     cmd: 'kdm logs',
     description: 'Search, filter, and stream container and pod log output',
     args: ['logs'],
@@ -103,7 +103,7 @@ const MENU_ACTIONS: MenuAction[] = [
   {
     id: 'auth',
     key: 'k',
-    name: '🔑 AI Provider Config',
+    name: 'AI Provider Config',
     cmd: 'kdm auth',
     description: 'Configure AI diagnosis backends, credentials, and models',
     args: ['auth'],
@@ -111,7 +111,7 @@ const MENU_ACTIONS: MenuAction[] = [
   {
     id: 'help',
     key: '?',
-    name: '❓ CLI Help',
+    name: 'CLI Help',
     cmd: 'kdm --help',
     description: 'Display command-line flags, options, and full help documentation',
     args: ['--help'],
@@ -119,7 +119,7 @@ const MENU_ACTIONS: MenuAction[] = [
   {
     id: 'exit',
     key: 'q',
-    name: '🚪 Exit',
+    name: 'Exit',
     cmd: 'exit',
     description: 'Exit KDM interactive dashboard',
     args: [],
@@ -331,7 +331,9 @@ const HelpScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
   return (
     <Box flexDirection="column" padding={1} borderStyle="round" borderColor="cyan">
-      <Text bold color="cyan" marginBottom={1}>KDM - Kubernetes & Docker Monitoring CLI Help</Text>
+      <Box marginBottom={1}>
+        <Text bold color="cyan">KDM - Kubernetes & Docker Monitoring CLI Help</Text>
+      </Box>
       <Text bold color="yellow">Available Commands:</Text>
       <Text>  kdm analyze        - Analyze Kubernetes resources for common workload problems</Text>
       <Text>  kdm show [target]  - Show running containers, pods, or runners</Text>

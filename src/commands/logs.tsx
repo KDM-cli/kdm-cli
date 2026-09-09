@@ -10,9 +10,10 @@ export const registerLogsCommand = (program: Command): void => {
       'Show logs for a container or pod.\n' +
       'Accepts an optional container ID prefix, container name, or pod name.',
     )
-    .action((name) => {
+    .action(async (name) => {
       // Clear terminal screen before showing the dashboard
       process.stdout.write('\x1Bc');
-      render(<LogsDashboard initialName={name} />);
+      const app = render(<LogsDashboard initialName={name} />);
+      await app?.waitUntilExit?.();
     });
 };

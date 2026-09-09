@@ -140,7 +140,8 @@ async function handleAnalyze(options: any): Promise<void> {
     spinner.stop('Analysis complete');
 
     process.stdout.write('\x1Bc');
-    render(React.createElement(AnalyzeDashboard, { initialOptions: runOpts, initialResult: result }));
+    const app = render(React.createElement(AnalyzeDashboard, { initialOptions: runOpts, initialResult: result }));
+    await app?.waitUntilExit?.();
   } catch (error) {
     handleAnalysisError(error, output, spinner);
   } finally {

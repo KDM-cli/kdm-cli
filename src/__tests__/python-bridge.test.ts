@@ -39,7 +39,7 @@ describe('python-bridge', () => {
           type: 'progress',
           agent: 'Runtime & Log Agent',
           role: 'runtime',
-          icon: '🔍',
+          icon: '',
           status: 'running',
           message: 'Runtime & Log Agent is working: Analyzing container logs...',
         }) + '\n'));
@@ -53,7 +53,7 @@ describe('python-bridge', () => {
               {
                 role: 'runtime',
                 agentName: 'Runtime & Log Agent',
-                icon: '🔍',
+                icon: '',
                 status: 'completed',
                 statusText: 'Exit 137',
               }

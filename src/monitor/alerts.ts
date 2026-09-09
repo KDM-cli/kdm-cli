@@ -100,7 +100,7 @@ if (cooldownTracker.size > EVICTION_THRESHOLD) {
   }
 }
 
-  logger.info(`🚨 Triggering alert for ${alert.id}: ${alert.message}`);
+  logger.info(`Triggering alert for ${alert.id}: ${alert.message}`);
 
   await Promise.allSettled([
     sendDiscordNotification(alert),

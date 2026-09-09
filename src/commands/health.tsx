@@ -27,6 +27,7 @@ export const registerHealthCommand = (program: Command): void => {
 
       // Clear terminal screen before showing the dashboard
       process.stdout.write('\x1Bc');
-      render(<HealthDashboard initialTarget={target} initialWatch={!!options.watch} initialInterval={intervalVal} />);
+      const app = render(<HealthDashboard initialTarget={target} initialWatch={!!options.watch} initialInterval={intervalVal} />);
+      await app?.waitUntilExit?.();
     });
 };

@@ -331,8 +331,8 @@ describe('AnalyzeDashboard', () => {
   it('displays agent loader message when multi-agent progress event is received', async () => {
     vi.spyOn(analysisModule, 'explainSingleResult').mockImplementation(async (params) => {
       params.onAgentProgress?.({
-        agent: 'RuntimeLogAgent',
-        status: 'working',
+        agentName: 'RuntimeLogAgent',
+        status: 'running',
         message: 'Runtime Log Agent is inspecting container logs...',
       });
       await sleep(100);
