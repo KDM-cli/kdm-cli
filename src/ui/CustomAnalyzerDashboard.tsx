@@ -12,7 +12,7 @@ interface CustomAnalyzerDashboardProps {
   onRemove: (name: string) => void;
 }
 
-const isValidUrl = (value: string): boolean => {
+export const isValidUrl = (value: string): boolean => {
   try {
     const url = new URL(value);
     return url.protocol === 'http:' || url.protocol === 'https:';
