@@ -4,6 +4,9 @@ import { getConfig, setConfigValue } from '../config/store';
 import { createCustomAnalyzer, type CustomAnalyzerConfig } from '../analyzers/custom';
 import { registry } from '../analyzers';
 import { logger } from '../utils/logger';
+import React from 'react';
+import { render } from 'ink';
+import { CustomAnalyzerDashboard } from '../ui/CustomAnalyzerDashboard';
 
 /**
  * Retrieves the current custom analyzer configurations from the store.
@@ -91,7 +94,30 @@ async function handleRemove(name: string): Promise<void> {
 export const registerCustomAnalyzerCommand = (program: Command) => {
   const cmd = program
     .command('custom-analyzer')
-    .description('Manage custom analyzers');
+    .description('Manage custom analyzers')
+    .action(() => {
+      if (!process.stdout.isTTY || !process.stdin.isTTY) {
+        logger.error('Interactive custom analyzer dashboard requires a TTY terminal.');
+        process.exitCode = 1;
+        return;
+      }
+      const instance = render(
+        React.createElement(CustomAnalyzerDashboard, {
+          analyzers: getCustomAnalyzers(),
+          onAdd: (config) => {
+            const analyzers = getCustomAnalyzers();
+            analyzers.push(config);
+            saveCustomAnalyzers(analyzers);
+            registry.register(createCustomAnalyzer(config));
+          },
+          onRemove: (name) => {
+            saveCustomAnalyzers(getCustomAnalyzers().filter((analyzer) => analyzer.name !== name));
+          },
+        }),
+        { alternateScreen: true },
+      );
+      return instance.waitUntilExit();
+    });
 
   cmd
     .command('add <name>')

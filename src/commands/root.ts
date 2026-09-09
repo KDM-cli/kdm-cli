@@ -155,11 +155,10 @@ const run = async () => {
     return;
   }
 
-  program.parse(process.argv);
+  await program.parseAsync(process.argv);
 
   // Non-blocking version check (fires after command execution)
   checkForUpdates();
 };
 
 run();
-
