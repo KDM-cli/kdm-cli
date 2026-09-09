@@ -69,6 +69,28 @@ class TestSpecialistAgents(unittest.TestCase):
         self.assertEqual(res["confidence"], "high")
         self.assertEqual(res["bestSolution"]["actionTitle"], "Increase Memory Limits")
 
+    def test_markdown_code_fence_json(self):
+        self.mock_client.chat.return_value = MockChatResponse(
+            '```json\n{"summary": "Secret not found.", "evidence": ["secret app-secret missing"]}\n```'
+        )
+        agent = ConfigDependencyAgent(self.mock_client, "gemma:2b")
+        res = agent.analyze("MountVolume failed: secret not found", {"namespace": "default"})
+        self.assertEqual(res["summary"], "Secret not found.")
+        self.assertEqual(len(res["evidence"]), 1)
+
+    def test_domain_heuristic_fallback_missing_secret(self):
+        self.mock_client.chat.side_effect = RuntimeError("Ollama server unavailable")
+        agent = SynthesizerAgent(self.mock_client, "gemma:2b")
+        findings = []
+        res = agent.synthesize(
+            'MountVolume.SetUp failed for volume "secret-volume" : secret "app-secret" not found',
+            findings,
+            {"name": "missing-secret-pod", "namespace": "prod"}
+        )
+        self.assertIn("app-secret", res["rootCause"])
+        self.assertIn("Create Missing Secret 'app-secret'", res["bestSolution"]["actionTitle"])
+        self.assertIn("kubectl create secret generic app-secret", res["bestSolution"]["commandToRun"])
+
 
 if __name__ == "__main__":
     unittest.main()

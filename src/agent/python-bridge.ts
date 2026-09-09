@@ -3,6 +3,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { ConsensusDiagnosis, AgentProgressEvent } from './types';
@@ -47,8 +48,15 @@ export async function isPythonAgentAvailable(spawnFn: typeof spawn = spawn): Pro
  * Resolves the absolute path to the Python agent council runner script.
  */
 function getCouncilScriptPath(): string {
-  // In development and production, agents/ directory is located at repository root
-  return path.resolve(process.cwd(), 'agents', 'council.py');
+  const cwdPath = path.resolve(process.cwd(), 'agents', 'council.py');
+  if (fs.existsSync(cwdPath)) {
+    return cwdPath;
+  }
+  const pkgPath = path.resolve(__dirname, '..', '..', 'agents', 'council.py');
+  if (fs.existsSync(pkgPath)) {
+    return pkgPath;
+  }
+  return cwdPath;
 }
 
 /**

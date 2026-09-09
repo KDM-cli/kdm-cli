@@ -21,6 +21,38 @@ def emit_event(event_type: str, data: Dict[str, Any]) -> None:
     sys.stdout.flush()
 
 
+def resolve_model(client: ollama.Client, requested_model: str) -> str:
+    """Resolves an installed local Ollama model, falling back to an available chat model if needed."""
+    try:
+        res = client.list()
+        models = []
+        if hasattr(res, "models"):
+            models = [m.model for m in res.models]
+        elif isinstance(res, dict) and "models" in res:
+            models = [m.get("model") or m.get("name") for m in res["models"]]
+
+        # Filter out embedding models (e.g. nomic-embed-text)
+        chat_models = [m for m in models if "embed" not in m.lower()]
+        candidate_models = chat_models if chat_models else models
+
+        if requested_model:
+            # Check for exact match
+            for m in candidate_models:
+                if m == requested_model:
+                    return m
+            # Check for base name match (e.g. gemma vs gemma:2b)
+            for m in candidate_models:
+                if m.split(":")[0] == requested_model.split(":")[0]:
+                    return m
+
+        # If requested model not installed, pick the first available chat model
+        if candidate_models:
+            return candidate_models[0]
+    except Exception:
+        pass
+    return requested_model or "gemma:2b"
+
+
 def run_council(
     failure_text: str,
     context: Dict[str, Any],
@@ -29,11 +61,12 @@ def run_council(
 ) -> Dict[str, Any]:
     """Runs the full multi-agent collaborative investigation pipeline."""
     client = ollama.Client(host=base_url)
+    resolved_model = resolve_model(client, model)
 
-    runtime_agent = RuntimeLogAgent(client, model)
-    config_agent = ConfigDependencyAgent(client, model)
-    resource_agent = ClusterResourceAgent(client, model)
-    synthesizer = SynthesizerAgent(client, model)
+    runtime_agent = RuntimeLogAgent(client, resolved_model)
+    config_agent = ConfigDependencyAgent(client, resolved_model)
+    resource_agent = ClusterResourceAgent(client, resolved_model)
+    synthesizer = SynthesizerAgent(client, resolved_model)
 
     findings = []
 
