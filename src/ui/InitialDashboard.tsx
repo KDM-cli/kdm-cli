@@ -9,6 +9,18 @@ import { HealthDashboard } from './HealthDashboard';
 import { ShowDashboard } from './show/ShowDashboard';
 import { LogsDashboard } from './LogsDashboard';
 import { AuthDashboard } from './AuthDashboard';
+import { CacheDashboard } from './CacheDashboard';
+import { CustomAnalyzerDashboard } from './CustomAnalyzerDashboard';
+import { getConfig, setConfigValue } from '../config/store';
+import { createCustomAnalyzer, type CustomAnalyzerConfig } from '../analyzers/custom';
+import { registry } from '../analyzers';
+
+const getCustomAnalyzers = (): CustomAnalyzerConfig[] =>
+  (getConfig() as any).customAnalyzers ?? [];
+
+const saveCustomAnalyzers = (analyzers: CustomAnalyzerConfig[]): void => {
+  setConfigValue('customAnalyzers' as any, analyzers as any);
+};
 
 /**
  * Docker connection status summary.
@@ -77,6 +89,14 @@ const MENU_ACTIONS: MenuAction[] = [
     args: ['show', 'runners'],
   },
   {
+    id: 'council',
+    key: 'c',
+    name: 'AI Agent Council',
+    cmd: 'kdm analyze --explain -b ollama',
+    description: 'Collaborative multi-agent council (Runtime, Config, Resource, SRE Synthesizer) triaging failures',
+    args: ['analyze', '--explain', '--backend', 'ollama'],
+  },
+  {
     id: 'watch',
     key: 'w',
     name: 'Live Watch',
@@ -99,6 +119,22 @@ const MENU_ACTIONS: MenuAction[] = [
     cmd: 'kdm logs',
     description: 'Search, filter, and stream container and pod log output',
     args: ['logs'],
+  },
+  {
+    id: 'cache',
+    key: 'm',
+    name: 'AI Cache Manager',
+    cmd: 'kdm cache',
+    description: 'Inspect, preview, remove, or purge cached AI explanations and agent responses',
+    args: ['cache'],
+  },
+  {
+    id: 'custom-analyzers',
+    key: 'u',
+    name: 'Custom Analyzers',
+    cmd: 'kdm custom-analyzer',
+    description: 'Configure custom workload diagnostic rules and external webhook analyzers',
+    args: ['custom-analyzer'],
   },
   {
     id: 'auth',
@@ -336,10 +372,13 @@ const HelpScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       </Box>
       <Text bold color="yellow">Available Commands:</Text>
       <Text>  kdm analyze        - Analyze Kubernetes resources for common workload problems</Text>
+      <Text>  kdm analyze -e     - Multi-Agent Council collaborative failure triaging</Text>
       <Text>  kdm show [target]  - Show running containers, pods, or runners</Text>
       <Text>  kdm watch          - Live monitoring mode using Ink split-pane dashboard</Text>
       <Text>  kdm health [target]- Show health status for pods, containers, or all</Text>
       <Text>  kdm logs [name]    - Search and stream container and pod logs</Text>
+      <Text>  kdm cache          - Manage, preview, and purge cached AI explanations</Text>
+      <Text>  kdm custom-analyzer- Manage custom rules and external webhook analyzers</Text>
       <Text>  kdm auth           - Manage AI provider authentication and credentials</Text>
       <Text>  kdm config         - Manage KDM configuration</Text>
       <Box marginTop={1} borderStyle="single" borderColor="gray" paddingX={1}>
@@ -357,9 +396,33 @@ const SUB_SCREENS: Record<
     <AnalyzeDashboard initialOptions={{ output: 'text' }} onBack={onBack} onExit={onExit} />
   ),
   show: (onBack, onExit) => <ShowDashboard onBack={onBack} onExit={onExit} />,
+  council: (onBack, onExit) => (
+    <AnalyzeDashboard
+      initialOptions={{ output: 'text', explain: true, backend: 'ollama' }}
+      onBack={onBack}
+      onExit={onExit}
+    />
+  ),
   watch: (onBack, onExit) => <WatchDashboard onBack={onBack} onExit={onExit} />,
   health: (onBack, onExit) => <HealthDashboard initialTarget="all" onBack={onBack} onExit={onExit} />,
   logs: (onBack, onExit) => <LogsDashboard onBack={onBack} onExit={onExit} />,
+  cache: (onBack, onExit) => <CacheDashboard onBack={onBack} onExit={onExit} />,
+  'custom-analyzers': (onBack, onExit) => (
+    <CustomAnalyzerDashboard
+      analyzers={getCustomAnalyzers()}
+      onAdd={(config) => {
+        const analyzers = getCustomAnalyzers();
+        analyzers.push(config);
+        saveCustomAnalyzers(analyzers);
+        registry.register(createCustomAnalyzer(config));
+      }}
+      onRemove={(name) => {
+        saveCustomAnalyzers(getCustomAnalyzers().filter((analyzer) => analyzer.name !== name));
+      }}
+      onBack={onBack}
+      onExit={onExit}
+    />
+  ),
   auth: (onBack, onExit) => <AuthDashboard onBack={onBack} onExit={onExit} />,
   help: (onBack) => <HelpScreen onBack={onBack} />,
 };
@@ -498,7 +561,7 @@ export const InitialDashboard: React.FC<InitialDashboardProps> = ({
       <SelectedPreview item={selectedItem} />
       <Box borderStyle="single" borderColor="gray" paddingX={1}>
         <Text dimColor>
-          [↑/↓] Navigate   [Enter] Launch   [a] Analyze   [s] Show   [w] Watch   [r] Refresh   [Esc/q] Quit
+          [↑/↓] Navigate   [Enter] Launch   [a] Analyze   [c] Council   [s] Show   [w] Watch   [r] Refresh   [Esc/q] Quit
         </Text>
       </Box>
     </Box>

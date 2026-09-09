@@ -71,6 +71,14 @@ function processEventLine(
         message: data.message,
         icon: data.icon,
       });
+    } else if (data.type === 'agent_completed' && onProgress) {
+      onProgress({
+        role: data.finding?.role,
+        agentName: data.agent,
+        status: 'completed',
+        message: `${data.agent} finished inspection`,
+        icon: data.finding?.icon,
+      });
     } else if (data.type === 'complete') {
       return { consensus: data.consensus as ConsensusDiagnosis };
     } else if (data.type === 'error') {

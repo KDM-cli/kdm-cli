@@ -6,10 +6,12 @@ import type { CustomAnalyzerConfig } from '../analyzers/custom';
 type WizardStep = 1 | 2 | 3;
 type AnalyzerType = 'command' | 'url';
 
-interface CustomAnalyzerDashboardProps {
+export interface CustomAnalyzerDashboardProps {
   analyzers: CustomAnalyzerConfig[];
   onAdd: (config: CustomAnalyzerConfig) => void;
   onRemove: (name: string) => void;
+  onBack?: () => void;
+  onExit?: () => void;
 }
 
 export const isValidUrl = (value: string): boolean => {
@@ -25,8 +27,19 @@ export const CustomAnalyzerDashboard: React.FC<CustomAnalyzerDashboardProps> = (
   analyzers,
   onAdd,
   onRemove,
+  onBack,
+  onExit,
 }) => {
   const { exit } = useApp();
+
+  const handleExit = () => {
+    if (onBack) {
+      onBack();
+    } else {
+      onExit?.();
+      exit();
+    }
+  };
   const [rules, setRules] = useState(analyzers);
   const [selected, setSelected] = useState(0);
   const [step, setStep] = useState<WizardStep | null>(null);
@@ -94,7 +107,7 @@ export const CustomAnalyzerDashboard: React.FC<CustomAnalyzerDashboardProps> = (
     }
     if (key.escape) {
       if (step !== null) cancelWizard();
-      else exit();
+      else handleExit();
       return;
     }
     if (step !== null) {
@@ -119,7 +132,7 @@ export const CustomAnalyzerDashboard: React.FC<CustomAnalyzerDashboardProps> = (
         setPendingRemoval(analyzer.name);
       }
     } else if (input.toLowerCase() === 'q') {
-      exit();
+      handleExit();
     }
   });
 
@@ -183,7 +196,7 @@ export const CustomAnalyzerDashboard: React.FC<CustomAnalyzerDashboardProps> = (
       {pendingRemoval ? (
         <Text color="yellow">Remove &quot;{pendingRemoval}&quot;? [y/N]</Text>
       ) : (
-        <Text>[A] Add Rule  [DELETE/D] Remove  [Q] Quit</Text>
+        <Text>[A] Add Rule  [DELETE/D] Remove  [Esc/Q] Back</Text>
       )}
     </Box>
   );

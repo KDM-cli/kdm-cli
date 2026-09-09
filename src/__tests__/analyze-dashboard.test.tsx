@@ -354,5 +354,45 @@ describe('AnalyzeDashboard', () => {
     expect(output).toContain('Runtime Log Agent is inspecting container logs...');
     unmount();
   });
+
+  it('renders multi-agent council progress view with specialist agent statuses', async () => {
+    vi.spyOn(analysisModule, 'explainSingleResult').mockImplementation(async (params) => {
+      params.onAgentProgress?.({
+        role: 'runtime',
+        agentName: 'Runtime & Log Agent',
+        status: 'running',
+        message: 'Analyzing container logs & exit codes...',
+      });
+      await sleep(50);
+      params.onAgentProgress?.({
+        role: 'config',
+        agentName: 'Config & Dependency Agent',
+        status: 'running',
+        message: 'Checking ConfigMaps, Secrets & probe thresholds...',
+      });
+      await sleep(50);
+    });
+
+    const { unmount } = render(
+      <AnalyzeDashboard
+        initialOptions={{ namespace: 'default', output: 'text', backend: 'ollama' }}
+        initialResult={mockProblemResult}
+      />,
+      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
+    );
+
+    await waitForFrame(mockStdout, 'web-pod');
+    mockStdin.sendChar('e');
+    await waitForFrame(mockStdout, 'Multi-Agent Council Triaging (Ollama)');
+    await waitForFrame(mockStdout, 'Checking ConfigMaps, Secrets & probe thresholds...');
+
+    const output = mockStdout.frames.join('\n');
+    expect(output).toContain('Multi-Agent Council Triaging (Ollama)');
+    expect(output).toContain('Runtime & Log Agent');
+    expect(output).toContain('Config & Dependency Agent');
+    expect(output).toContain('Cluster & Resource Agent');
+    expect(output).toContain('Lead SRE Synthesizer');
+    unmount();
+  });
 });
 

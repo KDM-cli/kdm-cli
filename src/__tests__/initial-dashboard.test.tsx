@@ -218,4 +218,38 @@ describe('InitialDashboard', () => {
 
     unmount();
   });
+
+  it('launches AI Agent Council via c shortcut hotkey', async () => {
+    const selectSpy = vi.fn();
+    const { unmount } = renderDashboard({ onSelect: selectSpy });
+
+    await waitForFrame(mockStdout, 'Kubernetes & Docker Monitor');
+    mockStdin.sendChar('c');
+    await sleep(50);
+
+    expect(selectSpy).toHaveBeenCalledWith(['analyze', '--explain', '--backend', 'ollama']);
+    unmount();
+  });
+
+  it('launches AI Cache Manager via m shortcut hotkey', async () => {
+    const selectSpy = vi.fn();
+    const { unmount } = renderDashboard({ onSelect: selectSpy });
+
+    await waitForFrame(mockStdout, 'Kubernetes & Docker Monitor');
+    mockStdin.sendChar('m');
+    await sleep(50);
+    expect(selectSpy).toHaveBeenCalledWith(['cache']);
+    unmount();
+  });
+
+  it('launches Custom Analyzers via u shortcut hotkey', async () => {
+    const selectSpy = vi.fn();
+    const { unmount } = renderDashboard({ onSelect: selectSpy });
+
+    await waitForFrame(mockStdout, 'Kubernetes & Docker Monitor');
+    mockStdin.sendChar('u');
+    await sleep(50);
+    expect(selectSpy).toHaveBeenCalledWith(['custom-analyzer']);
+    unmount();
+  });
 });
