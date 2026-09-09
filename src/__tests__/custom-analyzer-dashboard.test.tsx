@@ -40,9 +40,12 @@ const wait = () => new Promise((resolve) => setTimeout(resolve, 30));
 describe('CustomAnalyzerDashboard', () => {
   let stdin: MockStdin;
   let stdout: MockStdout;
+  let app: ReturnType<typeof render> | undefined;
 
   afterEach(() => {
+    app?.unmount();
     stdin?.push(null);
+    app = undefined;
   });
 
   it('adds a command rule through the wizard and removes the selected rule', async () => {
@@ -56,7 +59,7 @@ describe('CustomAnalyzerDashboard', () => {
         1,
       );
     });
-    const app = render(
+    app = render(
       <CustomAnalyzerDashboard analyzers={analyzers} onAdd={onAdd} onRemove={onRemove} />,
       { stdin, stdout, interactive: true },
     );
@@ -82,9 +85,10 @@ describe('CustomAnalyzerDashboard', () => {
 
     stdin.send('d');
     await wait();
+    expect(onRemove).not.toHaveBeenCalled();
+    stdin.send('y');
+    await wait();
     expect(onRemove).toHaveBeenCalledWith('keda-check');
-
-    app.unmount();
   });
 
   it('validates webhook URLs', () => {
@@ -97,7 +101,7 @@ describe('CustomAnalyzerDashboard', () => {
   it('shows a validation error for an empty rule name', async () => {
     stdin = new MockStdin();
     stdout = new MockStdout();
-    const app = render(
+    app = render(
       <CustomAnalyzerDashboard
         analyzers={[{ name: 'existing', command: 'echo existing' }]}
         onAdd={vi.fn()}
@@ -115,14 +119,13 @@ describe('CustomAnalyzerDashboard', () => {
     await wait();
     stdin.send('\u001b');
     await wait();
-    app.unmount();
   });
 
   it('navigates and removes analyzers with keyboard controls', async () => {
     stdin = new MockStdin();
     stdout = new MockStdout();
     const onRemove = vi.fn();
-    const app = render(
+    app = render(
       <CustomAnalyzerDashboard
         analyzers={[
           { name: 'first', command: 'echo first' },
@@ -138,12 +141,89 @@ describe('CustomAnalyzerDashboard', () => {
     await wait();
     stdin.send('d');
     await wait();
+    expect(onRemove).not.toHaveBeenCalled();
+    stdin.send('n');
+    await wait();
+    expect(onRemove).not.toHaveBeenCalled();
+    stdin.send('d');
+    await wait();
+    stdin.send('y');
+    await wait();
     expect(onRemove).toHaveBeenCalledWith('second');
-    stdin.send('\u001b[3~');
+    stdin.send('d');
+    await wait();
+    stdin.send('y');
     await wait();
     expect(onRemove).toHaveBeenCalledWith('first');
     stdin.send('q');
     await wait();
-    app.unmount();
+  });
+
+  it('rejects duplicate names and cancels the wizard with Esc', async () => {
+    stdin = new MockStdin();
+    stdout = new MockStdout();
+    app = render(
+      <CustomAnalyzerDashboard
+        analyzers={[{ name: 'existing', command: 'echo existing' }]}
+        onAdd={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+      { stdin, stdout, interactive: true },
+    );
+
+    stdin.send('a');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    for (const character of 'existing') stdin.send(character);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    stdin.send('\r');
+    await wait();
+    expect(stdout.output).toContain('already exists');
+    stdin.send('\u001b');
+    await wait();
+    expect(stdout.output).toContain('Custom Analyzers');
+  });
+
+  it('adds a valid HTTPS webhook and rejects an invalid URL', async () => {
+    stdin = new MockStdin();
+    stdout = new MockStdout();
+    const onAdd = vi.fn();
+    app = render(
+      <CustomAnalyzerDashboard analyzers={[]} onAdd={onAdd} onRemove={vi.fn()} />,
+      { stdin, stdout, interactive: true },
+    );
+
+    stdin.send('a');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    for (const character of 'webhook') stdin.send(character);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    stdin.send('\r');
+    await wait();
+    stdin.send('\u001b[B');
+    await wait();
+    stdin.send('\r');
+    await wait();
+    for (const character of 'not-a-url') stdin.send(character);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    stdin.send('\r');
+    await wait();
+    expect(stdout.output).toContain('valid HTTP or HTTPS URL');
+    stdin.send('\u001b');
+    await wait();
+
+    stdin.send('a');
+    await wait();
+    for (const character of 'webhook') stdin.send(character);
+    await wait();
+    stdin.send('\r');
+    await wait();
+    stdin.send('\u001b[B');
+    await wait();
+    stdin.send('\r');
+    await wait();
+    for (const character of 'https://example.com/hook') stdin.send(character);
+    await wait();
+    stdin.send('\r');
+    await wait();
+    expect(onAdd).toHaveBeenCalledWith({ name: 'webhook', url: 'https://example.com/hook' });
   });
 });

@@ -101,7 +101,6 @@ export const registerCustomAnalyzerCommand = (program: Command) => {
         process.exitCode = 1;
         return;
       }
-      process.stdout.write('\x1Bc');
       const instance = render(
         React.createElement(CustomAnalyzerDashboard, {
           analyzers: getCustomAnalyzers(),
@@ -115,6 +114,7 @@ export const registerCustomAnalyzerCommand = (program: Command) => {
             saveCustomAnalyzers(getCustomAnalyzers().filter((analyzer) => analyzer.name !== name));
           },
         }),
+        { alternateScreen: true },
       );
       return instance.waitUntilExit();
     });

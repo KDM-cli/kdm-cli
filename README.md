@@ -196,7 +196,7 @@ kdm filters remove Ingress  # Remove analyzer from active list (falls back to de
 Register custom scripts/commands or HTTP webhooks to analyze arbitrary custom resources (CRDs) like Kyverno, KEDA, and Prometheus.
 
 ```bash
-kdm custom-analyzer                                                        # Interactive rule manager
+kdm custom-analyzer                                                        # Interactive rule manager (TTY required)
 kdm custom-analyzer add keda --command "kubectl get scaledobjects -A -o json" # Add custom analyzer command
 kdm custom-analyzer add my-webhook --url "https://api.my-org.internal/check"  # Add custom HTTP analyzer
 kdm custom-analyzer list                                                     # List all custom analyzers

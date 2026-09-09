@@ -34,6 +34,7 @@ export const CustomAnalyzerDashboard: React.FC<CustomAnalyzerDashboardProps> = (
   const [type, setType] = useState<AnalyzerType>('command');
   const [value, setValue] = useState('');
   const [error, setError] = useState('');
+  const [pendingRemoval, setPendingRemoval] = useState<string | null>(null);
 
   const cancelWizard = () => {
     setStep(null);
@@ -79,6 +80,18 @@ export const CustomAnalyzerDashboard: React.FC<CustomAnalyzerDashboardProps> = (
   };
 
   useInput((input, key) => {
+    if (pendingRemoval) {
+      if (input.toLowerCase() === 'y') {
+        const removedName = pendingRemoval;
+        onRemove(removedName);
+        setRules((current) => current.filter((rule) => rule.name !== removedName));
+        setSelected((current) => Math.min(current, Math.max(0, rules.length - 2)));
+        setPendingRemoval(null);
+      } else if (input.toLowerCase() === 'n' || key.escape) {
+        setPendingRemoval(null);
+      }
+      return;
+    }
     if (key.escape) {
       if (step !== null) cancelWizard();
       else exit();
@@ -103,9 +116,7 @@ export const CustomAnalyzerDashboard: React.FC<CustomAnalyzerDashboardProps> = (
     } else if (input.toLowerCase() === 'd' || key.delete) {
       const analyzer = rules[selected];
       if (analyzer) {
-        onRemove(analyzer.name);
-        setRules((current) => current.filter((rule) => rule.name !== analyzer.name));
-        setSelected((current) => Math.min(current, Math.max(0, rules.length - 2)));
+        setPendingRemoval(analyzer.name);
       }
     } else if (input.toLowerCase() === 'q') {
       exit();
@@ -169,7 +180,11 @@ export const CustomAnalyzerDashboard: React.FC<CustomAnalyzerDashboardProps> = (
         })
       )}
       <Text dimColor>{'─'.repeat(58)}</Text>
-      <Text>[A] Add Rule  [DELETE/D] Remove  [Q] Quit</Text>
+      {pendingRemoval ? (
+        <Text color="yellow">Remove &quot;{pendingRemoval}&quot;? [y/N]</Text>
+      ) : (
+        <Text>[A] Add Rule  [DELETE/D] Remove  [Q] Quit</Text>
+      )}
     </Box>
   );
 };

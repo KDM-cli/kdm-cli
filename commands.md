@@ -201,6 +201,8 @@ Register custom shell commands or HTTP webhooks to analyze arbitrary custom reso
 
 Running `kdm custom-analyzer` opens an interactive rule manager. Use the arrow keys to select a
 rule, `a` to open the add wizard, `d` or `Delete` to remove the selected rule, and `q` to quit.
+The dashboard requires a TTY terminal and exits with code 1 otherwise. Press `Esc` to cancel the
+add wizard.
 
 The legacy subcommands remain available for scripts:
 
