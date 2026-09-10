@@ -388,7 +388,7 @@ const HelpScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   );
 };
 
-const SUB_SCREENS: Record<
+export const SUB_SCREENS: Record<
   string,
   (onBack: () => void, onExit?: () => void) => React.ReactNode
 > = {
@@ -418,6 +418,7 @@ const SUB_SCREENS: Record<
       }}
       onRemove={(name) => {
         saveCustomAnalyzers(getCustomAnalyzers().filter((analyzer) => analyzer.name !== name));
+        registry.unregister(name);
       }}
       onBack={onBack}
       onExit={onExit}

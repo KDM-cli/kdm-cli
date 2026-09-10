@@ -600,13 +600,19 @@ export function AnalyzeDashboard({
               prev.map((agent) => {
                 const agentIdx = roleOrder.indexOf(agent.role);
                 if (agent.role === targetRole) {
+                  const nextStatus: CouncilAgentInfo['status'] =
+                    event.status === 'failed'
+                      ? 'failed'
+                      : event.status === 'completed'
+                      ? 'completed'
+                      : 'running';
                   return {
                     ...agent,
-                    status: event.status === 'completed' ? 'completed' : 'running',
+                    status: nextStatus,
                     message: event.message,
                   };
                 }
-                if (agentIdx < targetIdx && agent.status !== 'completed') {
+                if (agentIdx < targetIdx && agent.status !== 'completed' && agent.status !== 'failed') {
                   return { ...agent, status: 'completed' };
                 }
                 return agent;
@@ -616,7 +622,9 @@ export function AnalyzeDashboard({
         },
       });
       setCouncilAgents((prev) =>
-        prev.map((agent) => ({ ...agent, status: 'completed' }))
+        prev.map((agent) =>
+          agent.status === 'failed' ? agent : { ...agent, status: 'completed' }
+        )
       );
       setResult((prev) => (prev ? { ...prev } : null));
     } catch (err) {

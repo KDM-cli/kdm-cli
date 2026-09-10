@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { runPythonAgentCouncil, isPythonAgentAvailable } from '../agent/python-bridge';
+import { runPythonAgentCouncil, isPythonAgentAvailable, getCouncilScriptPath } from '../agent/python-bridge';
+import path from 'node:path';
+import fs from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { Readable } from 'node:stream';
 
@@ -104,5 +106,29 @@ describe('python-bridge', () => {
       context: {},
       spawnFn: mockSpawn as any,
     })).rejects.toThrow('Python crashed');
+  });
+
+  describe('getCouncilScriptPath', () => {
+    const originalEnv = { ...process.env };
+
+    afterEach(() => {
+      process.env = { ...originalEnv };
+    });
+
+    it('resolves packaged script path by default without requiring KDM_ALLOW_LOCAL_AGENTS', () => {
+      delete process.env.KDM_ALLOW_LOCAL_AGENTS;
+      delete process.env.NODE_ENV;
+
+      const scriptPath = getCouncilScriptPath();
+      expect(scriptPath).toContain(path.join('agents', 'council.py'));
+      expect(fs.existsSync(scriptPath)).toBe(true);
+    });
+
+    it('prefers cwd path only when development opt-in KDM_ALLOW_LOCAL_AGENTS is enabled', () => {
+      process.env.KDM_ALLOW_LOCAL_AGENTS = '1';
+      const scriptPath = getCouncilScriptPath();
+      const expectedCwdPath = path.resolve(process.cwd(), 'agents', 'council.py');
+      expect(scriptPath).toBe(expectedCwdPath);
+    });
   });
 });

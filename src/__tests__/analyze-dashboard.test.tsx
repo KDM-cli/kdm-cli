@@ -394,5 +394,41 @@ describe('AnalyzeDashboard', () => {
     expect(output).toContain('Lead SRE Synthesizer');
     unmount();
   });
+
+  it('preserves failed agent status in multi-agent council progress', async () => {
+    vi.spyOn(analysisModule, 'explainSingleResult').mockImplementation(async (params) => {
+      params.onAgentProgress?.({
+        role: 'runtime',
+        agentName: 'Runtime & Log Agent',
+        status: 'failed',
+        message: 'Log retrieval failed: container terminated without logs',
+      });
+      await sleep(50);
+      params.onAgentProgress?.({
+        role: 'config',
+        agentName: 'Config & Dependency Agent',
+        status: 'completed',
+        message: 'Config verified',
+      });
+      await sleep(50);
+    });
+
+    const { unmount } = render(
+      <AnalyzeDashboard
+        initialOptions={{ namespace: 'default', output: 'text', backend: 'ollama' }}
+        initialResult={mockProblemResult}
+      />,
+      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
+    );
+
+    await waitForFrame(mockStdout, 'web-pod');
+    mockStdin.sendChar('e');
+    await waitForFrame(mockStdout, '[Failed]');
+
+    const output = mockStdout.frames.join('\n');
+    expect(output).toContain('[Failed]');
+    expect(output).toContain('Runtime & Log Agent');
+    unmount();
+  });
 });
 

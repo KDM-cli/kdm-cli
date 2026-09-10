@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
+import { fileURLToPath } from 'node:url';
 import { ConsensusDiagnosis, AgentProgressEvent } from './types';
 
 /**
@@ -46,17 +47,34 @@ export async function isPythonAgentAvailable(spawnFn: typeof spawn = spawn): Pro
 
 /**
  * Resolves the absolute path to the Python agent council runner script.
+ * Prefers the packaged script location by default to prevent untrusted execution (CWE-426).
+ * Working directory lookup is permitted only when explicit development opt-in is enabled.
  */
-function getCouncilScriptPath(): string {
-  const cwdPath = path.resolve(process.cwd(), 'agents', 'council.py');
-  if (fs.existsSync(cwdPath)) {
-    return cwdPath;
+export function getCouncilScriptPath(): string {
+  const currentDir = path.dirname(fileURLToPath(import.meta.url));
+  // Packaged bundled dist layout (dist/index.js -> ../agents/council.py)
+  const distPkgPath = path.resolve(currentDir, '..', 'agents', 'council.py');
+  // Source layout (src/agent/python-bridge.ts -> ../../agents/council.py)
+  const srcPkgPath = path.resolve(currentDir, '..', '..', 'agents', 'council.py');
+  const pkgPath = fs.existsSync(distPkgPath) ? distPkgPath : srcPkgPath;
+
+  const allowLocal =
+    process.env.KDM_ALLOW_LOCAL_AGENTS === '1' ||
+    process.env.KDM_ALLOW_LOCAL_AGENTS === 'true' ||
+    process.env.NODE_ENV === 'development';
+
+  if (allowLocal) {
+    const cwdPath = path.resolve(process.cwd(), 'agents', 'council.py');
+    if (fs.existsSync(cwdPath)) {
+      return cwdPath;
+    }
   }
-  const pkgPath = path.resolve(__dirname, '..', '..', 'agents', 'council.py');
+
   if (fs.existsSync(pkgPath)) {
     return pkgPath;
   }
-  return cwdPath;
+
+  return pkgPath;
 }
 
 /**

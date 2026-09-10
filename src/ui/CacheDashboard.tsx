@@ -103,7 +103,8 @@ const EntryListView: React.FC<{
   selectedIndex: number;
   statusMsg: StatusMsg | null;
   loadingPreview: boolean;
-}> = ({ entries, selectedIndex, statusMsg, loadingPreview }) => (
+  onBack?: () => void;
+}> = ({ entries, selectedIndex, statusMsg, loadingPreview, onBack }) => (
   <Box flexDirection="column" padding={1}>
     <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
       <Text bold color="cyan">Cache Browser</Text>
@@ -146,8 +147,17 @@ const EntryListView: React.FC<{
       <Text dimColor>{' Delete  '}</Text>
       <Text color="yellow">P</Text>
       <Text dimColor>{' Purge All  '}</Text>
-      <Text color="white">Q</Text>
-      <Text dimColor>{' Quit'}</Text>
+      {onBack ? (
+        <>
+          <Text color="white">[Esc/Q]</Text>
+          <Text dimColor>{' Back'}</Text>
+        </>
+      ) : (
+        <>
+          <Text color="white">Q</Text>
+          <Text dimColor>{' Quit'}</Text>
+        </>
+      )}
     </Box>
   </Box>
 );
@@ -324,6 +334,7 @@ export const CacheDashboard: React.FC<CacheDashboardProps> = ({ onBack, onExit }
       selectedIndex={selectedIndex}
       statusMsg={statusMsg}
       loadingPreview={loadingPreview}
+      onBack={onBack}
     />
   );
 };

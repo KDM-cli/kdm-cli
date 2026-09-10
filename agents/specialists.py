@@ -427,7 +427,7 @@ class SynthesizerAgent:
                             f"Create the required ConfigMap: kubectl create configmap {cm} -n {ns} --from-literal=KEY=VALUE",
                             f"Workload '{pod}' will automatically bind once the ConfigMap is present",
                         ],
-                        "commandToRun": f"kubectl create configmap {cm} -n {ns} --from-literal=key=value",
+                        "commandToRun": f"kubectl create configmap {cm} -n {ns} --from-literal=KEY=VALUE",
                         "riskLevel": "low",
                     },
                 }

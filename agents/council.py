@@ -1,7 +1,7 @@
 import sys
 import os
 import json
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -21,29 +21,38 @@ def emit_event(event_type: str, data: Dict[str, Any]) -> None:
     sys.stdout.flush()
 
 
+def _match_requested_model(candidate_models: List[str], requested_model: str) -> Optional[str]:
+    """Finds an exact or base name match for the requested model among candidate models."""
+    if not requested_model:
+        return None
+    for m in candidate_models:
+        if m == requested_model:
+            return m
+    req_base = requested_model.split(":")[0]
+    for m in candidate_models:
+        if m.split(":")[0] == req_base:
+            return m
+    return None
+
+
 def resolve_model(client: ollama.Client, requested_model: str) -> str:
     """Resolves an installed local Ollama model, falling back to an available chat model if needed."""
     try:
         res = client.list()
         models = []
         if hasattr(res, "models"):
-            models = [m.model for m in res.models]
+            models = [getattr(m, "model", None) or getattr(m, "name", None) for m in res.models]
         elif isinstance(res, dict) and "models" in res:
-            models = [m.get("model") or m.get("name") for m in res["models"]]
+            models = [m.get("model") or m.get("name") for m in res["models"] if isinstance(m, dict)]
 
+        models = [m for m in models if isinstance(m, str) and m]
         # Filter out embedding models (e.g. nomic-embed-text)
         chat_models = [m for m in models if "embed" not in m.lower()]
         candidate_models = chat_models if chat_models else models
 
-        if requested_model:
-            # Check for exact match
-            for m in candidate_models:
-                if m == requested_model:
-                    return m
-            # Check for base name match (e.g. gemma vs gemma:2b)
-            for m in candidate_models:
-                if m.split(":")[0] == requested_model.split(":")[0]:
-                    return m
+        matched = _match_requested_model(candidate_models, requested_model)
+        if matched:
+            return matched
 
         # If requested model not installed, pick the first available chat model
         if candidate_models:

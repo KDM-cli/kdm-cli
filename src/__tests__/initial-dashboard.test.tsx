@@ -3,7 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render } from 'ink';
 import { Writable, Readable } from 'node:stream';
 import { Console } from 'node:console';
-import { InitialDashboard } from '../ui/InitialDashboard';
+import { InitialDashboard, SUB_SCREENS } from '../ui/InitialDashboard';
+import { registry } from '../analyzers';
+import * as configStore from '../config/store';
 import * as dockerClient from '../docker/client';
 import * as k8sClient from '../kubernetes/client';
 import * as minikubeClient from '../minikube/client';
@@ -251,5 +253,22 @@ describe('InitialDashboard', () => {
     await sleep(50);
     expect(selectSpy).toHaveBeenCalledWith(['custom-analyzer']);
     unmount();
+  });
+
+  it('unregisters analyzer from registry when removed from custom analyzers subscreen', () => {
+    vi.spyOn(configStore, 'getConfig').mockReturnValue({
+      customAnalyzers: [{ name: 'test-analyzer', command: 'echo "test"' }],
+    } as any);
+    const setConfigSpy = vi.spyOn(configStore, 'setConfigValue').mockImplementation(() => {});
+    const unregisterSpy = vi.spyOn(registry, 'unregister').mockImplementation(() => true);
+
+    const screenElement = SUB_SCREENS['custom-analyzers'](vi.fn(), vi.fn()) as React.ReactElement<any>;
+    expect(screenElement).toBeDefined();
+
+    // Call onRemove passed to CustomAnalyzerDashboard
+    screenElement.props.onRemove('test-analyzer');
+
+    expect(setConfigSpy).toHaveBeenCalledWith('customAnalyzers', []);
+    expect(unregisterSpy).toHaveBeenCalledWith('test-analyzer');
   });
 });
