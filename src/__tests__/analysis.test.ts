@@ -235,4 +235,20 @@ describe('Analysis Engine', () => {
     expect(output.errors[0]).toContain('Analyzer Failing failed: Something went wrong');
     expect(output.status).toBe('OK');
   });
+
+  it('unregisters an analyzer correctly so it is no longer executed', async () => {
+    const customAnalyzer = {
+      name: 'CustomTest',
+      analyze: vi.fn(async () => []),
+    };
+    registry.register(customAnalyzer);
+    expect(registry.has('CustomTest')).toBe(true);
+
+    const unregistered = registry.unregister('CustomTest');
+    expect(unregistered).toBe(true);
+    expect(registry.has('CustomTest')).toBe(false);
+
+    await runAnalysis({ filters: ['CustomTest'] });
+    expect(customAnalyzer.analyze).not.toHaveBeenCalled();
+  });
 });

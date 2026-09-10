@@ -175,12 +175,12 @@ export function formatConsensusExplanation(consensus: ConsensusDiagnosis): strin
     `Root Cause (${consensus.confidence.toUpperCase()} confidence):`,
     `  ${consensus.rootCause}`,
     '',
-    'Recommended Solution:',
+    'Recommended Remediation:',
     `  ${consensus.bestSolution.actionTitle}`,
   ];
 
   for (const step of consensus.bestSolution.steps) {
-    lines.push(`  • ${step}`);
+    lines.push(`  - ${step}`);
   }
 
   if (consensus.bestSolution.commandToRun) {
@@ -191,8 +191,7 @@ export function formatConsensusExplanation(consensus: ConsensusDiagnosis): strin
   lines.push('');
   lines.push('Specialist Agent Findings:');
   for (const finding of consensus.findings) {
-    const icon = finding.icon || '▸';
-    lines.push(`  ${icon} [${finding.agentName}]: ${finding.summary || finding.statusText}`);
+    lines.push(`  - [${finding.agentName}]: ${finding.summary || finding.statusText}`);
   }
 
   return lines.join('\n');
@@ -219,7 +218,7 @@ async function tryRunAgentCouncil(
         name: params.result.name,
         namespace: params.result.namespace,
       },
-      model,
+      model: model || 'gemma:2b',
       onProgress: params.onAgentProgress,
     });
     return formatConsensusExplanation(consensus);

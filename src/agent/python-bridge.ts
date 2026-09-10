@@ -3,8 +3,10 @@
  */
 
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
+import { fileURLToPath } from 'node:url';
 import { ConsensusDiagnosis, AgentProgressEvent } from './types';
 
 /**
@@ -45,10 +47,34 @@ export async function isPythonAgentAvailable(spawnFn: typeof spawn = spawn): Pro
 
 /**
  * Resolves the absolute path to the Python agent council runner script.
+ * Prefers the packaged script location by default to prevent untrusted execution (CWE-426).
+ * Working directory lookup is permitted only when explicit development opt-in is enabled.
  */
-function getCouncilScriptPath(): string {
-  // In development and production, agents/ directory is located at repository root
-  return path.resolve(process.cwd(), 'agents', 'council.py');
+export function getCouncilScriptPath(): string {
+  const currentDir = path.dirname(fileURLToPath(import.meta.url));
+  // Packaged bundled dist layout (dist/index.js -> ../agents/council.py)
+  const distPkgPath = path.resolve(currentDir, '..', 'agents', 'council.py');
+  // Source layout (src/agent/python-bridge.ts -> ../../agents/council.py)
+  const srcPkgPath = path.resolve(currentDir, '..', '..', 'agents', 'council.py');
+  const pkgPath = fs.existsSync(distPkgPath) ? distPkgPath : srcPkgPath;
+
+  const allowLocal =
+    process.env.KDM_ALLOW_LOCAL_AGENTS === '1' ||
+    process.env.KDM_ALLOW_LOCAL_AGENTS === 'true' ||
+    process.env.NODE_ENV === 'development';
+
+  if (allowLocal) {
+    const cwdPath = path.resolve(process.cwd(), 'agents', 'council.py');
+    if (fs.existsSync(cwdPath)) {
+      return cwdPath;
+    }
+  }
+
+  if (fs.existsSync(pkgPath)) {
+    return pkgPath;
+  }
+
+  return pkgPath;
 }
 
 /**
@@ -70,6 +96,14 @@ function processEventLine(
         status: data.status,
         message: data.message,
         icon: data.icon,
+      });
+    } else if (data.type === 'agent_completed' && onProgress) {
+      onProgress({
+        role: data.finding?.role,
+        agentName: data.agent,
+        status: 'completed',
+        message: `${data.agent} finished inspection`,
+        icon: data.finding?.icon,
       });
     } else if (data.type === 'complete') {
       return { consensus: data.consensus as ConsensusDiagnosis };

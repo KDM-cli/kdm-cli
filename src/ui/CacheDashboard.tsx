@@ -103,7 +103,8 @@ const EntryListView: React.FC<{
   selectedIndex: number;
   statusMsg: StatusMsg | null;
   loadingPreview: boolean;
-}> = ({ entries, selectedIndex, statusMsg, loadingPreview }) => (
+  onBack?: () => void;
+}> = ({ entries, selectedIndex, statusMsg, loadingPreview, onBack }) => (
   <Box flexDirection="column" padding={1}>
     <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
       <Text bold color="cyan">Cache Browser</Text>
@@ -146,8 +147,17 @@ const EntryListView: React.FC<{
       <Text dimColor>{' Delete  '}</Text>
       <Text color="yellow">P</Text>
       <Text dimColor>{' Purge All  '}</Text>
-      <Text color="white">Q</Text>
-      <Text dimColor>{' Quit'}</Text>
+      {onBack ? (
+        <>
+          <Text color="white">[Esc/Q]</Text>
+          <Text dimColor>{' Back'}</Text>
+        </>
+      ) : (
+        <>
+          <Text color="white">Q</Text>
+          <Text dimColor>{' Quit'}</Text>
+        </>
+      )}
     </Box>
   </Box>
 );
@@ -180,6 +190,10 @@ function useCacheKeyboard(
       if (key.escape) handlers.onEscape();
       return;
     }
+    if (key.escape) {
+      handlers.onEscape();
+      return;
+    }
     if (key.upArrow) handlers.onUp();
     else if (key.downArrow) handlers.onDown();
     else if (key.return) handlers.onEnter();
@@ -191,7 +205,12 @@ function useCacheKeyboard(
 
 // --- Main component ---
 
-export const CacheDashboard: React.FC = () => {
+export interface CacheDashboardProps {
+  onBack?: () => void;
+  onExit?: () => void;
+}
+
+export const CacheDashboard: React.FC<CacheDashboardProps> = ({ onBack, onExit }) => {
   const { exit } = useApp();
   const [entries, setEntries] = useState<CacheEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -276,8 +295,24 @@ export const CacheDashboard: React.FC = () => {
     onEnter: () => { if (entries.length > 0) handlePreview(entries[selectedIndex]); },
     onDelete: () => { if (entries.length > 0) handleRemove(entries[selectedIndex]); },
     onPurge: () => { if (entries.length > 0) setShowPurgeConfirm(true); },
-    onEscape: () => setPreview(null),
-    onQuit: () => exit(),
+    onEscape: () => {
+      if (preview) {
+        setPreview(null);
+      } else if (onBack) {
+        onBack();
+      } else {
+        onExit?.();
+        exit();
+      }
+    },
+    onQuit: () => {
+      if (onBack) {
+        onBack();
+      } else {
+        onExit?.();
+        exit();
+      }
+    },
     onConfirmYes: handlePurge,
     onConfirmNo: () => setShowPurgeConfirm(false),
   });
@@ -299,6 +334,7 @@ export const CacheDashboard: React.FC = () => {
       selectedIndex={selectedIndex}
       statusMsg={statusMsg}
       loadingPreview={loadingPreview}
+      onBack={onBack}
     />
   );
 };

@@ -35,7 +35,15 @@ class MockStdin extends Readable {
   }
 }
 
-const wait = () => new Promise((resolve) => setTimeout(resolve, 30));
+const wait = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const waitForOutput = async (stdout: MockStdout, text: string, timeout = 1500) => {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    if (stdout.output.includes(text)) return;
+    await wait(20);
+  }
+};
 
 describe('CustomAnalyzerDashboard', () => {
   let stdin: any;
@@ -81,6 +89,7 @@ describe('CustomAnalyzerDashboard', () => {
       name: 'keda-check',
       command: 'kubectl get scaledobjects -A -o json',
     });
+    await waitForOutput(stdout, 'keda-check');
     expect(stdout.output).toContain('keda-check');
 
     stdin.send('d');

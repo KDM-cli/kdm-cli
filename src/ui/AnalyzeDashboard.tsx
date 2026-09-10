@@ -5,6 +5,7 @@ import { runAnalysis, explainSingleResult, resolveBackend } from '../analysis/an
 import { executeFix } from '../analysis/fix';
 import type { AnalysisOptions, AnalysisOutput, SuggestedFix } from '../analysis/types';
 import type { AnalyzerResult, Failure } from '../analyzers/types';
+import type { AgentProgressEvent } from '../agent/types';
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
@@ -29,6 +30,84 @@ const AVAILABLE_BACKENDS = [
   'cohere',
   'noop',
 ];
+
+/** Status tracking for each specialist agent in the Multi-Agent Council. */
+export interface CouncilAgentInfo {
+  role: 'runtime' | 'config' | 'resource' | 'synthesizer';
+  name: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  message?: string;
+}
+
+export const DEFAULT_COUNCIL_AGENTS: CouncilAgentInfo[] = [
+  { role: 'runtime', name: 'Runtime & Log Agent', status: 'pending' },
+  { role: 'config', name: 'Config & Dependency Agent', status: 'pending' },
+  { role: 'resource', name: 'Cluster & Resource Agent', status: 'pending' },
+  { role: 'synthesizer', name: 'Lead SRE Synthesizer', status: 'pending' },
+];
+
+/** Matches agent progress event role or name to the corresponding council agent. */
+export function matchCouncilRole(
+  role?: string,
+  name?: string
+): 'runtime' | 'config' | 'resource' | 'synthesizer' | null {
+  if (role === 'runtime' || role === 'config' || role === 'resource' || role === 'synthesizer') {
+    return role;
+  }
+  const lower = (name || '').toLowerCase();
+  if (lower.includes('runtime') || lower.includes('log')) return 'runtime';
+  if (lower.includes('config') || lower.includes('depend')) return 'config';
+  if (lower.includes('resource') || lower.includes('cluster')) return 'resource';
+  if (lower.includes('synthes') || lower.includes('lead') || lower.includes('sre')) return 'synthesizer';
+  return null;
+}
+
+const COUNCIL_AGENT_ORDER: CouncilAgentInfo['role'][] = [
+  'runtime',
+  'config',
+  'resource',
+  'synthesizer',
+];
+
+function getCouncilProgressStatus(
+  status: AgentProgressEvent['status']
+): CouncilAgentInfo['status'] {
+  return status === 'completed' || status === 'failed' ? status : 'running';
+}
+
+function updateCouncilAgent(
+  agent: CouncilAgentInfo,
+  event: AgentProgressEvent,
+  targetRole: CouncilAgentInfo['role'],
+  targetIndex: number
+): CouncilAgentInfo {
+  if (agent.role === targetRole) {
+    return { ...agent, status: getCouncilProgressStatus(event.status), message: event.message };
+  }
+
+  const agentIndex = COUNCIL_AGENT_ORDER.indexOf(agent.role);
+  const shouldComplete = agentIndex < targetIndex && agent.status !== 'completed' && agent.status !== 'failed';
+  return shouldComplete ? { ...agent, status: 'completed' } : agent;
+}
+
+/** Applies a council progress event while keeping completed and failed agents terminal. */
+export function applyCouncilProgress(
+  agents: CouncilAgentInfo[],
+  event: AgentProgressEvent
+): CouncilAgentInfo[] {
+  const targetRole = matchCouncilRole(event.role, event.agentName);
+  if (!targetRole) return agents;
+
+  const targetIndex = COUNCIL_AGENT_ORDER.indexOf(targetRole);
+  return agents.map((agent) => updateCouncilAgent(agent, event, targetRole, targetIndex));
+}
+
+/** Marks all non-failed council agents as complete after a successful explanation. */
+export function completeCouncilAgents(agents: CouncilAgentInfo[]): CouncilAgentInfo[] {
+  return agents.map((agent) =>
+    agent.status === 'failed' ? agent : { ...agent, status: 'completed' }
+  );
+}
 
 /** Representation of an individual selectable problem item in the dashboard. */
 export interface ProblemItem {
@@ -115,7 +194,7 @@ const DashboardHeader: React.FC<{
           </Text>
         </Text>
       </Box>
-      <Text dimColor>─'.repeat(70)</Text>
+      <Text dimColor>{'─'.repeat(70)}</Text>
     </Box>
   );
 };
@@ -130,7 +209,7 @@ const ProblemListPane: React.FC<{
     return (
       <Box flexDirection="column" width="48%" paddingRight={1}>
         <Text bold color="green">
-          ✔ No Problems Detected
+          [✓] No Problems Detected
         </Text>
         <Text dimColor>
           All workloads in namespace [{namespace || 'all'}] are healthy.
@@ -163,13 +242,160 @@ const ProblemListPane: React.FC<{
   );
 };
 
+/**
+ * Dedicated real-time Council progress panel showing the 4 specialist agents,
+ * their individual status badges, and active diagnostic messages.
+ */
+export const AgentCouncilProgressView: React.FC<{
+  agents: CouncilAgentInfo[];
+  activeMessage?: string | null;
+  isMultiAgent: boolean;
+  backend: string;
+}> = ({ agents, activeMessage, isMultiAgent, backend }) => {
+  if (!isMultiAgent) {
+    return (
+      <Box
+        flexDirection="column"
+        borderStyle="round"
+        borderColor="magenta"
+        paddingX={1}
+        marginY={1}
+      >
+        <Box marginBottom={1}>
+          <Text bold color="magenta">AI Workload Diagnosis</Text>
+        </Box>
+        <Box flexDirection="row" gap={1}>
+          <Text color="yellow"><InkSpinner /></Text>
+          <Text color="yellow">Querying AI backend ({backend})...</Text>
+        </Box>
+        {activeMessage && (
+          <Box marginTop={1}>
+            <Text dimColor>{activeMessage}</Text>
+          </Box>
+        )}
+      </Box>
+    );
+  }
+
+  return (
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor="magenta"
+      paddingX={1}
+      marginY={1}
+    >
+      <Box justifyContent="space-between" marginBottom={1}>
+        <Text bold color="magenta">Multi-Agent Council Triaging (Ollama)</Text>
+        <Text color="yellow"><InkSpinner /> Active</Text>
+      </Box>
+      {agents.map((agent) => {
+        let badge = <Text dimColor>[ ] </Text>;
+        let nameColor: string | undefined = undefined;
+        let statusTag = <Text dimColor>[Pending]</Text>;
+
+        if (agent.status === 'completed') {
+          badge = <Text bold color="green">[✓] </Text>;
+          nameColor = 'green';
+          statusTag = <Text color="green">[Done]</Text>;
+        } else if (agent.status === 'running') {
+          badge = <Text bold color="yellow"><InkSpinner /> </Text>;
+          nameColor = 'yellow';
+          statusTag = <Text color="yellow">[Running]</Text>;
+        } else if (agent.status === 'failed') {
+          badge = <Text bold color="red">[x] </Text>;
+          nameColor = 'red';
+          statusTag = <Text color="red">[Failed]</Text>;
+        }
+
+        return (
+          <Box key={agent.role} flexDirection="column" marginBottom={0}>
+            <Box flexDirection="row" justifyContent="space-between">
+              <Box flexDirection="row">
+                {badge}
+                <Text bold color={nameColor}>{agent.name}</Text>
+              </Box>
+              {statusTag}
+            </Box>
+            {agent.message && agent.status === 'running' && (
+              <Box paddingLeft={4}>
+                <Text dimColor wrap="wrap">{agent.message}</Text>
+              </Box>
+            )}
+          </Box>
+        );
+      })}
+      {activeMessage && (
+        <Box marginTop={1} borderStyle="single" borderColor="gray" paddingX={1}>
+          <Text color="cyan">Active: </Text>
+          <Text color="yellow" wrap="wrap">{activeMessage}</Text>
+        </Box>
+      )}
+    </Box>
+  );
+};
+
+/** Formats consensus diagnosis or single LLM output with structured visual hierarchy. */
+const DiagnosisDetailsView: React.FC<{ details: string }> = ({ details }) => {
+  const lines = details.split('\n');
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      {lines.map((line, idx) => {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('Root Cause')) {
+          return (
+            <Box key={idx} marginTop={1} marginBottom={0}>
+              <Text bold color="yellow">{trimmed}</Text>
+            </Box>
+          );
+        }
+        if (trimmed.startsWith('Recommended Remediation:')) {
+          return (
+            <Box key={idx} marginTop={1} marginBottom={0}>
+              <Text bold color="green">{trimmed}</Text>
+            </Box>
+          );
+        }
+        if (trimmed.startsWith('Specialist Agent Findings:')) {
+          return (
+            <Box key={idx} marginTop={1} marginBottom={0}>
+              <Text bold color="cyan">{trimmed}</Text>
+            </Box>
+          );
+        }
+        if (trimmed.startsWith('Command:')) {
+          return (
+            <Box key={idx} marginY={1} borderStyle="single" borderColor="yellow" paddingX={1}>
+              <Text bold color="yellow">{trimmed}</Text>
+            </Box>
+          );
+        }
+        if (trimmed.startsWith('•')) {
+          return (
+            <Box key={idx} paddingLeft={1}>
+              <Text color="white">{trimmed}</Text>
+            </Box>
+          );
+        }
+        return (
+          <Text key={idx} wrap="wrap">
+            {line.length > 0 ? line : ' '}
+          </Text>
+        );
+      })}
+    </Box>
+  );
+};
+
 /** Right pane rendering detailed information for the selected problem. */
 const ProblemDetailsPane: React.FC<{
   item: ProblemItem | null;
   isExplaining: boolean;
   explainError: string | null;
   agentProgressMessage?: string | null;
-}> = ({ item, isExplaining, explainError, agentProgressMessage }) => {
+  councilAgents: CouncilAgentInfo[];
+  backend: string;
+}> = ({ item, isExplaining, explainError, agentProgressMessage, councilAgents, backend }) => {
   if (!item) {
     return (
       <Box flexDirection="column" width="52%" paddingLeft={1}>
@@ -204,17 +430,20 @@ const ProblemDetailsPane: React.FC<{
           AI Explanation:
         </Text>
         {isExplaining && (
-          <Box flexDirection="column" marginY={1}>
-            <Text color="yellow">
-              <InkSpinner /> {agentProgressMessage || 'Loading AI explanation...'}
-            </Text>
-          </Box>
+          <AgentCouncilProgressView
+            agents={councilAgents}
+            activeMessage={agentProgressMessage}
+            isMultiAgent={backend === 'ollama'}
+            backend={backend}
+          />
         )}
         {explainError && (
-          <Text color="red">Explanation failed: {explainError}</Text>
+          <Box marginTop={1}>
+            <Text color="red">Explanation failed: {explainError}</Text>
+          </Box>
         )}
         {!isExplaining && !explainError && item.result.details && (
-          <Text>{item.result.details}</Text>
+          <DiagnosisDetailsView details={item.result.details} />
         )}
         {!isExplaining && !explainError && !item.result.details && (
           <Text dimColor>Press [e] to generate explanation with active backend.</Text>
@@ -310,6 +539,60 @@ const ConfirmDialog: React.FC<{
   </Box>
 );
 
+/** Manages an on-demand AI explanation and the Council progress associated with it. */
+function useCouncilExplanation(
+  selectedItem: ProblemItem | null,
+  backend: string,
+  options: AnalysisOptions,
+  refreshResult: () => void
+) {
+  const [isExplaining, setIsExplaining] = useState(false);
+  const [councilAgents, setCouncilAgents] = useState<CouncilAgentInfo[]>(DEFAULT_COUNCIL_AGENTS);
+  const [agentProgressMessage, setAgentProgressMessage] = useState<string | null>(null);
+  const [explainError, setExplainError] = useState<string | null>(null);
+  const clearExplainError = useCallback(() => setExplainError(null), []);
+
+  const handleExplainCurrent = useCallback(async (targetItem?: ProblemItem | null) => {
+    const itemToExplain = targetItem ?? selectedItem;
+    if (!itemToExplain || isExplaining) return;
+
+    setIsExplaining(true);
+    setExplainError(null);
+    setAgentProgressMessage(null);
+    setCouncilAgents(DEFAULT_COUNCIL_AGENTS.map((agent) => ({ ...agent })));
+    try {
+      await explainSingleResult({
+        result: itemToExplain.result,
+        backend,
+        language: options.language ?? 'english',
+        shouldAnonymize: Boolean(options.anonymize),
+        noCache: Boolean(options.noCache),
+        customHeaders: options.customHeaders,
+        onAgentProgress: (event) => {
+          setAgentProgressMessage(event.message);
+          setCouncilAgents((agents) => applyCouncilProgress(agents, event));
+        },
+      });
+      setCouncilAgents(completeCouncilAgents);
+      refreshResult();
+    } catch (err) {
+      setExplainError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsExplaining(false);
+      setAgentProgressMessage(null);
+    }
+  }, [selectedItem, isExplaining, backend, options, refreshResult]);
+
+  return {
+    isExplaining,
+    councilAgents,
+    agentProgressMessage,
+    explainError,
+    clearExplainError,
+    handleExplainCurrent,
+  };
+}
+
 /**
  * Main Interactive Analyze Dashboard Component.
  * Owns navigation, modals, explanation fetching, fix confirmation, and re-analysis triggers.
@@ -339,9 +622,6 @@ export function AnalyzeDashboard({
     return idx >= 0 ? idx : 0;
   });
 
-  const [isExplaining, setIsExplaining] = useState(false);
-  const [agentProgressMessage, setAgentProgressMessage] = useState<string | null>(null);
-  const [explainError, setExplainError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<{
     text: string;
     type: 'success' | 'error' | 'info';
@@ -350,13 +630,24 @@ export function AnalyzeDashboard({
   const items = buildProblemItems(result);
   const selectedItem = items[selectedIndex] ?? null;
   const currentBackend = resolveBackend(options);
+  const refreshExplainedResult = useCallback(() => {
+    setResult((previousResult) => (previousResult ? { ...previousResult } : null));
+  }, []);
+  const {
+    isExplaining,
+    councilAgents,
+    agentProgressMessage,
+    explainError,
+    clearExplainError,
+    handleExplainCurrent,
+  } = useCouncilExplanation(selectedItem, currentBackend, options, refreshExplainedResult);
 
   const triggerReanalysis = useCallback(async (opts: AnalysisOptions, preserveAction = false) => {
     setIsLoading(true);
     if (!preserveAction) {
       setActionMessage(null);
     }
-    setExplainError(null);
+    clearExplainError();
     try {
       const freshResult = await runAnalysis(opts);
       setResult(freshResult);
@@ -367,7 +658,7 @@ export function AnalyzeDashboard({
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [clearExplainError]);
 
   useEffect(() => {
     if (!initialResult) {
@@ -388,32 +679,22 @@ export function AnalyzeDashboard({
     }
   };
 
-  const handleExplainCurrent = async () => {
-    if (!selectedItem || isExplaining) return;
-    setIsExplaining(true);
-    setExplainError(null);
-    setAgentProgressMessage(null);
-    try {
-      await explainSingleResult({
-        result: selectedItem.result,
-        backend: currentBackend,
-        language: options.language ?? 'english',
-        shouldAnonymize: Boolean(options.anonymize),
-        noCache: Boolean(options.noCache),
-        customHeaders: options.customHeaders,
-        onAgentProgress: (event) => {
-          setAgentProgressMessage(event.message);
-        },
-      });
-      setResult((prev) => (prev ? { ...prev } : null));
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      setExplainError(errMsg);
-    } finally {
-      setIsExplaining(false);
-      setAgentProgressMessage(null);
-    }
-  };
+  const autoExplainedRef = React.useRef(false);
+  const firstProblemItem = items[0];
+  const shouldAutoExplain = Boolean(
+    options.explain &&
+    result &&
+    !isLoading &&
+    !isExplaining &&
+    !autoExplainedRef.current &&
+    firstProblemItem &&
+    !firstProblemItem.result.details
+  );
+  useEffect(() => {
+    if (!shouldAutoExplain || !firstProblemItem) return;
+    autoExplainedRef.current = true;
+    void handleExplainCurrent(firstProblemItem);
+  }, [shouldAutoExplain, firstProblemItem, handleExplainCurrent]);
 
   const backendIndexRef = React.useRef(backendIndex);
   backendIndexRef.current = backendIndex;
@@ -519,6 +800,8 @@ export function AnalyzeDashboard({
           isExplaining={isExplaining}
           explainError={explainError}
           agentProgressMessage={agentProgressMessage}
+          councilAgents={councilAgents}
+          backend={currentBackend}
         />
       </Box>
 

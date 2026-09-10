@@ -41,6 +41,10 @@ class AnalyzerRegistry {
     return this.analyzers.has(name);
   }
 
+  unregister(name: string): boolean {
+    return this.analyzers.delete(name);
+  }
+
   clear(): void {
     this.analyzers.clear();
   }
