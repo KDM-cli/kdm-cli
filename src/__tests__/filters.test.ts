@@ -109,4 +109,22 @@ describe('filters command', () => {
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Unknown filter name'));
     expect(process.exitCode).toBe(1);
   });
+
+  it('exits with error when launched without a TTY terminal', async () => {
+    const origStdoutTTY = process.stdout.isTTY;
+    const origStdinTTY = process.stdin.isTTY;
+    process.stdout.isTTY = false as any;
+    process.stdin.isTTY = false as any;
+
+    try {
+      await program.parseAsync(['node', 'test', 'filters']);
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Interactive filters dashboard requires a TTY terminal.'),
+      );
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.stdout.isTTY = origStdoutTTY;
+      process.stdin.isTTY = origStdinTTY;
+    }
+  });
 });

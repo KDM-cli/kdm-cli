@@ -2,8 +2,9 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { getActiveFilters, setActiveFilters } from '../config/store';
 import { registry } from '../analyzers';
+import { DEFAULT_FILTERS } from '../ui/FiltersDashboard';
 
-const DEFAULT_FILTERS = ['Pod', 'Deployment', 'Service', 'PersistentVolumeClaim', 'Node'];
+export { DEFAULT_FILTERS };
 
 /**
  * Lists the configured active filters and the available inactive ones.
@@ -109,7 +110,20 @@ export const registerFiltersCommand = (program: Command): void => {
   const filters = program
     .command('filters')
     .alias('filter')
-    .description('Manage active analyzers filters for kdm analyze');
+    .description('Manage active analyzers filters for kdm analyze')
+    .action(async () => {
+      if (!process.stdout.isTTY || !process.stdin.isTTY) {
+        console.error('Interactive filters dashboard requires a TTY terminal.');
+        process.exitCode = 1;
+        return;
+      }
+      process.stdout.write('\x1Bc');
+      const { default: React } = await import('react');
+      const { render } = await import('ink');
+      const { FiltersDashboard } = await import('../ui/FiltersDashboard');
+      const app = render(React.createElement(FiltersDashboard));
+      await app.waitUntilExit();
+    });
 
   filters
     .command('list')
