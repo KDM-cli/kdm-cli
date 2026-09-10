@@ -178,7 +178,13 @@ kdm cache purge
 ---
 
 ## 8. `kdm filters`
-Configure default active analyzers to filter what `kdm analyze` checks.
+Configure default active analyzers to filter what `kdm analyze` checks. Running `kdm filters` opens an interactive checklist TUI dashboard.
+
+### Interactive Dashboard:
+Run `kdm filters` to open the interactive multi-select checklist:
+- **`↑` / `↓`**: Navigate analyzer list
+- **`Space`**: Toggle analyzer on/off (instantly auto-saved)
+- **`Q`**: Quit
 
 ### Subcommands:
 - **`kdm filters list`**
@@ -190,6 +196,7 @@ Configure default active analyzers to filter what `kdm analyze` checks.
 
 ### Examples:
 ```bash
+kdm filters                 # Open interactive checklist dashboard
 kdm filters list
 kdm filters add Ingress
 ```

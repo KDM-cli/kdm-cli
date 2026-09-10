@@ -183,9 +183,10 @@ kdm cache purge             # Clear all cached AI explanations
 
 ### Analyzer Filters
 
-By default, KDM runs all core resource analyzers. You can customize which analyzers are active.
+By default, KDM runs all core resource analyzers. You can customize which analyzers are active using the interactive checklist dashboard or CLI subcommands:
 
 ```bash
+kdm filters                 # Open interactive checklist dashboard with instant persistence
 kdm filters list            # List active filters and available inactive ones
 kdm filters add Ingress     # Add Ingress analyzer to active default filters list
 kdm filters remove Ingress  # Remove analyzer from active list (falls back to defaults)
