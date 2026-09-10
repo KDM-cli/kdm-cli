@@ -20,7 +20,7 @@
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 [![All Contributors](https://img.shields.io/github/all-contributors/KDM-cli/kdm-cli?color=ee8449&style=flat-square)](#contributors)
 [![GitHub stars](https://img.shields.io/github/stars/KDM-cli/kdm-cli?style=flat-square&logo=github)](https://github.com/KDM-cli/kdm-cli)
-[![Node](https://img.shields.io/badge/node-%3E%3D18-339933?style=flat-square&logo=node.js)](https://nodejs.org)
+[![Node](https://img.shields.io/badge/node-%3E%3D20-339933?style=flat-square&logo=node.js)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-7-3178C6?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](CONTRIBUTING.md)
 
@@ -75,11 +75,23 @@ npm install -g kdm-cli
 npx kdm-cli
 ```
 
+### Install in a Project
+
+```bash
+npm install kdm-cli
+npx kdm
+```
+
+`npm install kdm-cli` adds the `kdm` executable to the project at
+`./node_modules/.bin/kdm`; it does not add it to your system `PATH`. Use
+`npx kdm` from that project, or choose the global installation above to run
+`kdm` from any directory.
+
 </div>
 
 **Requirements:**
 
-- [Node.js](https://nodejs.org) >= 18
+- [Node.js](https://nodejs.org) >= 20
 - Docker daemon (for container features)
 - Kubernetes cluster or [Minikube](https://minikube.sigs.k8s.io) (for pod features)
 

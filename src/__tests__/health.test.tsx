@@ -102,7 +102,7 @@ describe('health command', () => {
 
     const { unmount } = render(
       <HealthDashboard initialTarget="all" initialWatch={false} initialInterval={5} />,
-      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
+      { stdout: mockStdout as any, stdin: mockStdin as any }
     );
 
     await waitForFrameToContain(mockStdout, 'pod-1');
