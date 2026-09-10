@@ -23,16 +23,15 @@ def emit_event(event_type: str, data: Dict[str, Any]) -> None:
 
 def _match_requested_model(candidate_models: List[str], requested_model: str) -> Optional[str]:
     """Finds an exact or base name match for the requested model among candidate models."""
-    if not requested_model:
-        return None
-    for m in candidate_models:
-        if m == requested_model:
-            return m
-    req_base = requested_model.split(":")[0]
-    for m in candidate_models:
-        if m.split(":")[0] == req_base:
-            return m
-    return None
+    if requested_model in candidate_models:
+        return requested_model
+
+    return _find_model_by_base(candidate_models, requested_model.split(":")[0])
+
+
+def _find_model_by_base(candidate_models: List[str], model_base: str) -> Optional[str]:
+    """Finds the first candidate whose untagged model name matches the requested base."""
+    return next((model for model in candidate_models if model.split(":")[0] == model_base), None)
 
 
 def resolve_model(client: ollama.Client, requested_model: str) -> str:

@@ -86,41 +86,36 @@ describe('CacheDashboard', () => {
     vi.restoreAllMocks();
   });
 
-  it('renders [Esc/Q] Back in embedded mode when onBack is provided', async () => {
-    const onBack = vi.fn();
+  it.each([
+    {
+      name: 'renders [Esc/Q] Back in embedded mode',
+      navigationProp: 'onBack' as const,
+      expectedText: ['[Esc/Q]', 'Back'],
+      unexpectedText: 'Quit',
+    },
+    {
+      name: 'renders Q Quit in standalone mode',
+      navigationProp: 'onExit' as const,
+      expectedText: ['Q', 'Quit'],
+    },
+  ])('$name and invokes its navigation callback', async ({ navigationProp, expectedText, unexpectedText }) => {
+    const onNavigate = vi.fn();
+    const dashboardProps = navigationProp === 'onBack'
+      ? { onBack: onNavigate }
+      : { onExit: onNavigate };
     const { unmount } = render(
-      <CacheDashboard onBack={onBack} />,
+      <CacheDashboard {...dashboardProps} />,
       { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
     );
 
     await waitForFrame(mockStdout, 'Cache Browser');
     const output = mockStdout.frames.join('\n');
-    expect(output).toContain('[Esc/Q]');
-    expect(output).toContain('Back');
-    expect(output).not.toContain('Quit');
+    expectedText.forEach((text) => expect(output).toContain(text));
+    if (unexpectedText) expect(output).not.toContain(unexpectedText);
 
     mockStdin.sendChar('q');
     await sleep(50);
-    expect(onBack).toHaveBeenCalled();
-
-    unmount();
-  });
-
-  it('renders Q Quit in standalone mode when onBack is undefined', async () => {
-    const onExit = vi.fn();
-    const { unmount } = render(
-      <CacheDashboard onExit={onExit} />,
-      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
-    );
-
-    await waitForFrame(mockStdout, 'Cache Browser');
-    const output = mockStdout.frames.join('\n');
-    expect(output).toContain('Q');
-    expect(output).toContain('Quit');
-
-    mockStdin.sendChar('q');
-    await sleep(50);
-    expect(onExit).toHaveBeenCalled();
+    expect(onNavigate).toHaveBeenCalled();
 
     unmount();
   });

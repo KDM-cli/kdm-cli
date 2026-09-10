@@ -5,6 +5,7 @@ import { runAnalysis, explainSingleResult, resolveBackend } from '../analysis/an
 import { executeFix } from '../analysis/fix';
 import type { AnalysisOptions, AnalysisOutput, SuggestedFix } from '../analysis/types';
 import type { AnalyzerResult, Failure } from '../analyzers/types';
+import type { AgentProgressEvent } from '../agent/types';
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
@@ -59,6 +60,53 @@ export function matchCouncilRole(
   if (lower.includes('resource') || lower.includes('cluster')) return 'resource';
   if (lower.includes('synthes') || lower.includes('lead') || lower.includes('sre')) return 'synthesizer';
   return null;
+}
+
+const COUNCIL_AGENT_ORDER: CouncilAgentInfo['role'][] = [
+  'runtime',
+  'config',
+  'resource',
+  'synthesizer',
+];
+
+function getCouncilProgressStatus(
+  status: AgentProgressEvent['status']
+): CouncilAgentInfo['status'] {
+  return status === 'completed' || status === 'failed' ? status : 'running';
+}
+
+function updateCouncilAgent(
+  agent: CouncilAgentInfo,
+  event: AgentProgressEvent,
+  targetRole: CouncilAgentInfo['role'],
+  targetIndex: number
+): CouncilAgentInfo {
+  if (agent.role === targetRole) {
+    return { ...agent, status: getCouncilProgressStatus(event.status), message: event.message };
+  }
+
+  const agentIndex = COUNCIL_AGENT_ORDER.indexOf(agent.role);
+  const shouldComplete = agentIndex < targetIndex && agent.status !== 'completed' && agent.status !== 'failed';
+  return shouldComplete ? { ...agent, status: 'completed' } : agent;
+}
+
+/** Applies a council progress event while keeping completed and failed agents terminal. */
+export function applyCouncilProgress(
+  agents: CouncilAgentInfo[],
+  event: AgentProgressEvent
+): CouncilAgentInfo[] {
+  const targetRole = matchCouncilRole(event.role, event.agentName);
+  if (!targetRole) return agents;
+
+  const targetIndex = COUNCIL_AGENT_ORDER.indexOf(targetRole);
+  return agents.map((agent) => updateCouncilAgent(agent, event, targetRole, targetIndex));
+}
+
+/** Marks all non-failed council agents as complete after a successful explanation. */
+export function completeCouncilAgents(agents: CouncilAgentInfo[]): CouncilAgentInfo[] {
+  return agents.map((agent) =>
+    agent.status === 'failed' ? agent : { ...agent, status: 'completed' }
+  );
 }
 
 /** Representation of an individual selectable problem item in the dashboard. */
@@ -491,6 +539,60 @@ const ConfirmDialog: React.FC<{
   </Box>
 );
 
+/** Manages an on-demand AI explanation and the Council progress associated with it. */
+function useCouncilExplanation(
+  selectedItem: ProblemItem | null,
+  backend: string,
+  options: AnalysisOptions,
+  refreshResult: () => void
+) {
+  const [isExplaining, setIsExplaining] = useState(false);
+  const [councilAgents, setCouncilAgents] = useState<CouncilAgentInfo[]>(DEFAULT_COUNCIL_AGENTS);
+  const [agentProgressMessage, setAgentProgressMessage] = useState<string | null>(null);
+  const [explainError, setExplainError] = useState<string | null>(null);
+  const clearExplainError = useCallback(() => setExplainError(null), []);
+
+  const handleExplainCurrent = useCallback(async (targetItem?: ProblemItem | null) => {
+    const itemToExplain = targetItem ?? selectedItem;
+    if (!itemToExplain || isExplaining) return;
+
+    setIsExplaining(true);
+    setExplainError(null);
+    setAgentProgressMessage(null);
+    setCouncilAgents(DEFAULT_COUNCIL_AGENTS.map((agent) => ({ ...agent })));
+    try {
+      await explainSingleResult({
+        result: itemToExplain.result,
+        backend,
+        language: options.language ?? 'english',
+        shouldAnonymize: Boolean(options.anonymize),
+        noCache: Boolean(options.noCache),
+        customHeaders: options.customHeaders,
+        onAgentProgress: (event) => {
+          setAgentProgressMessage(event.message);
+          setCouncilAgents((agents) => applyCouncilProgress(agents, event));
+        },
+      });
+      setCouncilAgents(completeCouncilAgents);
+      refreshResult();
+    } catch (err) {
+      setExplainError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsExplaining(false);
+      setAgentProgressMessage(null);
+    }
+  }, [selectedItem, isExplaining, backend, options, refreshResult]);
+
+  return {
+    isExplaining,
+    councilAgents,
+    agentProgressMessage,
+    explainError,
+    clearExplainError,
+    handleExplainCurrent,
+  };
+}
+
 /**
  * Main Interactive Analyze Dashboard Component.
  * Owns navigation, modals, explanation fetching, fix confirmation, and re-analysis triggers.
@@ -520,10 +622,6 @@ export function AnalyzeDashboard({
     return idx >= 0 ? idx : 0;
   });
 
-  const [isExplaining, setIsExplaining] = useState(false);
-  const [councilAgents, setCouncilAgents] = useState<CouncilAgentInfo[]>(DEFAULT_COUNCIL_AGENTS);
-  const [agentProgressMessage, setAgentProgressMessage] = useState<string | null>(null);
-  const [explainError, setExplainError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<{
     text: string;
     type: 'success' | 'error' | 'info';
@@ -532,13 +630,24 @@ export function AnalyzeDashboard({
   const items = buildProblemItems(result);
   const selectedItem = items[selectedIndex] ?? null;
   const currentBackend = resolveBackend(options);
+  const refreshExplainedResult = useCallback(() => {
+    setResult((previousResult) => (previousResult ? { ...previousResult } : null));
+  }, []);
+  const {
+    isExplaining,
+    councilAgents,
+    agentProgressMessage,
+    explainError,
+    clearExplainError,
+    handleExplainCurrent,
+  } = useCouncilExplanation(selectedItem, currentBackend, options, refreshExplainedResult);
 
   const triggerReanalysis = useCallback(async (opts: AnalysisOptions, preserveAction = false) => {
     setIsLoading(true);
     if (!preserveAction) {
       setActionMessage(null);
     }
-    setExplainError(null);
+    clearExplainError();
     try {
       const freshResult = await runAnalysis(opts);
       setResult(freshResult);
@@ -549,7 +658,7 @@ export function AnalyzeDashboard({
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [clearExplainError]);
 
   useEffect(() => {
     if (!initialResult) {
@@ -570,82 +679,22 @@ export function AnalyzeDashboard({
     }
   };
 
-  const handleExplainCurrent = useCallback(async (targetItem?: ProblemItem | null) => {
-    const itemToExplain = targetItem ?? selectedItem;
-    if (!itemToExplain || isExplaining) return;
-    setIsExplaining(true);
-    setExplainError(null);
-    setAgentProgressMessage(null);
-    setCouncilAgents(DEFAULT_COUNCIL_AGENTS.map((a) => ({ ...a })));
-    try {
-      await explainSingleResult({
-        result: itemToExplain.result,
-        backend: currentBackend,
-        language: options.language ?? 'english',
-        shouldAnonymize: Boolean(options.anonymize),
-        noCache: Boolean(options.noCache),
-        customHeaders: options.customHeaders,
-        onAgentProgress: (event) => {
-          setAgentProgressMessage(event.message);
-          const targetRole = matchCouncilRole(event.role, event.agentName);
-          if (targetRole) {
-            const roleOrder: CouncilAgentInfo['role'][] = [
-              'runtime',
-              'config',
-              'resource',
-              'synthesizer',
-            ];
-            const targetIdx = roleOrder.indexOf(targetRole);
-            setCouncilAgents((prev) =>
-              prev.map((agent) => {
-                const agentIdx = roleOrder.indexOf(agent.role);
-                if (agent.role === targetRole) {
-                  const nextStatus: CouncilAgentInfo['status'] =
-                    event.status === 'failed'
-                      ? 'failed'
-                      : event.status === 'completed'
-                      ? 'completed'
-                      : 'running';
-                  return {
-                    ...agent,
-                    status: nextStatus,
-                    message: event.message,
-                  };
-                }
-                if (agentIdx < targetIdx && agent.status !== 'completed' && agent.status !== 'failed') {
-                  return { ...agent, status: 'completed' };
-                }
-                return agent;
-              })
-            );
-          }
-        },
-      });
-      setCouncilAgents((prev) =>
-        prev.map((agent) =>
-          agent.status === 'failed' ? agent : { ...agent, status: 'completed' }
-        )
-      );
-      setResult((prev) => (prev ? { ...prev } : null));
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      setExplainError(errMsg);
-    } finally {
-      setIsExplaining(false);
-      setAgentProgressMessage(null);
-    }
-  }, [selectedItem, isExplaining, currentBackend, options]);
-
   const autoExplainedRef = React.useRef(false);
+  const firstProblemItem = items[0];
+  const shouldAutoExplain = Boolean(
+    options.explain &&
+    result &&
+    !isLoading &&
+    !isExplaining &&
+    !autoExplainedRef.current &&
+    firstProblemItem &&
+    !firstProblemItem.result.details
+  );
   useEffect(() => {
-    if (options.explain && result && !isLoading && !isExplaining && !autoExplainedRef.current) {
-      const firstWithProblem = items[0];
-      if (firstWithProblem && !firstWithProblem.result.details) {
-        autoExplainedRef.current = true;
-        void handleExplainCurrent(firstWithProblem);
-      }
-    }
-  }, [options.explain, result, isLoading, isExplaining, items, handleExplainCurrent]);
+    if (!shouldAutoExplain || !firstProblemItem) return;
+    autoExplainedRef.current = true;
+    void handleExplainCurrent(firstProblemItem);
+  }, [shouldAutoExplain, firstProblemItem, handleExplainCurrent]);
 
   const backendIndexRef = React.useRef(backendIndex);
   backendIndexRef.current = backendIndex;
