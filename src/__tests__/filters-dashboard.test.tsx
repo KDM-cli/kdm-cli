@@ -93,14 +93,18 @@ const waitForFrameToContain = async ({
 
 describe('Checkbox component', () => {
   let mockStdout: MockWritable;
+  let mockStdin: MockStdin;
 
   beforeEach(() => {
     mockStdout = new MockWritable();
+    mockStdin = new MockStdin();
   });
 
   it('renders checked and selected state', async () => {
     const { unmount } = render(<Checkbox label="Pod" checked={true} isSelected={true} />, {
       stdout: mockStdout as any,
+      stdin: mockStdin as any,
+      interactive: true,
     });
     await waitForFrameToContain({ mockStdout, substring: 'Pod' });
     const output = mockStdout.frames.join('\n');
@@ -113,6 +117,8 @@ describe('Checkbox component', () => {
   it('renders unchecked and unselected state', async () => {
     const { unmount } = render(<Checkbox label="Ingress" checked={false} isSelected={false} />, {
       stdout: mockStdout as any,
+      stdin: mockStdin as any,
+      interactive: true,
     });
     await waitForFrameToContain({ mockStdout, substring: 'Ingress' });
     const output = mockStdout.frames.join('\n');
