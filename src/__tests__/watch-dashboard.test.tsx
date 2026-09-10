@@ -92,7 +92,7 @@ describe('WatchDashboard', () => {
       memoryLimit: 8000000000,
     });
 
-    const { unmount } = render(<WatchDashboard />, { stdout: mockStdout as any, stdin: mockStdin as any });
+    const { unmount } = render(<WatchDashboard />, { stdout: mockStdout as any, stdin: mockStdin as any, debug: true });
 
     await waitForFrameToContain(mockStdout, 'pod-1');
 
@@ -130,7 +130,7 @@ describe('WatchDashboard', () => {
   ])('$description', async ({ mockSetup, errorMsg, outputMsg }) => {
     mockSetup();
 
-    const { unmount } = render(<WatchDashboard />, { stdout: mockStdout as any, stdin: mockStdin as any });
+    const { unmount } = render(<WatchDashboard />, { stdout: mockStdout as any, stdin: mockStdin as any, debug: true });
 
     await waitForFrameToContain(mockStdout, errorMsg);
 
@@ -154,7 +154,7 @@ describe('WatchDashboard', () => {
       configurable: true,
     });
 
-    const { unmount } = render(<WatchDashboard />, { stdout: mockStdout as any, stdin: mockStdin as any });
+    const { unmount } = render(<WatchDashboard />, { stdout: mockStdout as any, stdin: mockStdin as any, debug: true });
     
     process.stdout.emit('resize');
 

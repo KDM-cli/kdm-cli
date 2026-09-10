@@ -90,7 +90,7 @@ describe('InitialDashboard', () => {
         initialMinikube={mockMinikubeRunning}
         {...props}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
   };
 

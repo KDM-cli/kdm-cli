@@ -121,6 +121,7 @@ describe('AuthDashboard', () => {
     const renderResult = render(<AuthDashboard />, {
       stdout: mockStdout as any,
       stdin: mockStdin as any,
+      debug: true,
     });
 
     await waitForFrameToContain({ mockStdout, substring: 'OpenAI' });

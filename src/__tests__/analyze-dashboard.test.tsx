@@ -127,7 +127,7 @@ describe('AnalyzeDashboard', () => {
         initialOptions={{ namespace: 'test-ns', output: 'text' }}
         initialResult={mockHealthyResult}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'No Problems Detected');
@@ -143,7 +143,7 @@ describe('AnalyzeDashboard', () => {
         initialOptions={{ namespace: 'default', output: 'text' }}
         initialResult={mockProblemResult}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'Detected Issues');
@@ -161,7 +161,7 @@ describe('AnalyzeDashboard', () => {
         initialOptions={{ namespace: 'default', output: 'text' }}
         initialResult={mockProblemResult}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'web-pod');
@@ -181,7 +181,7 @@ describe('AnalyzeDashboard', () => {
         initialOptions={{ namespace: 'default', output: 'text' }}
         initialResult={mockProblemResult}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'web-pod');
@@ -209,7 +209,7 @@ describe('AnalyzeDashboard', () => {
         initialOptions={{ namespace: 'default', output: 'text' }}
         initialResult={mockProblemResult}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'web-pod');
@@ -237,7 +237,7 @@ describe('AnalyzeDashboard', () => {
         initialOptions={{ namespace: 'default', output: 'text' }}
         initialResult={mockProblemResult}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'web-pod');
@@ -267,7 +267,7 @@ describe('AnalyzeDashboard', () => {
         initialOptions={{ namespace: 'default', output: 'text', backend: 'openai' }}
         initialResult={mockProblemResult}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'web-pod');
@@ -296,7 +296,7 @@ describe('AnalyzeDashboard', () => {
         initialOptions={{ namespace: 'default', output: 'text' }}
         initialResult={mockProblemResult}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'web-pod');
@@ -318,7 +318,7 @@ describe('AnalyzeDashboard', () => {
         initialOptions={{ namespace: 'default', output: 'text' }}
         initialResult={mockProblemResult}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'web-pod');
@@ -344,7 +344,7 @@ describe('AnalyzeDashboard', () => {
         initialOptions={{ namespace: 'default', output: 'text', backend: 'ollama' }}
         initialResult={mockProblemResult}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'web-pod');
@@ -379,7 +379,7 @@ describe('AnalyzeDashboard', () => {
         initialOptions={{ namespace: 'default', output: 'text', backend: 'ollama' }}
         initialResult={mockProblemResult}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'web-pod');
@@ -419,7 +419,7 @@ describe('AnalyzeDashboard', () => {
         initialOptions={{ namespace: 'default', output: 'text', backend: 'ollama' }}
         initialResult={mockProblemResult}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'web-pod');
