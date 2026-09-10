@@ -98,24 +98,28 @@ describe('Checkbox component', () => {
     mockStdout = new MockWritable();
   });
 
-  it('renders checked and selected state', () => {
-    render(<Checkbox label="Pod" checked={true} isSelected={true} />, {
+  it('renders checked and selected state', async () => {
+    const { unmount } = render(<Checkbox label="Pod" checked={true} isSelected={true} />, {
       stdout: mockStdout as any,
     });
+    await waitForFrameToContain({ mockStdout, substring: 'Pod' });
     const output = mockStdout.frames.join('\n');
     expect(output).toContain('> ');
     expect(output).toContain('[x]');
     expect(output).toContain('Pod');
+    unmount();
   });
 
-  it('renders unchecked and unselected state', () => {
-    render(<Checkbox label="Ingress" checked={false} isSelected={false} />, {
+  it('renders unchecked and unselected state', async () => {
+    const { unmount } = render(<Checkbox label="Ingress" checked={false} isSelected={false} />, {
       stdout: mockStdout as any,
     });
+    await waitForFrameToContain({ mockStdout, substring: 'Ingress' });
     const output = mockStdout.frames.join('\n');
     expect(output).not.toContain('> ');
     expect(output).toContain('[ ]');
     expect(output).toContain('Ingress');
+    unmount();
   });
 });
 
@@ -146,7 +150,7 @@ describe('FiltersDashboard', () => {
   ];
 
   it('renders initial state with default filters active', async () => {
-    render(
+    const { unmount } = render(
       <FiltersDashboard
         availableAnalyzers={sampleAnalyzers}
         initialActiveFilters={DEFAULT_FILTERS}
@@ -170,10 +174,11 @@ describe('FiltersDashboard', () => {
     expect(output).toContain('[ ] Ingress');
     expect(output).toContain('[x] PersistentVolumeClaim');
     expect(output).toContain('[x] Node');
+    unmount();
   });
 
   it('navigates list with arrow keys', async () => {
-    render(
+    const { unmount } = render(
       <FiltersDashboard
         availableAnalyzers={sampleAnalyzers}
         initialActiveFilters={['Pod', 'Deployment']}
@@ -201,12 +206,13 @@ describe('FiltersDashboard', () => {
 
     const lastRendered = [...mockStdout.frames].reverse().find((f) => f.includes('Analyzer Filters'));
     expect(lastRendered).toContain('Deployment');
+    unmount();
   });
 
   it('toggles an analyzer off with Space and persists immediately', async () => {
     const onSaveSpy = vi.fn();
 
-    render(
+    const { unmount } = render(
       <FiltersDashboard
         availableAnalyzers={sampleAnalyzers}
         initialActiveFilters={['Pod', 'Deployment']}
@@ -227,12 +233,13 @@ describe('FiltersDashboard', () => {
     await waitForFrameToContain({ mockStdout, substring: '[ ] Pod' });
 
     expect(onSaveSpy).toHaveBeenCalledWith(['Deployment']);
+    unmount();
   });
 
   it('toggles an analyzer on with Space and persists immediately', async () => {
     const onSaveSpy = vi.fn();
 
-    render(
+    const { unmount } = render(
       <FiltersDashboard
         availableAnalyzers={sampleAnalyzers}
         initialActiveFilters={['Pod']}
@@ -257,6 +264,7 @@ describe('FiltersDashboard', () => {
     await waitForFrameToContain({ mockStdout, substring: '[x] Deployment' });
 
     expect(onSaveSpy).toHaveBeenCalledWith(['Pod', 'Deployment']);
+    unmount();
   });
 
   it('exits cleanly on Q key', async () => {

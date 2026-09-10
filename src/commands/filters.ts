@@ -1,8 +1,10 @@
+import React from 'react';
+import { render } from 'ink';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { getActiveFilters, setActiveFilters } from '../config/store';
 import { registry } from '../analyzers';
-import { DEFAULT_FILTERS } from '../ui/FiltersDashboard';
+import { FiltersDashboard, DEFAULT_FILTERS } from '../ui/FiltersDashboard';
 
 export { DEFAULT_FILTERS };
 
@@ -111,18 +113,14 @@ export const registerFiltersCommand = (program: Command): void => {
     .command('filters')
     .alias('filter')
     .description('Manage active analyzers filters for kdm analyze')
-    .action(async () => {
+    .action(() => {
       if (!process.stdout.isTTY || !process.stdin.isTTY) {
         console.error('Interactive filters dashboard requires a TTY terminal.');
         process.exitCode = 1;
         return;
       }
       process.stdout.write('\x1Bc');
-      const { default: React } = await import('react');
-      const { render } = await import('ink');
-      const { FiltersDashboard } = await import('../ui/FiltersDashboard');
-      const app = render(React.createElement(FiltersDashboard));
-      await app.waitUntilExit();
+      render(React.createElement(FiltersDashboard));
     });
 
   filters
