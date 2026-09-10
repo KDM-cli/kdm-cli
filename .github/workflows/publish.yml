@@ -24,6 +24,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
+          # Required to bypass the protected-main release ruleset when pushing the version commit.
+          token: ${{ secrets.GH_PAT }}
           fetch-depth: 0
 
       - name: Setup Node.cjs
