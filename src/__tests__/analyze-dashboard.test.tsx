@@ -12,6 +12,32 @@ if (!(console as any).Console) {
   (console as any).Console = Console;
 }
 
+const namespaceTextInput = vi.hoisted(() => ({
+  onChange: undefined as ((value: string) => void) | undefined,
+  onSubmit: undefined as ((value: string) => void) | undefined,
+}));
+
+vi.mock('ink-text-input', async () => {
+  const React = await import('react');
+  const { Text } = await import('ink');
+
+  return {
+    default: ({
+      value,
+      onChange,
+      onSubmit,
+    }: {
+      value: string;
+      onChange: (value: string) => void;
+      onSubmit?: (value: string) => void;
+    }) => {
+      namespaceTextInput.onChange = onChange;
+      namespaceTextInput.onSubmit = onSubmit;
+      return React.createElement(Text, null, value);
+    },
+  };
+});
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 class MockStdout extends Writable {
@@ -127,6 +153,8 @@ describe('AnalyzeDashboard', () => {
   beforeEach(() => {
     mockStdout = new MockStdout();
     mockStdin = new MockStdin();
+    namespaceTextInput.onChange = undefined;
+    namespaceTextInput.onSubmit = undefined;
     vi.clearAllMocks();
   });
 
@@ -252,13 +280,17 @@ describe('AnalyzeDashboard', () => {
     );
 
     await waitForFrame(mockStdout, 'web-pod');
-    const inputHookCalls = mockStdin.setEncoding.mock.calls.length;
     mockStdin.sendChar('n');
     await waitForFrame(mockStdout, 'Change Namespace');
-    await waitFor(() => mockStdin.setEncoding.mock.calls.length > inputHookCalls);
+    await waitFor(() => Boolean(namespaceTextInput.onChange && namespaceTextInput.onSubmit));
 
-    await mockStdin.sendStr('kube-system');
-    mockStdin.sendKey('return');
+    const onChange = namespaceTextInput.onChange;
+    const onSubmit = namespaceTextInput.onSubmit;
+    if (!onChange || !onSubmit) {
+      throw new Error('Namespace input handlers were not registered.');
+    }
+    onChange('kube-system');
+    onSubmit('kube-system');
 
     await waitFor(() =>
       reanalyzeSpy.mock.calls.some(([args]) => args.namespace === 'kube-system')
