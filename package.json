@@ -29,7 +29,7 @@
     "build": "tsup src/index.ts --format esm && tsc --emitDeclarationOnly --declaration --outDir dist",
     "dev": "tsup src/index.ts --format esm --watch",
     "pretest": "npm run build",
-    "test": "vitest run --pool=forks --maxWorkers=2",
+    "test": "vitest run --pool=forks --maxWorkers=1",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
