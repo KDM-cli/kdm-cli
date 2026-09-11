@@ -69,7 +69,7 @@ describe('CustomAnalyzerDashboard', () => {
     });
     app = render(
       <CustomAnalyzerDashboard analyzers={analyzers} onAdd={onAdd} onRemove={onRemove} />,
-      { stdin, stdout, interactive: true },
+      { stdin, stdout, debug: true },
     );
 
     stdin.send('a');
@@ -116,7 +116,7 @@ describe('CustomAnalyzerDashboard', () => {
         onAdd={vi.fn()}
         onRemove={vi.fn()}
       />,
-      { stdin, stdout, interactive: true },
+      { stdin, stdout, debug: true },
     );
 
     stdin.send('a');
@@ -143,7 +143,7 @@ describe('CustomAnalyzerDashboard', () => {
         onAdd={vi.fn()}
         onRemove={onRemove}
       />,
-      { stdin, stdout, interactive: true },
+      { stdin, stdout, debug: true },
     );
 
     stdin.send('\u001b[B');
@@ -177,7 +177,7 @@ describe('CustomAnalyzerDashboard', () => {
         onAdd={vi.fn()}
         onRemove={vi.fn()}
       />,
-      { stdin, stdout, interactive: true },
+      { stdin, stdout, debug: true },
     );
 
     stdin.send('a');
@@ -198,7 +198,7 @@ describe('CustomAnalyzerDashboard', () => {
     const onAdd = vi.fn();
     app = render(
       <CustomAnalyzerDashboard analyzers={[]} onAdd={onAdd} onRemove={vi.fn()} />,
-      { stdin, stdout, interactive: true },
+      { stdin, stdout, debug: true },
     );
 
     stdin.send('a');

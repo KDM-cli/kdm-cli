@@ -101,22 +101,26 @@ export const registerCustomAnalyzerCommand = (program: Command) => {
         process.exitCode = 1;
         return;
       }
-      const instance = render(
-        React.createElement(CustomAnalyzerDashboard, {
-          analyzers: getCustomAnalyzers(),
-          onAdd: (config) => {
-            const analyzers = getCustomAnalyzers();
-            analyzers.push(config);
-            saveCustomAnalyzers(analyzers);
-            registry.register(createCustomAnalyzer(config));
-          },
-          onRemove: (name) => {
-            saveCustomAnalyzers(getCustomAnalyzers().filter((analyzer) => analyzer.name !== name));
-          },
-        }),
-        { alternateScreen: true },
-      );
-      await instance.waitUntilExit();
+      process.stdout.write('\u001B[?1049h');
+      try {
+        const instance = render(
+          React.createElement(CustomAnalyzerDashboard, {
+            analyzers: getCustomAnalyzers(),
+            onAdd: (config) => {
+              const analyzers = getCustomAnalyzers();
+              analyzers.push(config);
+              saveCustomAnalyzers(analyzers);
+              registry.register(createCustomAnalyzer(config));
+            },
+            onRemove: (name) => {
+              saveCustomAnalyzers(getCustomAnalyzers().filter((analyzer) => analyzer.name !== name));
+            },
+          }),
+        );
+        await instance.waitUntilExit();
+      } finally {
+        process.stdout.write('\u001B[?1049l');
+      }
     });
 
   cmd

@@ -104,7 +104,7 @@ describe('Checkbox component', () => {
     const { unmount } = render(<Checkbox label="Pod" checked={true} isSelected={true} />, {
       stdout: mockStdout as any,
       stdin: mockStdin as any,
-      interactive: true,
+      debug: true,
     });
     await waitForFrameToContain({ mockStdout, substring: 'Pod' });
     const output = mockStdout.frames.join('\n');
@@ -118,7 +118,7 @@ describe('Checkbox component', () => {
     const { unmount } = render(<Checkbox label="Ingress" checked={false} isSelected={false} />, {
       stdout: mockStdout as any,
       stdin: mockStdin as any,
-      interactive: true,
+      debug: true,
     });
     await waitForFrameToContain({ mockStdout, substring: 'Ingress' });
     const output = mockStdout.frames.join('\n');
@@ -164,7 +164,7 @@ describe('FiltersDashboard', () => {
       {
         stdout: mockStdout as any,
         stdin: mockStdin as any,
-        interactive: true,
+        debug: true,
       },
     );
 
@@ -192,7 +192,7 @@ describe('FiltersDashboard', () => {
       {
         stdout: mockStdout as any,
         stdin: mockStdin as any,
-        interactive: true,
+        debug: true,
       },
     );
 
@@ -227,7 +227,7 @@ describe('FiltersDashboard', () => {
       {
         stdout: mockStdout as any,
         stdin: mockStdin as any,
-        interactive: true,
+        debug: true,
       },
     );
 
@@ -254,7 +254,7 @@ describe('FiltersDashboard', () => {
       {
         stdout: mockStdout as any,
         stdin: mockStdin as any,
-        interactive: true,
+        debug: true,
       },
     );
 
@@ -282,7 +282,7 @@ describe('FiltersDashboard', () => {
       {
         stdout: mockStdout as any,
         stdin: mockStdin as any,
-        interactive: true,
+        debug: true,
       },
     );
 

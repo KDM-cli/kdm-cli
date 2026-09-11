@@ -12,6 +12,32 @@ if (!(console as any).Console) {
   (console as any).Console = Console;
 }
 
+const namespaceTextInput = vi.hoisted(() => ({
+  onChange: undefined as ((value: string) => void) | undefined,
+  onSubmit: undefined as ((value: string) => void) | undefined,
+}));
+
+vi.mock('ink-text-input', async () => {
+  const React = await import('react');
+  const { Text } = await import('ink');
+
+  return {
+    default: ({
+      value,
+      onChange,
+      onSubmit,
+    }: {
+      value: string;
+      onChange: (value: string) => void;
+      onSubmit?: (value: string) => void;
+    }) => {
+      namespaceTextInput.onChange = onChange;
+      namespaceTextInput.onSubmit = onSubmit;
+      return React.createElement(Text, null, value);
+    },
+  };
+});
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 class MockStdout extends Writable {
@@ -72,6 +98,17 @@ const waitForFrame = async (mockStdout: MockStdout, substring: string, timeout =
   throw new Error(`Timed out waiting for "${substring}" in stdout frames.`);
 };
 
+const waitFor = async (predicate: () => boolean, timeout = 2000) => {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    if (predicate()) {
+      return;
+    }
+    await sleep(20);
+  }
+  throw new Error('Timed out waiting for the expected condition.');
+};
+
 describe('AnalyzeDashboard', () => {
   let mockStdout: MockStdout;
   let mockStdin: MockStdin;
@@ -116,6 +153,8 @@ describe('AnalyzeDashboard', () => {
   beforeEach(() => {
     mockStdout = new MockStdout();
     mockStdin = new MockStdin();
+    namespaceTextInput.onChange = undefined;
+    namespaceTextInput.onSubmit = undefined;
     vi.clearAllMocks();
   });
 
@@ -127,7 +166,7 @@ describe('AnalyzeDashboard', () => {
         initialOptions={{ namespace: 'test-ns', output: 'text' }}
         initialResult={mockHealthyResult}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'No Problems Detected');
@@ -143,7 +182,7 @@ describe('AnalyzeDashboard', () => {
         initialOptions={{ namespace: 'default', output: 'text' }}
         initialResult={mockProblemResult}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'Detected Issues');
@@ -161,7 +200,7 @@ describe('AnalyzeDashboard', () => {
         initialOptions={{ namespace: 'default', output: 'text' }}
         initialResult={mockProblemResult}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'web-pod');
@@ -181,7 +220,7 @@ describe('AnalyzeDashboard', () => {
         initialOptions={{ namespace: 'default', output: 'text' }}
         initialResult={mockProblemResult}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'web-pod');
@@ -209,7 +248,7 @@ describe('AnalyzeDashboard', () => {
         initialOptions={{ namespace: 'default', output: 'text' }}
         initialResult={mockProblemResult}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'web-pod');
@@ -237,19 +276,25 @@ describe('AnalyzeDashboard', () => {
         initialOptions={{ namespace: 'default', output: 'text' }}
         initialResult={mockProblemResult}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'web-pod');
     mockStdin.sendChar('n');
     await waitForFrame(mockStdout, 'Change Namespace');
+    await waitFor(() => Boolean(namespaceTextInput.onChange && namespaceTextInput.onSubmit));
 
-    await mockStdin.sendStr('kube-system');
-    await waitForFrame(mockStdout, 'kube-system');
-    await sleep(30);
-    mockStdin.sendKey('return');
+    const onChange = namespaceTextInput.onChange;
+    const onSubmit = namespaceTextInput.onSubmit;
+    if (!onChange || !onSubmit) {
+      throw new Error('Namespace input handlers were not registered.');
+    }
+    onChange('kube-system');
+    onSubmit('kube-system');
 
-    await sleep(100);
+    await waitFor(() =>
+      reanalyzeSpy.mock.calls.some(([args]) => args.namespace === 'kube-system')
+    );
     expect(reanalyzeSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         namespace: 'kube-system',
@@ -266,7 +311,7 @@ describe('AnalyzeDashboard', () => {
         initialOptions={{ namespace: 'default', output: 'text', backend: 'openai' }}
         initialResult={mockProblemResult}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'web-pod');
@@ -295,7 +340,7 @@ describe('AnalyzeDashboard', () => {
         initialOptions={{ namespace: 'default', output: 'text' }}
         initialResult={mockProblemResult}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'web-pod');
@@ -317,7 +362,7 @@ describe('AnalyzeDashboard', () => {
         initialOptions={{ namespace: 'default', output: 'text' }}
         initialResult={mockProblemResult}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'web-pod');
@@ -343,7 +388,7 @@ describe('AnalyzeDashboard', () => {
         initialOptions={{ namespace: 'default', output: 'text', backend: 'ollama' }}
         initialResult={mockProblemResult}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'web-pod');
@@ -378,7 +423,7 @@ describe('AnalyzeDashboard', () => {
         initialOptions={{ namespace: 'default', output: 'text', backend: 'ollama' }}
         initialResult={mockProblemResult}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'web-pod');
@@ -418,7 +463,7 @@ describe('AnalyzeDashboard', () => {
         initialOptions={{ namespace: 'default', output: 'text', backend: 'ollama' }}
         initialResult={mockProblemResult}
       />,
-      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'web-pod');
@@ -431,4 +476,3 @@ describe('AnalyzeDashboard', () => {
     unmount();
   });
 });
-

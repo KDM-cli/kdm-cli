@@ -105,7 +105,7 @@ describe('CacheDashboard', () => {
       : { onExit: onNavigate };
     const { unmount } = render(
       <CacheDashboard {...dashboardProps} />,
-      { stdout: mockStdout as any, stdin: mockStdin as any, interactive: true }
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
     );
 
     await waitForFrame(mockStdout, 'Cache Browser');
