@@ -11,16 +11,21 @@ export class AzureOpenAIClient implements AIClient {
   private apiKey = '';
   private model = '';
   private temperature = 0.7;
+  private customHeaders: Record<string, string> = {};
 
   /**
    * Configures the Azure OpenAI client with deployment endpoint and credentials.
    * @param config The provider configuration.
    */
   async configure(config: AIProviderConfig): Promise<void> {
-    this.baseUrl = config.baseUrl ?? '';
-    this.apiKey = config.password ?? '';
+    if (!config.baseUrl || !config.password) {
+      throw new Error('Azure OpenAI baseUrl and password (api-key) are required.');
+    }
+    this.baseUrl = config.baseUrl.replace(/\/+$/, '');
+    this.apiKey = config.password;
     this.model = config.model ?? 'gpt-4';
     this.temperature = config.temperature ?? 0.7;
+    this.customHeaders = config.customHeaders ?? {};
   }
 
   /**
@@ -32,7 +37,11 @@ export class AzureOpenAIClient implements AIClient {
     const url = `${this.baseUrl}/openai/deployments/${this.model}/chat/completions?api-version=2024-02-01`;
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'api-key': this.apiKey },
+      headers: {
+        'Content-Type': 'application/json',
+        'api-key': this.apiKey,
+        ...this.customHeaders
+      },
       body: JSON.stringify({
         messages: [{ role: 'user', content: prompt }],
         temperature: this.temperature,
