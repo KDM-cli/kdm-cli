@@ -258,11 +258,11 @@ describe('AnalyzeDashboard', () => {
     await waitFor(() => mockStdin.setEncoding.mock.calls.length > inputHookCalls);
 
     await mockStdin.sendStr('kube-system');
-    await waitForFrame(mockStdout, 'kube-system');
-    await sleep(30);
     mockStdin.sendKey('return');
 
-    await sleep(100);
+    await waitFor(() =>
+      reanalyzeSpy.mock.calls.some(([args]) => args.namespace === 'kube-system')
+    );
     expect(reanalyzeSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         namespace: 'kube-system',
