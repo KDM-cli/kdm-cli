@@ -72,6 +72,17 @@ const waitForFrame = async (mockStdout: MockStdout, substring: string, timeout =
   throw new Error(`Timed out waiting for "${substring}" in stdout frames.`);
 };
 
+const waitFor = async (predicate: () => boolean, timeout = 2000) => {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    if (predicate()) {
+      return;
+    }
+    await sleep(20);
+  }
+  throw new Error('Timed out waiting for the expected condition.');
+};
+
 describe('AnalyzeDashboard', () => {
   let mockStdout: MockStdout;
   let mockStdin: MockStdin;
@@ -241,9 +252,10 @@ describe('AnalyzeDashboard', () => {
     );
 
     await waitForFrame(mockStdout, 'web-pod');
+    const inputHookCalls = mockStdin.setEncoding.mock.calls.length;
     mockStdin.sendChar('n');
     await waitForFrame(mockStdout, 'Change Namespace');
-    await sleep(50);
+    await waitFor(() => mockStdin.setEncoding.mock.calls.length > inputHookCalls);
 
     await mockStdin.sendStr('kube-system');
     await waitForFrame(mockStdout, 'kube-system');
