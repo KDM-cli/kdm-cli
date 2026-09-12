@@ -46,7 +46,7 @@
     "@vr_patel/tui": "^1.0.0",
     "chalk": "^6.0.0",
     "cli-table3": "^0.6.3",
-    "commander": "^14.0.2",
+    "commander": "^15.0.0",
     "conf": "^15.1.0",
     "cosmiconfig": "^10.0.1",
     "dockerode": "^5.0.0",
