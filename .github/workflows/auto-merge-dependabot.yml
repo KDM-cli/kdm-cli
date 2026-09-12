@@ -1,29 +1,44 @@
-name: Auto-merge Dependabot
+name: Dependabot Auto-Merge
 
 on:
-  pull_request_target:
+  pull_request:
     types:
       - opened
       - reopened
       - synchronize
       - ready_for_review
-  pull_request_review:
-    types:
-      - submitted
 
 permissions:
   contents: write
   pull-requests: write
 
 jobs:
-  automerge:
-    if: github.actor == 'dependabot[bot]' || github.event.pull_request.user.login == 'dependabot[bot]'
+  dependabot:
+    name: Dependabot Auto-Merge
     runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]' || github.event.pull_request.user.login == 'dependabot[bot]'
 
     steps:
-      - name: Enable auto-merge
-        uses: peter-evans/enable-pull-request-automerge@v3
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          pull-request-number: ${{ github.event.pull_request.number }}
-          merge-method: squash
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Approve non-major Dependabot PR
+        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
+        run: gh pr review --approve "$PR_URL" || echo "PR already approved or review cannot be submitted"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge for non-major Dependabot PR
+        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
+        run: |
+          if ! gh pr merge --auto --squash "$PR_URL"; then
+            echo "::warning::Failed to enable auto-merge. Please ensure 'Allow auto-merge' is enabled in Repository Settings -> General."
+          fi
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
