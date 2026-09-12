@@ -25,15 +25,13 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Approve non-major Dependabot PR
-        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
+      - name: Approve Dependabot PR
         run: gh pr review --approve "$PR_URL" || echo "PR already approved or review cannot be submitted"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Enable auto-merge for non-major Dependabot PR
-        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
+      - name: Enable auto-merge for Dependabot PR
         run: |
           if ! gh pr merge --auto --squash "$PR_URL"; then
             echo "::warning::Failed to enable auto-merge. Please ensure 'Allow auto-merge' is enabled in Repository Settings -> General."
