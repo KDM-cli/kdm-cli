@@ -18,6 +18,9 @@ jobs:
     name: Dependabot Auto-Merge
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' || github.actor == 'dependabot[bot]' || github.event.pull_request.user.login == 'dependabot[bot]'
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Fetch Dependabot metadata
@@ -37,12 +40,11 @@ jobs:
           fi
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Batch Approve and Auto-Merge All Open Dependabot PRs
         if: github.event_name == 'workflow_dispatch'
         run: |
-          prs=$(gh pr list --app dependabot --json number,url --jq '.[].url')
+          prs=$(gh pr list --app dependabot --state open --json number,url --jq '.[].url')
           if [ -z "$prs" ]; then
             echo "No open Dependabot PRs found."
             exit 0
@@ -55,8 +57,7 @@ jobs:
               gh pr comment "$pr" --body "@dependabot rebase" || true
             fi
           done
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
 
 
 
