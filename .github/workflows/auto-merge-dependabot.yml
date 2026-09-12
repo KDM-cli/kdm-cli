@@ -7,6 +7,7 @@ on:
       - reopened
       - synchronize
       - ready_for_review
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -16,27 +17,46 @@ jobs:
   dependabot:
     name: Dependabot Auto-Merge
     runs-on: ubuntu-latest
-    if: github.actor == 'dependabot[bot]' || github.event.pull_request.user.login == 'dependabot[bot]'
+    if: github.event_name == 'workflow_dispatch' || github.actor == 'dependabot[bot]' || github.event.pull_request.user.login == 'dependabot[bot]'
 
     steps:
       - name: Fetch Dependabot metadata
+        if: github.event_name == 'pull_request'
         id: metadata
         uses: dependabot/fetch-metadata@v2
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Approve Dependabot PR
-        run: gh pr review --approve "$PR_URL" || echo "PR already approved or review cannot be submitted"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Enable auto-merge for Dependabot PR
+      - name: Approve and Auto-Merge Single PR
+        if: github.event_name == 'pull_request'
         run: |
+          gh pr review --approve "$PR_URL" || echo "PR already approved or review cannot be submitted"
           if ! gh pr merge --auto --squash "$PR_URL"; then
-            echo "::warning::Failed to enable auto-merge. Please ensure 'Allow auto-merge' is enabled in Repository Settings -> General."
+            echo "::warning::Could not enable auto-merge. Requesting Dependabot rebase..."
+            gh pr comment "$PR_URL" --body "@dependabot rebase" || true
           fi
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Batch Approve and Auto-Merge All Open Dependabot PRs
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          prs=$(gh pr list --app dependabot --json number,url --jq '.[].url')
+          if [ -z "$prs" ]; then
+            echo "No open Dependabot PRs found."
+            exit 0
+          fi
+          for pr in $prs; do
+            echo "Processing $pr..."
+            gh pr review --approve "$pr" || echo "Already approved or cannot review: $pr"
+            if ! gh pr merge --auto --squash "$pr"; then
+              echo "Requesting Dependabot rebase for $pr..."
+              gh pr comment "$pr" --body "@dependabot rebase" || true
+            fi
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
+
 
