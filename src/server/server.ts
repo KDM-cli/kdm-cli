@@ -34,10 +34,26 @@ interface AnalyzeRequestBody {
  * @returns Parsed body string.
  */
 export const readBody = (req: any): Promise<string> =>
-  new Promise((resolve) => {
+  new Promise((resolve, reject) => {
     let body = '';
-    req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+    // Limit to 1MB to prevent DoS via memory exhaustion
+    const MAX_SIZE = 1024 * 1024;
+    let size = 0;
+
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_SIZE) {
+        reject(new Error('Payload Too Large'));
+        // Let the request complete its stream but ignore the rest,
+        // so we don't close the socket abruptly resulting in UND_ERR_SOCKET
+        req.pause();
+        return;
+      }
+      body += chunk.toString();
+    });
+
     req.on('end', () => resolve(body));
+    req.on('error', (err: Error) => reject(err));
   });
 
 /**
@@ -103,7 +119,16 @@ export const handleConfig = (res: any): void => {
       ...config,
       ai: config.ai ? {
         ...config.ai,
-        providers: config.ai.providers.map((p) => ({ ...p, password: '****' })),
+        providers: config.ai.providers.map((p) => ({
+          ...p,
+          password: p.password ? '****' : undefined,
+          customHeaders: p.customHeaders ? Object.fromEntries(Object.entries(p.customHeaders).map(([k]) => [k, '****'])) : undefined,
+        })),
+      } : undefined,
+      notifications: config.notifications ? {
+        ...config.notifications,
+        discordWebhook: config.notifications.discordWebhook ? '****' : undefined,
+        emailPassword: config.notifications.emailPassword ? '****' : undefined,
       } : undefined,
     };
     sendJson(res, 200, sanitized);
@@ -119,8 +144,11 @@ export const handleConfig = (res: any): void => {
  * @param options Server configuration options.
  */
 export const routeRequest = (req: any, res: any, options: ServerOptions): void => {
-  const url = req.url ?? '';
+  const fullUrl = req.url ?? '';
   const method = req.method ?? 'GET';
+
+  // Extract pathname without query parameters
+  const pathname = fullUrl.split('?')[0];
 
   const getHandlers: Record<string, (res: any) => void> = {
     '/health': handleHealth,
@@ -128,12 +156,12 @@ export const routeRequest = (req: any, res: any, options: ServerOptions): void =
     '/config': handleConfig,
   };
 
-  if (method === 'GET' && url in getHandlers) {
-    getHandlers[url](res);
+  if (method === 'GET' && pathname in getHandlers) {
+    getHandlers[pathname](res);
     return;
   }
 
-  if (method === 'POST' && url === '/analyze') {
+  if (method === 'POST' && pathname === '/analyze') {
     handleAnalyze(req, res, options);
     return;
   }
