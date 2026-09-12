@@ -11,9 +11,13 @@ vi.mock('../config/store', () => ({
   getConfig: vi.fn(() => ({
     ai: {
       providers: [
-        { name: 'openai', model: 'gpt-4', password: 'secret-password' },
+          { name: 'openai', model: 'gpt-4', password: 'secret-password', customHeaders: { 'Authorization': 'Bearer secret-token' } },
       ],
     },
+      notifications: {
+        discordWebhook: 'https://discord.com/api/webhooks/123/secret',
+        emailPassword: 'my-email-password'
+      }
   })),
 }));
 
@@ -56,12 +60,36 @@ describe('HTTP Server', () => {
     expect(Array.isArray(body.filters)).toBe(true);
   });
 
-  it('responds to GET /config with masked passwords', async () => {
+  it('responds to GET /config with masked secrets', async () => {
     serverInstance = await createServer({ port: 0 });
     const response = await fetch(`http://localhost:${serverInstance.port}/config`);
     expect(response.status).toBe(200);
     const body = await response.json() as any;
     expect(body.ai.providers[0].password).toBe('****');
+    expect(body.ai.providers[0].customHeaders['Authorization']).toBe('****');
+    expect(body.notifications.discordWebhook).toBe('****');
+    expect(body.notifications.emailPassword).toBe('****');
+  });
+
+  it('rejects POST /analyze body larger than 1MB', async () => {
+    serverInstance = await createServer({ port: 0 });
+    const largeBody = 'a'.repeat(1024 * 1024 + 10);
+    const response = await fetch(`http://localhost:${serverInstance.port}/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: largeBody,
+    });
+    expect(response.status).toBe(500);
+    const body = await response.json() as any;
+    expect(body.error).toBe('Payload Too Large');
+  });
+
+  it('strips query parameters when routing', async () => {
+    serverInstance = await createServer({ port: 0 });
+    const response = await fetch(`http://localhost:${serverInstance.port}/health?probe=1`);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual({ status: 'ok' });
   });
 
   it('handles GET /config errors gracefully', async () => {
