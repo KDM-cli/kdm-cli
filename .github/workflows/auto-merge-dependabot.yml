@@ -20,7 +20,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.actor == 'dependabot[bot]' || github.event.pull_request.user.login == 'dependabot[bot]'
     env:
       GH_REPO: ${{ github.repository }}
-      GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Fetch Dependabot metadata
