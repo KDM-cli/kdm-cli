@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createMCPTools, startMCPServer } from '../server/mcp';
+import { getInstalledVersion } from '../utils/version-check';
 
 vi.mock('../config/store', () => ({
   getActiveFilters: vi.fn(() => []),
@@ -104,6 +105,43 @@ describe('MCP Tools', () => {
 
     expect(setEncodingSpy).toHaveBeenCalledWith('utf-8');
     expect(onSpy).toHaveBeenCalledWith('data', expect.any(Function));
+
+    const initializeRequest = {
+      jsonrpc: '2.0',
+      method: 'initialize',
+      params: {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        clientInfo: { name: 'test-client', version: '1.0.0' },
+      },
+      id: 100,
+    };
+    await dataCallback(JSON.stringify(initializeRequest) + '\n');
+
+    expect(writeSpy).toHaveBeenCalledTimes(1);
+    const initializeResponse = JSON.parse((writeSpy.mock.calls[0][0] as string).trim());
+    expect(initializeResponse).toEqual({
+      jsonrpc: '2.0',
+      result: {
+        protocolVersion: '2024-11-05',
+        capabilities: { tools: {} },
+        serverInfo: {
+          name: 'kdm',
+          version: getInstalledVersion(),
+        },
+      },
+      id: 100,
+    });
+
+    writeSpy.mockClear();
+
+    const initializedNotification = {
+      jsonrpc: '2.0',
+      method: 'notifications/initialized',
+    };
+    await dataCallback(JSON.stringify(initializedNotification) + '\n');
+
+    expect(writeSpy).not.toHaveBeenCalled();
 
     // Send a list tools request
     const request = {
