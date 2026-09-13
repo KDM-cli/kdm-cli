@@ -84,6 +84,16 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "harbinresearcher",
+      "name": "Luochenchen",
+      "avatar_url": "https://avatars.githubusercontent.com/u/245993535?v=4",
+      "profile": "https://github.com/harbinresearcher",
+      "contributions": [
+        "code",
+        "test"
+      ]
     }
   ]
 }
