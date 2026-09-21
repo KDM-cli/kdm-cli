@@ -70,6 +70,14 @@ describe('File Cache Provider', () => {
     expect(result).toBeNull();
   });
 
+  it('prevents path traversal vulnerabilities for cache keys', async () => {
+    const maliciousKey = '../../../etc/passwd';
+    await expect(cache.store(maliciousKey, 'data')).rejects.toThrow(/path traversal/);
+    await expect(cache.load(maliciousKey)).rejects.toThrow(/path traversal/);
+    await expect(cache.remove(maliciousKey)).rejects.toThrow(/path traversal/);
+    await expect(cache.exists(maliciousKey)).rejects.toThrow(/path traversal/);
+  });
+
   it.each([
     { key: 'key-with-data', data: 'hello world', expectedSize: 11 },
     { key: 'empty-data', data: '', expectedSize: 0 },
