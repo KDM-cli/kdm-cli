@@ -181,6 +181,7 @@ export const registerConfigCommand = (program: Command) => {
         console.log(chalk.green(`✓ Set ${key} to ${finalValue}`));
       } catch (error) {
         console.error(chalk.red(`✗ Failed to set config: ${(error as Error).message}`));
+        process.exitCode = 1;
       }
     });
 
@@ -199,7 +200,7 @@ export const registerConfigCommand = (program: Command) => {
         });
       }
       console.log(chalk.gray('──────────────────────────────────────────────────'));
-      console.log(chalk.dim('\n Note: SMTP password can be set either in config or via the KDM_SMTP_PASSWORD environment variable, which takes precedence if both are set.\n'));
+      console.log(chalk.dim('\n Note: SMTP passwords must be provided exclusively via the KDM_SMTP_PASSWORD environment variable.\n'));
     });
 
   config
@@ -247,7 +248,7 @@ const printEmailSmtpGuide = () => {
   console.log(chalk.white('  1. Find your provider SMTP settings before continuing.'));
   console.log(chalk.white('  2. Common hosts: smtp.gmail.com for Gmail, smtp.office365.com for Outlook.'));
   console.log(chalk.white('  3. Use port 587 for STARTTLS unless your provider says otherwise.'));
-  console.log(chalk.white('  4. Provide the SMTP password during setup or via the KDM_SMTP_PASSWORD environment variable.'));
+  console.log(chalk.white('  4. Provide the SMTP password via the KDM_SMTP_PASSWORD environment variable.'));
   console.log(chalk.dim('     Gmail accounts with 2FA usually require an App Password.'));
   console.log(chalk.gray('──────────────────────────────────────────────────\n'));
 };
