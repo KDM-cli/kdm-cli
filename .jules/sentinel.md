@@ -1,0 +1,4 @@
+## 2024-10-18 - [Fix Path Traversal in cache key resolution]
+**Vulnerability:** The FileCacheProvider in `src/cache/file-cache.ts` constructed file paths using `path.join(this.cacheDir, key)`, which allowed directory traversal if an attacker passed a key containing `../` or an absolute path.
+**Learning:** `path.join` does not safely restrict paths to a base directory on its own. Using `path.resolve` followed by a boundary check (`safePath.startsWith(cacheDir)`) is required. Additionally, the `exists` method required wrapping the safe path resolution in a `try/catch` to gracefully return `false` on a malicious check rather than throwing and crashing the application.
+**Prevention:** Always validate that user-provided keys used to index filesystem resources resolve to paths strictly within the intended base directory.

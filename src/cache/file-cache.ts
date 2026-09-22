@@ -42,6 +42,22 @@ const safeReadFile = (filePath: string): string | null => {
 };
 
 /**
+ * Resolves a safe file path for a cache key, preventing directory traversal.
+ * @param cacheDir Absolute path to the cache directory.
+ * @param key The cache key.
+ * @returns Absolute path to the cache entry file.
+ * @throws Error if the key attempts to traverse outside the cache directory.
+ */
+const getSafePath = (cacheDir: string, key: string): string => {
+  const safePath = path.resolve(cacheDir, key);
+  const normalizedCacheDir = path.resolve(cacheDir) + path.sep;
+  if (!safePath.startsWith(normalizedCacheDir) && safePath !== path.resolve(cacheDir)) {
+    throw new Error(`Invalid cache key: potential directory traversal detected`);
+  }
+  return safePath;
+};
+
+/**
  * File-based implementation of the CacheProvider interface.
  * Stores each cached entry as a separate file named by its key.
  */
@@ -65,7 +81,7 @@ export class FileCacheProvider implements CacheProvider {
    */
   async store(key: string, data: string): Promise<void> {
     ensureCacheDir(this.cacheDir);
-    const filePath = path.join(this.cacheDir, key);
+    const filePath = getSafePath(this.cacheDir, key);
     fs.writeFileSync(filePath, data, 'utf-8');
   }
 
@@ -75,7 +91,7 @@ export class FileCacheProvider implements CacheProvider {
    * @returns The cached string or null.
    */
   async load(key: string): Promise<string | null> {
-    const filePath = path.join(this.cacheDir, key);
+    const filePath = getSafePath(this.cacheDir, key);
     return safeReadFile(filePath);
   }
 
@@ -87,7 +103,7 @@ export class FileCacheProvider implements CacheProvider {
     ensureCacheDir(this.cacheDir);
     const files = fs.readdirSync(this.cacheDir);
     return files.map((file) => {
-      const filePath = path.join(this.cacheDir, file);
+      const filePath = getSafePath(this.cacheDir, file);
       const stat = fs.statSync(filePath);
       return {
         key: file,
@@ -102,7 +118,7 @@ export class FileCacheProvider implements CacheProvider {
    * @param key Cache key to remove.
    */
   async remove(key: string): Promise<void> {
-    const filePath = path.join(this.cacheDir, key);
+    const filePath = getSafePath(this.cacheDir, key);
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
@@ -114,7 +130,12 @@ export class FileCacheProvider implements CacheProvider {
    * @returns True if the file exists.
    */
   async exists(key: string): Promise<boolean> {
-    return fs.existsSync(path.join(this.cacheDir, key));
+    try {
+      const filePath = getSafePath(this.cacheDir, key);
+      return fs.existsSync(filePath);
+    } catch {
+      return false;
+    }
   }
 
   /**
