@@ -26,7 +26,11 @@ async function runCommandAnalyzer(
 ): Promise<AnalyzerResult[]> {
   try {
     const { stdout } = await execAsync(config.command!, { timeout: 30000 });
-    const parsed = JSON.parse(stdout.trim());
+    const trimmed = stdout.trim();
+    if (!trimmed) {
+      return [];
+    }
+    const parsed = JSON.parse(trimmed);
     return Array.isArray(parsed) ? parsed : [parsed];
   } catch (error) {
     return [{
@@ -53,7 +57,16 @@ async function runHTTPAnalyzer(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ namespace: context.namespace }),
     });
-    const data = await response.json();
+    if (!response.ok) {
+      const statusInfo = response.statusText ? `${response.status} ${response.statusText}` : `${response.status}`;
+      throw new Error(`HTTP ${statusInfo}`);
+    }
+    const text = await response.text();
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return [];
+    }
+    const data = JSON.parse(trimmed);
     return Array.isArray(data) ? data as AnalyzerResult[] : [data as AnalyzerResult];
   } catch (error) {
     return [{
