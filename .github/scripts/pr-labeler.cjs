@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
-const { buildBotContext, addLabels } = require('./helpers/api.cjs');
+const { buildBotContext, addLabels, updatePullRequest } = require('./helpers/api.cjs');
 const { loadAutomationConfig } = require('./helpers/config-loader.cjs');
 
 function detectType(title) {
   if (!title || typeof title !== 'string') return null;
   const upper = title.toUpperCase();
 
-  const kdm = upper.match(/\[KDM-\d+-(FIX|FEAT|REFACTOR)/);
+  const kdm = upper.match(/^\[KDM-[A-Z0-9-]+-(FIX|FEAT|REFACTOR)-\d+\]/);
   if (kdm) {
     const map = { FIX: 'bugFix', FEAT: 'feature', REFACTOR: 'refactor' };
     return map[kdm[1]] || null;
@@ -79,6 +79,27 @@ function determineComplexity(score, complexityConfig) {
     if (score <= max) return key;
   }
   return 'complex';
+}
+
+function buildPRIdentityTitle(title, module, typeKey, prNumber) {
+  if (!module || !typeKey || !prNumber) return null;
+
+  const typeMap = {
+    bugFix: 'FIX',
+    feature: 'FEAT',
+    refactor: 'REFACTOR',
+  };
+
+  const type = typeMap[typeKey];
+  if (!type) return null;
+
+  const prefix = `[KDM-${module.toUpperCase()}-${type}-${prNumber}]`;
+
+  const cleanedTitle = title
+    .replace(/^\[KDM-(?:[A-Z0-9-]+-(?:FIX|FEAT|REFACTOR)-\d+|\d+-(?:FIX|FEAT|REFACTOR))\]\s*/i, '')
+    .trim();
+
+return `${prefix} ${cleanedTitle}`.trim();
 }
 
 async function labelPR({ github, context }) {
@@ -159,6 +180,19 @@ async function labelPR({ github, context }) {
     if (label) {
       labelsToAdd.push(label);
       console.log(`[pr-labeler] Complexity: ${key} (score ${score}) → ${label}`);
+    }
+  }
+
+  const prModule = matchedModules[0];
+  const newTitle = buildPRIdentityTitle(title, prModule, typeKey, number);
+
+  if (newTitle && newTitle !== title) {
+    console.log(`[pr-labeler] Updating PR title: "${newTitle}"`);
+
+    const titleResult = await updatePullRequest(botContext, newTitle);
+
+    if (!titleResult.success) {
+      console.log(`[pr-labeler] Failed to update PR title: ${titleResult.error}`);
     }
   }
 

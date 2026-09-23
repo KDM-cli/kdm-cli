@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, useApp } from 'ink';
 import { TabType, TabConfig, Column, ResourceRow, PodRow, ContainerRow, NodeRow, RunnerRow, MinikubeRow, DataError } from './types';
 import { TabBar } from './TabBar';
 import { SearchInput } from './SearchInput';
@@ -11,6 +11,7 @@ import { getRunningContainers, ContainerData, getDockerSystemStats, DockerSystem
 import { listNodes } from '../../kubernetes/resources';
 import { getMinikubeStatus } from '../../minikube/client';
 import type * as k8s from '@kubernetes/client-node';
+import { triggerBack, triggerExit } from '../navigation-utils';
 
 const columnConfigs: Record<TabType, Column[]> = {
   [TabType.Pods]: [
@@ -124,7 +125,7 @@ const ErrorBanner: React.FC<{ errors: DataError[] }> = ({ errors }) => {
     <Box marginBottom={1} paddingX={1} flexDirection="column">
       {errors.map((err, i) => (
         <Box key={i} marginBottom={i < errors.length - 1 ? 1 : 0}>
-          <Text backgroundColor="red" white bold>
+          <Text backgroundColor="red" color="white" bold>
             {` ${err.source.toUpperCase()}: ${err.message} `}
           </Text>
         </Box>
@@ -133,7 +134,13 @@ const ErrorBanner: React.FC<{ errors: DataError[] }> = ({ errors }) => {
   );
 };
 
-export const ShowDashboard: React.FC = () => {
+export interface ShowDashboardProps {
+  onBack?: () => void;
+  onExit?: () => void;
+}
+
+export const ShowDashboard: React.FC<ShowDashboardProps> = ({ onBack, onExit }) => {
+  const { exit } = useApp();
   const [activeTab, setActiveTab] = useState<TabType>(TabType.Pods);
   const [selectedRow, setSelectedRow] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
@@ -253,19 +260,34 @@ export const ShowDashboard: React.FC = () => {
 
   useInput((input, key) => {
     if (showDetail) {
-      if (key.escape) setShowDetail(false);
+      if (key.escape || input.toLowerCase() === 'b') setShowDetail(false);
+      return;
+    }
+
+    if (showSearch) {
+      if (key.escape) {
+        setShowSearch(false);
+        setSearchQuery('');
+      }
+      return;
+    }
+
+    if (key.escape || input.toLowerCase() === 'b') {
+      triggerBack(onBack, exit);
       return;
     }
 
     if (input.toLowerCase() === 'q' || (key.ctrl && input === 'c')) {
-      process.exit(0);
+      triggerExit(onExit, exit);
+      return;
     }
 
     if (key.tab || key.rightArrow) {
       setActiveTab(prev => {
         const keys = Object.values(TabType);
         const idx = keys.indexOf(prev);
-        const next = key.shiftTab ? (idx - 1 + keys.length) % keys.length : (idx + 1) % keys.length;
+        const isShiftTab = Boolean(key.shift && key.tab);
+        const next = isShiftTab ? (idx - 1 + keys.length) % keys.length : (idx + 1) % keys.length;
         setSelectedRow(0);
         return keys[next];
       });

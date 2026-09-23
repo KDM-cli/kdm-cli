@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { createServer } from '../server/server';
+import { runDashboard } from '../ui/dashboard';
 import { startMCPServer } from '../server/mcp';
 import { logger } from '../utils/logger';
 
@@ -18,21 +19,17 @@ const collectFilter = (value: string, previous: string[]) => [...previous, value
  */
 async function handleHTTPServe(options: any): Promise<void> {
   const port = Number.parseInt(options.port, 10);
-  logger.info(`Starting KDM server on port ${port}...`);
+  logger.info(`Launching interactive dashboard for KDM on port ${port}...`);
 
   try {
-    const server = await createServer({
+    // Launch the interactive Ink dashboard which will manage start/stop/restart
+    await runDashboard({
       port,
       backend: options.backend,
       filter: options.filter?.length ? options.filter : undefined,
-    });
-    logger.success(`KDM server running on http://localhost:${port}`);
-    console.log(chalk.dim('  GET  /health'));
-    console.log(chalk.dim('  POST /analyze'));
-    console.log(chalk.dim('  GET  /filters'));
-    console.log(chalk.dim('  GET  /config'));
+    } as any);
   } catch (error) {
-    logger.error(`Server failed to start: ${(error as Error).message}`);
+    logger.error(`Dashboard failed: ${(error as Error).message}`);
     process.exitCode = 1;
   }
 }

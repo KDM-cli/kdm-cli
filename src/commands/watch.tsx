@@ -7,9 +7,10 @@ export const registerWatchCommand = (program: Command) => {
   program
     .command('watch')
     .description('Live monitoring mode using Ink dashboard')
-    .action(() => {
+    .action(async () => {
       // Clear terminal screen before showing the dashboard
       process.stdout.write('\x1Bc');
-      render(<WatchDashboard />);
+      const app = render(<WatchDashboard />);
+      await app?.waitUntilExit?.();
     });
 };

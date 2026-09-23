@@ -93,12 +93,12 @@ Scans Kubernetes resources for configuration errors and operational problems. Su
 - `-n, --namespace <namespace>`: Limit check to a specific Kubernetes namespace.
 - `-L, --selector <selector>`: Limit check to resources matching a label selector.
 - `-f, --filter <filter>`: Run a specific analyzer only (e.g. `Pod`, `Ingress`, `Deployment`). Can be specified multiple times.
-- `-o, --output <format>`: Output format choice: `text` (default) or `json`.
+- `-o, --output <format>`: Output format choice: `text` (default) or `json`. Text output opens an interactive dashboard by default; use `-o json` for machine-readable output.
 - `-m, --max-concurrency <num>`: Max concurrency count for analyzers (default: `10`).
 - `-s, --with-stat`: Print execution diagnostics statistics.
 - `--with-doc`: Retrieve Kubernetes documentation lookups for detected problems.
 - `-e, --explain`: Request AI-powered diagnosis explanations.
-- `-b, --backend <backend>`: Force a specific AI backend provider to query.
+- `-b, --backend <backend>`: Force a specific AI backend provider to query. Changing backend reruns analysis in the interactive dashboard.
 - `-l, --language <lang>`: Request AI response in a target language (default: `english`).
 - `-a, --anonymize`: Mask resource names and identifiers in prompt payload to protect privacy.
 - `-c, --no-cache`: Skip looking up or saving to the local AI cache.
@@ -178,7 +178,13 @@ kdm cache purge
 ---
 
 ## 8. `kdm filters`
-Configure default active analyzers to filter what `kdm analyze` checks.
+Configure default active analyzers to filter what `kdm analyze` checks. Running `kdm filters` opens an interactive checklist TUI dashboard.
+
+### Interactive Dashboard:
+Run `kdm filters` to open the interactive multi-select checklist:
+- **`↑` / `↓`**: Navigate analyzer list
+- **`Space`**: Toggle analyzer on/off (instantly auto-saved)
+- **`Q`**: Quit
 
 ### Subcommands:
 - **`kdm filters list`**
@@ -190,6 +196,7 @@ Configure default active analyzers to filter what `kdm analyze` checks.
 
 ### Examples:
 ```bash
+kdm filters                 # Open interactive checklist dashboard
 kdm filters list
 kdm filters add Ingress
 ```
@@ -199,7 +206,12 @@ kdm filters add Ingress
 ## 9. `kdm custom-analyzer`
 Register custom shell commands or HTTP webhooks to analyze arbitrary custom resources (CRDs).
 
-### Subcommands:
+Running `kdm custom-analyzer` opens an interactive rule manager. Use the arrow keys to select a
+rule, `a` to open the add wizard, `d` or `Delete` to remove the selected rule, and `q` to quit.
+The dashboard requires a TTY terminal and exits with code 1 otherwise. Press `Esc` to cancel the
+add wizard.
+
+The legacy subcommands remain available for scripts:
 
 - **`kdm custom-analyzer add <name>`**
   Register a new analyzer. Requires either `--command` or `--url`.

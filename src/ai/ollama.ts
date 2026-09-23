@@ -9,6 +9,13 @@ export class OllamaAIClient implements AIClient {
   private config!: AIProviderConfig;
 
   /**
+   * Returns the configured model name.
+   */
+  get model(): string {
+    return this.config?.model || '';
+  }
+
+  /**
    * Configures the client, defaulting base url to localhost if unspecified.
    * @param config The provider configuration.
    */

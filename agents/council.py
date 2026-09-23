@@ -1,0 +1,152 @@
+import sys
+import os
+import json
+from typing import Any, Dict, List, Optional
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import ollama
+from specialists import (
+    RuntimeLogAgent,
+    ConfigDependencyAgent,
+    ClusterResourceAgent,
+    SynthesizerAgent,
+)
+
+
+def emit_event(event_type: str, data: Dict[str, Any]) -> None:
+    """Emits a single JSON event to stdout, followed by an immediate flush."""
+    payload = {"type": event_type, **data}
+    sys.stdout.write(json.dumps(payload) + "\n")
+    sys.stdout.flush()
+
+
+def _match_requested_model(candidate_models: List[str], requested_model: str) -> Optional[str]:
+    """Finds an exact or base name match for the requested model among candidate models."""
+    if requested_model in candidate_models:
+        return requested_model
+
+    return _find_model_by_base(candidate_models, requested_model.split(":")[0])
+
+
+def _find_model_by_base(candidate_models: List[str], model_base: str) -> Optional[str]:
+    """Finds the first candidate whose untagged model name matches the requested base."""
+    return next((model for model in candidate_models if model.split(":")[0] == model_base), None)
+
+
+def resolve_model(client: ollama.Client, requested_model: str) -> str:
+    """Resolves an installed local Ollama model, falling back to an available chat model if needed."""
+    try:
+        res = client.list()
+        models = []
+        if hasattr(res, "models"):
+            models = [getattr(m, "model", None) or getattr(m, "name", None) for m in res.models]
+        elif isinstance(res, dict) and "models" in res:
+            models = [m.get("model") or m.get("name") for m in res["models"] if isinstance(m, dict)]
+
+        models = [m for m in models if isinstance(m, str) and m]
+        # Filter out embedding models (e.g. nomic-embed-text)
+        chat_models = [m for m in models if "embed" not in m.lower()]
+        candidate_models = chat_models if chat_models else models
+
+        matched = _match_requested_model(candidate_models, requested_model)
+        if matched:
+            return matched
+
+        # If requested model not installed, pick the first available chat model
+        if candidate_models:
+            return candidate_models[0]
+    except Exception:
+        pass
+    return requested_model or "gemma:2b"
+
+
+def run_council(
+    failure_text: str,
+    context: Dict[str, Any],
+    model: str = "llama3.1",
+    base_url: str = "http://localhost:11434",
+) -> Dict[str, Any]:
+    """Runs the full multi-agent collaborative investigation pipeline."""
+    client = ollama.Client(host=base_url)
+    resolved_model = resolve_model(client, model)
+
+    runtime_agent = RuntimeLogAgent(client, resolved_model)
+    config_agent = ConfigDependencyAgent(client, resolved_model)
+    resource_agent = ClusterResourceAgent(client, resolved_model)
+    synthesizer = SynthesizerAgent(client, resolved_model)
+
+    findings = []
+
+    # Step 1: Runtime Agent
+    emit_event("progress", {
+        "agent": runtime_agent.NAME,
+        "role": runtime_agent.ROLE,
+        "icon": runtime_agent.ICON,
+        "status": "running",
+        "message": f"{runtime_agent.NAME} is working: Analyzing container logs & exit codes...",
+    })
+    runtime_res = runtime_agent.analyze(failure_text, context)
+    findings.append(runtime_res)
+    emit_event("agent_completed", {"agent": runtime_agent.NAME, "finding": runtime_res})
+
+    # Step 2: Config Agent
+    emit_event("progress", {
+        "agent": config_agent.NAME,
+        "role": config_agent.ROLE,
+        "icon": config_agent.ICON,
+        "status": "running",
+        "message": f"{config_agent.NAME} is working: Checking ConfigMaps, Secrets & probe thresholds...",
+    })
+    config_res = config_agent.analyze(failure_text, context)
+    findings.append(config_res)
+    emit_event("agent_completed", {"agent": config_agent.NAME, "finding": config_res})
+
+    # Step 3: Resource Agent
+    emit_event("progress", {
+        "agent": resource_agent.NAME,
+        "role": resource_agent.ROLE,
+        "icon": resource_agent.ICON,
+        "status": "running",
+        "message": f"{resource_agent.NAME} is working: Evaluating node pressure & memory limits...",
+    })
+    resource_res = resource_agent.analyze(failure_text, context)
+    findings.append(resource_res)
+    emit_event("agent_completed", {"agent": resource_agent.NAME, "finding": resource_res})
+
+    # Step 4: Lead Synthesizer Agent
+    emit_event("progress", {
+        "agent": synthesizer.NAME,
+        "role": synthesizer.ROLE,
+        "icon": synthesizer.ICON,
+        "status": "running",
+        "message": f"{synthesizer.NAME} is finding best solution...",
+    })
+    consensus = synthesizer.synthesize(failure_text, findings, context)
+
+    emit_event("complete", {"consensus": consensus})
+    return consensus
+
+
+def main() -> None:
+    """Reads input JSON from stdin and runs the council."""
+    try:
+        raw_input = sys.stdin.read().strip()
+        if not raw_input:
+            input_data = {}
+        else:
+            input_data = json.loads(raw_input)
+
+        failure_text = input_data.get("failureText", "General workload error")
+        context = input_data.get("context", {})
+        model = input_data.get("model", "llama3.1")
+        base_url = input_data.get("baseUrl", "http://localhost:11434")
+
+        run_council(failure_text, context, model, base_url)
+    except Exception as err:
+        emit_event("error", {"message": str(err)})
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

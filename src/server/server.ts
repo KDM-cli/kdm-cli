@@ -9,6 +9,8 @@ export interface ServerOptions {
   metricsPort?: number;
   backend?: string;
   filter?: string[];
+  // Optional callback invoked on each request for logging/metrics
+  onRequest?: (info: { timestamp: string; method: string; path: string; status: number; responseTimeMs: number }) => void;
 }
 
 /** Simplified request body for the /analyze endpoint. */
@@ -32,10 +34,26 @@ interface AnalyzeRequestBody {
  * @returns Parsed body string.
  */
 export const readBody = (req: any): Promise<string> =>
-  new Promise((resolve) => {
+  new Promise((resolve, reject) => {
     let body = '';
-    req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+    // Limit to 1MB to prevent DoS via memory exhaustion
+    const MAX_SIZE = 1024 * 1024;
+    let size = 0;
+
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_SIZE) {
+        reject(new Error('Payload Too Large'));
+        // Let the request complete its stream but ignore the rest,
+        // so we don't close the socket abruptly resulting in UND_ERR_SOCKET
+        req.pause();
+        return;
+      }
+      body += chunk.toString();
+    });
+
     req.on('end', () => resolve(body));
+    req.on('error', (err: Error) => reject(err));
   });
 
 /**
@@ -45,7 +63,12 @@ export const readBody = (req: any): Promise<string> =>
  * @param data Response payload.
  */
 export const sendJson = (res: any, status: number, data: unknown): void => {
-  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Content-Security-Policy': "default-src 'none'",
+  });
   res.end(JSON.stringify(data));
 };
 
@@ -101,7 +124,16 @@ export const handleConfig = (res: any): void => {
       ...config,
       ai: config.ai ? {
         ...config.ai,
-        providers: config.ai.providers.map((p) => ({ ...p, password: '****' })),
+        providers: config.ai.providers.map((p) => ({
+          ...p,
+          password: p.password ? '****' : undefined,
+          customHeaders: p.customHeaders ? Object.fromEntries(Object.entries(p.customHeaders).map(([k]) => [k, '****'])) : undefined,
+        })),
+      } : undefined,
+      notifications: config.notifications ? {
+        ...config.notifications,
+        discordWebhook: config.notifications.discordWebhook ? '****' : undefined,
+        emailPassword: config.notifications.emailPassword ? '****' : undefined,
       } : undefined,
     };
     sendJson(res, 200, sanitized);
@@ -117,8 +149,11 @@ export const handleConfig = (res: any): void => {
  * @param options Server configuration options.
  */
 export const routeRequest = (req: any, res: any, options: ServerOptions): void => {
-  const url = req.url ?? '';
+  const fullUrl = req.url ?? '';
   const method = req.method ?? 'GET';
+
+  // Extract pathname without query parameters
+  const pathname = fullUrl.split('?')[0];
 
   const getHandlers: Record<string, (res: any) => void> = {
     '/health': handleHealth,
@@ -126,12 +161,12 @@ export const routeRequest = (req: any, res: any, options: ServerOptions): void =
     '/config': handleConfig,
   };
 
-  if (method === 'GET' && url in getHandlers) {
-    getHandlers[url](res);
+  if (method === 'GET' && pathname in getHandlers) {
+    getHandlers[pathname](res);
     return;
   }
 
-  if (method === 'POST' && url === '/analyze') {
+  if (method === 'POST' && pathname === '/analyze') {
     handleAnalyze(req, res, options);
     return;
   }
@@ -147,8 +182,45 @@ export const routeRequest = (req: any, res: any, options: ServerOptions): void =
  */
 export async function createServer(options: ServerOptions): Promise<{ close: () => void; port: number }> {
   const { createServer: createHttpServer } = await import('node:http');
+  const os = await import('node:os');
 
   const server = createHttpServer((req, res) => {
+    const startMs = Date.now();
+    let recordedStatus = 200;
+
+    // Wrap writeHead to capture status codes set by handlers
+    const origWriteHead = res.writeHead?.bind(res);
+    if (origWriteHead) {
+      // @ts-ignore
+      res.writeHead = function writeHead(statusCode: number, ...rest: any[]) {
+        recordedStatus = statusCode;
+        // @ts-ignore
+        return origWriteHead(statusCode, ...rest);
+      };
+    }
+
+    // Wrap end so we can compute response time once response completes
+    const origEnd = res.end?.bind(res);
+    if (origEnd) {
+      // @ts-ignore
+      res.end = function end(...args: any[]) {
+        const duration = Date.now() - startMs;
+        try {
+          options.onRequest?.({
+            timestamp: new Date(startMs).toISOString(),
+            method: req.method ?? 'GET',
+            path: req.url ?? '/',
+            status: recordedStatus ?? (res.statusCode ?? 200),
+            responseTimeMs: duration,
+          });
+        } catch (e) {
+          // Ignore logging errors
+        }
+        // @ts-ignore
+        return origEnd(...args);
+      };
+    }
+
     routeRequest(req, res, options);
   });
 

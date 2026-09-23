@@ -24,11 +24,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
+          # Required to bypass the protected-main release ruleset when pushing the version commit.
           token: ${{ secrets.GH_PAT }}
           fetch-depth: 0
 
       - name: Setup Node.cjs
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'

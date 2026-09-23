@@ -134,6 +134,27 @@ async function postComment(botContext, body) {
   }
 }
 
+async function updatePullRequest(botContext, title) {
+  try {
+    requireNonEmptyString(title, 'title');
+
+    await botContext.github.rest.pulls.update({
+      owner: botContext.owner,
+      repo: botContext.repo,
+      pull_number: botContext.number,
+      title,
+    });
+
+    getLogger().log(`Updated PR #${botContext.number} title`);
+    return { success: true };
+  } catch (error) {
+    getLogger().error(
+      `Could not update PR #${botContext.number} title: ${error.message}`,
+    );
+    return { success: false, error: error.message };
+  }
+}
+
 function hasLabel(issueOrPr, labelName) {
   if (!issueOrPr?.labels?.length) return false;
   return issueOrPr.labels.some((label) => {
@@ -467,7 +488,7 @@ async function hasNeedsReviewPR(github, owner, repo, username, issueNumber) {
 }
 
 module.exports = {
-  buildBotContext, addLabels, removeLabel, addAssignees, removeAssignees, postComment, hasLabel, getLabelsByPrefix,
+  buildBotContext, addLabels, removeLabel, addAssignees, removeAssignees, postComment, updatePullRequest, hasLabel, getLabelsByPrefix,
   swapLabels, getBotComment, postOrUpdateComment, fetchPRCommits, fetchOpenPRs, fetchIssue, fetchClosingIssueNumbers,
   fetchLatestMilestone, setMilestone, swapStatusLabel, runAllChecksAndComment, resolveLinkedIssue, acknowledgeComment,
   fetchComments, fetchIssueEvents, closeItem, getHighestIssueSkillLevel, countIssuesByAssignee, listAssignedIssues, hasNeedsReviewPR,

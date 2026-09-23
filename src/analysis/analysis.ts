@@ -8,6 +8,9 @@ import { buildPrompt } from '../ai/prompts';
 import { anonymize, deanonymize } from '../utils/text';
 import { createCacheProvider } from '../cache';
 import { logger } from '../utils/logger';
+import type { SuggestedFix } from './types';
+import { runPythonAgentCouncil, isPythonAgentAvailable } from '../agent/python-bridge';
+import type { ConsensusDiagnosis, AgentProgressEvent } from '../agent/types';
 
 const DEFAULT_FILTERS = ['Pod', 'Deployment', 'Service', 'PersistentVolumeClaim', 'Node'];
 const MAX_ALLOWED_CONCURRENCY = 100;
@@ -83,7 +86,7 @@ function tryAttachProvider(output: AnalysisOutput): void {
  * @param options The analysis options.
  * @returns The resolved backend name string.
  */
-function resolveBackend(options: AnalysisOptions): string {
+export function resolveBackend(options: AnalysisOptions): string {
   if (options.backend) return options.backend;
   try {
     const aiConfig = getAIConfig();
@@ -151,13 +154,78 @@ async function tryStoreToCache(cacheKey: string, data: string): Promise<void> {
 }
 
 /** Parameters for explaining a single analyzer result via AI. */
-interface ExplainSingleParams {
+export interface ExplainSingleParams {
   result: AnalyzerResult;
   backend: string;
   language: string;
   shouldAnonymize: boolean;
   noCache: boolean;
   customHeaders?: Record<string, string>;
+  onAgentProgress?: (event: AgentProgressEvent) => void;
+}
+
+/**
+ * Formats consensus diagnosis from the multi-agent council for terminal display.
+ *
+ * @param consensus The consensus diagnosis from the Python agent council.
+ * @returns Human-readable multi-agent report string.
+ */
+export function formatConsensusExplanation(consensus: ConsensusDiagnosis): string {
+  const lines: string[] = [
+    `Root Cause (${consensus.confidence.toUpperCase()} confidence):`,
+    `  ${consensus.rootCause}`,
+    '',
+    'Recommended Remediation:',
+    `  ${consensus.bestSolution.actionTitle}`,
+  ];
+
+  for (const step of consensus.bestSolution.steps) {
+    lines.push(`  - ${step}`);
+  }
+
+  if (consensus.bestSolution.commandToRun) {
+    lines.push('');
+    lines.push(`  Command: ${consensus.bestSolution.commandToRun}`);
+  }
+
+  lines.push('');
+  lines.push('Specialist Agent Findings:');
+  for (const finding of consensus.findings) {
+    lines.push(`  - [${finding.agentName}]: ${finding.summary || finding.statusText}`);
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Attempts to execute the Python Multi-Agent Council for Ollama backends.
+ */
+async function tryRunAgentCouncil(
+  params: ExplainSingleParams,
+  promptText: string,
+  model: string
+): Promise<string | null> {
+  if (params.backend !== 'ollama') return null;
+
+  const isAvailable = await isPythonAgentAvailable();
+  if (!isAvailable) return null;
+
+  try {
+    const consensus = await runPythonAgentCouncil({
+      failureText: promptText,
+      context: {
+        kind: params.result.kind,
+        name: params.result.name,
+        namespace: params.result.namespace,
+      },
+      model: model || 'gemma:2b',
+      onProgress: params.onAgentProgress,
+    });
+    return formatConsensusExplanation(consensus);
+  } catch (err) {
+    logger.warn(`Multi-agent council failed, using direct completion: ${(err as Error).message}`);
+    return null;
+  }
 }
 
 /**
@@ -165,7 +233,7 @@ interface ExplainSingleParams {
  * and attaching the response to the result's details field.
  * @param params Parameters for the explain operation.
  */
-async function explainSingleResult(params: ExplainSingleParams): Promise<void> {
+export async function explainSingleResult(params: ExplainSingleParams): Promise<void> {
   const failureText = params.result.errors.map((e) => e.text).join('\n');
   let promptText = failureText;
   let mapping: { original: string; placeholder: string }[] = [];
@@ -198,13 +266,32 @@ async function explainSingleResult(params: ExplainSingleParams): Promise<void> {
     return;
   }
 
-  const response = await client.getCompletion(prompt);
-  const explanation = params.shouldAnonymize ? deanonymize(response, mapping) : response;
+  const agentResponse = await tryRunAgentCouncil(params, promptText, model);
+  const rawResponse = agentResponse || (await client.getCompletion(prompt));
+  const explanation = params.shouldAnonymize ? deanonymize(rawResponse, mapping) : rawResponse;
   params.result.details = explanation;
 
   if (!params.noCache) {
-    await tryStoreToCache(cacheKey, response);
+    await tryStoreToCache(cacheKey, rawResponse);
   }
+}
+
+/**
+ * Constructs suggested fix models for each detected issue in the analyzer results.
+ * @param results The analyzer results containing resource problems.
+ * @returns Array of suggested fixes.
+ */
+export function buildSuggestedFixes(results: AnalyzerResult[]): SuggestedFix[] {
+  return results.flatMap((result, index) =>
+    result.errors.map((failure, failureIndex) => ({
+      id: `${result.kind.toLowerCase()}-${index}-${failureIndex}`,
+      title: `Review ${result.kind} ${result.name}`,
+      description: failure.text,
+      namespace: result.namespace,
+      kind: result.kind,
+      resourceName: result.name,
+    }))
+  );
 }
 
 /**
@@ -312,6 +399,7 @@ export async function runAnalysis(options: AnalysisOptions): Promise<AnalysisOut
   await explainResults(results, options);
 
   const problems = results.reduce((acc, curr) => acc + curr.errors.length, 0);
+  const suggestedFixes = options.interactive ? buildSuggestedFixes(results) : undefined;
 
   const output: AnalysisOutput = {
     errors,
@@ -319,6 +407,7 @@ export async function runAnalysis(options: AnalysisOptions): Promise<AnalysisOut
     problems,
     results,
     ...(options.withStats ? { stats } : {}),
+    ...(suggestedFixes ? { suggestedFixes } : {}),
   };
 
   tryAttachProvider(output);

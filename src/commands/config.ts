@@ -29,22 +29,111 @@ const readlineInput = (question: string): Promise<string> => {
   });
 };
 
+const readlineSelect = (
+  message: string,
+  options: Array<{ label: string; value: string }>,
+): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    let index = 0;
+
+    const render = () => {
+      console.log(`\n${message}`);
+
+      options.forEach((option, i) => {
+        const marker = i === index ? '❯' : ' ';
+        console.log(`${marker} ${option.label}`);
+      });
+
+      console.log(chalk.dim('Use ↑/↓ to navigate, Enter to select.'));
+    };
+
+    const cleanup = () => {
+      if (process.stdin.isTTY) {
+        process.stdin.setRawMode?.(false);
+      }
+
+      process.stdin.pause();
+      process.stdin.removeListener('data', onData);
+    };
+
+    const onData = (chunk: Buffer) => {
+      const key = chunk.toString();
+
+      if (key === '\u0003') {
+        cleanup();
+        reject(new Error('Cancelled'));
+        return;
+      }
+
+      if (key === '\r' || key === '\n') {
+        const selected = options[index];
+        cleanup();
+        resolve(selected.value);
+        return;
+      }
+
+      if (key === '\u001b[A') {
+        index = (index - 1 + options.length) % options.length;
+        console.clear();
+        render();
+        return;
+      }
+
+      if (key === '\u001b[B') {
+        index = (index + 1) % options.length;
+        console.clear();
+        render();
+      }
+    };
+
+    if (!process.stdin.isTTY) {
+      reject(new Error('Interactive terminal is required.'));
+      return;
+    }
+
+    process.stdin.resume();
+    process.stdin.setRawMode?.(true);
+    process.stdin.on('data', onData);
+
+    render();
+  });
+};
+
+const promptSelect = async (
+  message: string,
+  options: Array<{ label: string; value: string; description?: string }>,
+): Promise<string> => {
+  try {
+    return await select({
+      message,
+      options,
+    });
+  } catch (error) {
+    if ((error as Error).message !== 'Cancelled') {
+      throw error;
+    }
+
+    return readlineSelect(
+      message,
+      options.map(({ label, value }) => ({
+        label,
+        value,
+      })),
+    );
+  }
+};
+
 const promptReconfigurationIfNeeded = async (): Promise<boolean> => {
   const currentConfig = getConfig();
   if (!currentConfig.notification_service || currentConfig.notification_service === 'none') {
     return true;
   }
-
   const serviceLabel = currentConfig.notification_service === 'discord' ? 'Discord' : 'Email (SMTP)';
   console.log(chalk.yellow(`\n⚠ Current notification service is set to: ${chalk.bold(serviceLabel)}`));
-
-  const shouldReconfigure = await select({
-    message: 'Would you like to reconfigure?',
-    options: [
-      { label: 'Yes', value: 'yes' },
-      { label: 'No', value: 'no' },
-    ],
-  });
+  const shouldReconfigure = await promptSelect('Would you like to reconfigure?', [
+    { label: 'Yes', value: 'yes' },
+    { label: 'No', value: 'no' },
+  ]);
 
   if (shouldReconfigure === 'no') {
     console.log(chalk.dim('Setup cancelled. Current configuration unchanged.'));
@@ -115,11 +204,6 @@ const handleEmailSetup = async () => {
     validate: (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) || 'Must be a valid email address',
   });
 
-  const password = await input({
-    message: 'SMTP Password (optional):',
-    validate: () => true,
-  });
-
   clearNotificationCredentials();
   setConfig('email_host', host);
   setConfig('email_port', parseInt(portStr, 10));
@@ -130,46 +214,52 @@ const handleEmailSetup = async () => {
   console.log(chalk.dim('  Set the SMTP password via the KDM_SMTP_PASSWORD environment variable.'));
   console.log(chalk.green('\n✓ Email SMTP configured.'));
 };
+const handleConfigSetup = async (): Promise<void> => {
+  try {
+    if (!(await promptReconfigurationIfNeeded())) return;
+
+    const choice = await promptSelect('Select notification service:', [
+      {
+        label: 'Discord',
+        value: 'discord',
+        description: 'Send alerts to a Discord channel via Webhook',
+      },
+      {
+        label: 'Email (SMTP)',
+        value: 'email',
+        description: 'Send alerts via Email SMTP',
+      },
+      {
+        label: 'None',
+        value: 'none',
+        description: 'Disable notifications',
+      },
+    ]);
+
+    const handlers: Record<string, () => Promise<void>> = {
+      none: handleNoneSetup,
+      discord: handleDiscordSetup,
+      email: handleEmailSetup,
+    };
+
+    await handlers[choice]();
+  } catch (error) {
+    console.error(`✖ ${(error as Error).message}`);
+  }
+};
 
 /**
  * Registers the config CLI command group and subcommands on the Commander program.
  * @param program Commander program instance.
  */
-export const registerConfigCommand = (program: Command) => {
-  const config = program.command('config').description('Manage KDM configuration');
-
+const registerConfigSetupCommand = (config: Command) => {
   config
     .command('setup')
     .description('Interactively set up notification service')
-    .action(async () => {
-      try {
-        if (!(await promptReconfigurationIfNeeded())) return;
+    .action(handleConfigSetup);
+};
 
-        const choice = await select({
-          message: 'Select notification service:',
-          options: [
-            { label: 'Discord', value: 'discord', description: 'Send alerts to a Discord channel via Webhook' },
-            { label: 'Email (SMTP)', value: 'email', description: 'Send alerts via Email SMTP' },
-            { label: 'None', value: 'none', description: 'Disable notifications' },
-          ],
-        });
-
-        const handlers: Record<string, () => Promise<void>> = {
-          none: handleNoneSetup,
-          discord: handleDiscordSetup,
-          email: handleEmailSetup,
-        };
-
-        const handler = handlers[choice];
-        if (handler) {
-          await handler();
-          console.log(chalk.green(`\n✓ Notification service set to: ${chalk.bold(choice.toUpperCase())}`));
-        }
-      } catch (error) {
-        console.error(chalk.red(`\n✗ Set up cancelled or failed: ${(error as Error).message}`));
-      }
-    });
-
+const registerConfigSetCommand = (config: Command) => {
   config
     .command('set <key> <value>')
     .description('Set a configuration value')
@@ -184,25 +274,39 @@ export const registerConfigCommand = (program: Command) => {
         process.exitCode = 1;
       }
     });
+};
 
+const registerConfigListCommand = (config: Command) => {
   config
     .command('list')
     .description('List current configuration')
     .action(() => {
       const current = getConfig();
+
       console.log(chalk.bold('\nCurrent KDM Configuration:'));
-      console.log(chalk.gray('──────────────────────────────────────────────────'));
+      console.log(
+        chalk.gray('──────────────────────────────────────────────────'),
+      );
+
       if (Object.keys(current).length === 0) {
-        console.log(chalk.yellow(' No configuration found. Use "kdm config set <key> <value>"'));
+        console.log(
+          chalk.yellow(
+            ' No configuration found. Use "kdm config set <key> <value>"',
+          ),
+        );
       } else {
         Object.entries(current).forEach(([key, value]) => {
-          console.log(`${chalk.cyan(key.padEnd(20))} : ${chalk.white(value)}`);
+          console.log(
+            `${chalk.cyan(key.padEnd(20))} : ${chalk.white(value)}`,
+          );
         });
       }
       console.log(chalk.gray('──────────────────────────────────────────────────'));
       console.log(chalk.dim('\n Note: SMTP passwords must be provided exclusively via the KDM_SMTP_PASSWORD environment variable.\n'));
     });
+};
 
+const registerConfigClearCommand = (config: Command) => {
   config
     .command('clear')
     .description('Clear all configuration')
@@ -210,6 +314,17 @@ export const registerConfigCommand = (program: Command) => {
       clearConfig();
       console.log(chalk.green('✓ Configuration cleared.'));
     });
+};
+
+export const registerConfigCommand = (program: Command) => {
+  const config = program
+    .command('config')
+    .description('Manage KDM configuration');
+
+  registerConfigSetupCommand(config);
+  registerConfigSetCommand(config);
+  registerConfigListCommand(config);
+  registerConfigClearCommand(config);
 };
 
 const checkDeprecation = (key: string) => {

@@ -20,7 +20,7 @@
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 [![All Contributors](https://img.shields.io/github/all-contributors/KDM-cli/kdm-cli?color=ee8449&style=flat-square)](#contributors)
 [![GitHub stars](https://img.shields.io/github/stars/KDM-cli/kdm-cli?style=flat-square&logo=github)](https://github.com/KDM-cli/kdm-cli)
-[![Node](https://img.shields.io/badge/node-%3E%3D18-339933?style=flat-square&logo=node.js)](https://nodejs.org)
+[![Node](https://img.shields.io/badge/node-%3E%3D20-339933?style=flat-square&logo=node.js)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-7-3178C6?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](CONTRIBUTING.md)
 
@@ -75,11 +75,23 @@ npm install -g kdm-cli
 npx kdm-cli
 ```
 
+### Install in a Project
+
+```bash
+npm install kdm-cli
+npx kdm
+```
+
+`npm install kdm-cli` adds the `kdm` executable to the project at
+`./node_modules/.bin/kdm`; it does not add it to your system `PATH`. Use
+`npx kdm` from that project, or choose the global installation above to run
+`kdm` from any directory.
+
 </div>
 
 **Requirements:**
 
-- [Node.js](https://nodejs.org) >= 18
+- [Node.js](https://nodejs.org) >= 20
 - Docker daemon (for container features)
 - Kubernetes cluster or [Minikube](https://minikube.sigs.k8s.io) (for pod features)
 
@@ -183,9 +195,10 @@ kdm cache purge             # Clear all cached AI explanations
 
 ### Analyzer Filters
 
-By default, KDM runs all core resource analyzers. You can customize which analyzers are active.
+By default, KDM runs all core resource analyzers. You can customize which analyzers are active using the interactive checklist dashboard or CLI subcommands:
 
 ```bash
+kdm filters                 # Open interactive checklist dashboard with instant persistence
 kdm filters list            # List active filters and available inactive ones
 kdm filters add Ingress     # Add Ingress analyzer to active default filters list
 kdm filters remove Ingress  # Remove analyzer from active list (falls back to defaults)
@@ -196,6 +209,7 @@ kdm filters remove Ingress  # Remove analyzer from active list (falls back to de
 Register custom scripts/commands or HTTP webhooks to analyze arbitrary custom resources (CRDs) like Kyverno, KEDA, and Prometheus.
 
 ```bash
+kdm custom-analyzer                                                        # Interactive rule manager (TTY required)
 kdm custom-analyzer add keda --command "kubectl get scaledobjects -A -o json" # Add custom analyzer command
 kdm custom-analyzer add my-webhook --url "https://api.my-org.internal/check"  # Add custom HTTP analyzer
 kdm custom-analyzer list                                                     # List all custom analyzers
@@ -357,56 +371,24 @@ Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/d
 <table>
   <tbody>
     <tr>
-      <td align="center" valign="top" width="14.28%">
-        <a href="https://yuvraj-sarathe.github.io/Portfolio/">
-          <img src="https://avatars.githubusercontent.com/u/216678101?v=4" width="100px;" alt="Yuvraj Sarathe"/><br/>
-          <sub><b>Yuvraj Sarathe</b></sub>
-        </a>
-        <br/>
-        <a href="#infra-Yuvraj-Sarathe" title="Infrastructure">🚇</a>
-        <a href="https://github.com/KDM-cli/kdm-cli/pull/43" title="Documentation Automation">📖</a>
-      </td>
-      <td align="center" valign="top" width="14.28%">
-        <a href="https://github.com/utkarsh232005">
-          <img src="https://avatars.githubusercontent.com/u/137105846?v=4" width="100px;" alt="Utkarsh Patrikar"/><br/>
-          <sub><b>Utkarsh Patrikar</b></sub>
-        </a>
-        <br/>
-        <a href="#code-utkarsh232005" title="Code">💻</a>
-        <a href="#infra-utkarsh232005" title="CI/CD & Infrastructure">🚇</a>
-        <a href="#maintenance-utkarsh232005" title="Maintenance">🚧</a>
-      </td>
-      <td align="center" valign="top" width="14.28%">
-        <a href="https://github.com/blut-agent">
-          <img src="https://avatars.githubusercontent.com/u/278569635?v=4" width="100px;" alt="blut-agent"/><br/>
-          <sub><b>blut-agent</b></sub>
-        </a>
-        <br/>
-        <a href="https://github.com/KDM-cli/kdm-cli/pull/29" title="Version Check Feature">✨</a>
-        <a href="https://github.com/KDM-cli/kdm-cli/pull/28" title="Docs Structure">📖</a>
-        <a href="https://github.com/KDM-cli/kdm-cli/pull/23" title="Credential Setup">🔐</a>
-      </td>
-      <td align="center" valign="top" width="14.28%">
-        <a href="https://github.com/Rishiraj-Pathak-27">
-          <img src="https://avatars.githubusercontent.com/u/180004050?v=4" width="100px;" alt="Rishiraj Pathak"/><br/>
-          <sub><b>Rishiraj Pathak</b></sub>
-        </a>
-        <br/>
-        <a href="https://github.com/KDM-cli/kdm-cli/pull/40" title="Logs & Health Implementation">💻</a>
-      </td>
-      <td align="center" valign="top" width="14.28%">
-        <a href="https://github.com/fizyxbt">
-          <img src="https://avatars.githubusercontent.com/u/17788586?v=4" width="100px;" alt="fizyxbt"/><br/>
-          <sub><b>fizyxbt</b></sub>
-        </a>
-        <br/>
-        <a href="https://github.com/KDM-cli/kdm-cli/pull/23" title="Credential Setup Guidance">✨</a>
-      </td>
+      <td align="center" valign="top" width="14.28%"><a href="https://yuvraj-sarathe.github.io/Portfolio/"><img src="https://avatars.githubusercontent.com/u/216678101?v=4?s=100" width="100px;" alt="Yuvraj Sarathe"/><br /><sub><b>Yuvraj Sarathe</b></sub></a><br /><a href="#infra-Yuvraj-Sarathe" title="Infrastructure (Hosting, Build-Tools, etc)">🚇</a> <a href="#doc-Yuvraj-Sarathe" title="Documentation">📖</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/utkarsh232005"><img src="https://avatars.githubusercontent.com/u/137105846?v=4?s=100" width="100px;" alt="Utkarsh Patrikar"/><br /><sub><b>Utkarsh Patrikar</b></sub></a><br /><a href="#code-utkarsh232005" title="Code">💻</a> <a href="#infra-utkarsh232005" title="Infrastructure (Hosting, Build-Tools, etc)">🚇</a> <a href="#maintenance-utkarsh232005" title="Maintenance">🚧</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/blut-agent"><img src="https://avatars.githubusercontent.com/u/278569635?v=4?s=100" width="100px;" alt="blut-agent"/><br /><sub><b>blut-agent</b></sub></a><br /><a href="#code-blut-agent" title="Code">💻</a> <a href="#doc-blut-agent" title="Documentation">📖</a> <a href="#security-blut-agent" title="Security">🛡️</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/Rishiraj-Pathak-27"><img src="https://avatars.githubusercontent.com/u/180004050?v=4?s=100" width="100px;" alt="Rishiraj Pathak"/><br /><sub><b>Rishiraj Pathak</b></sub></a><br /><a href="#code-Rishiraj-Pathak-27" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/fizyxbt"><img src="https://avatars.githubusercontent.com/u/17788586?v=4?s=100" width="100px;" alt="fizyxbt"/><br /><sub><b>fizyxbt</b></sub></a><br /><a href="#security-fizyxbt" title="Security">🛡️</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/Akanshagore"><img src="https://avatars.githubusercontent.com/u/271256844?v=4?s=100" width="100px;" alt="Akansha Gore"/><br /><sub><b>Akansha Gore</b></sub></a><br /><a href="#code-akanshagore" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://kunal-khare-sre.netlify.app/"><img src="https://avatars.githubusercontent.com/u/136145336?v=4?s=100" width="100px;" alt="Kunal Khare"/><br /><sub><b>Kunal Khare</b></sub></a><br /><a href="#code-kunaldevxxx" title="Code">💻</a></td>
+    </tr>
+    <tr>
+      <td align="center" valign="top" width="14.28%"><a href="https://www.dynosuprovo.in.net/"><img src="https://avatars.githubusercontent.com/u/143953131?v=4?s=100" width="100px;" alt="Suprovo Mallick (DYNO)"/><br /><sub><b>Suprovo Mallick (DYNO)</b></sub></a><br /><a href="#code-DYNOSuprovo" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/harbinresearcher"><img src="https://avatars.githubusercontent.com/u/245993535?v=4?s=100" width="100px;" alt="Luochenchen"/><br /><sub><b>Luochenchen</b></sub></a><br /><a href="#code-harbinresearcher" title="Code">💻</a> <a href="#test-harbinresearcher" title="Tests">⚠️</a></td>
     </tr>
   </tbody>
 </table>
+
 <!-- markdownlint-restore -->
 <!-- prettier-ignore-end -->
+
 <!-- ALL-CONTRIBUTORS-LIST:END -->
 
 </div>

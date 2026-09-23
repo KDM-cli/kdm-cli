@@ -90,7 +90,20 @@ async function handleCachePurge(): Promise<void> {
 export const registerCacheCommand = (program: Command) => {
   const cacheCmd = program
     .command('cache')
-    .description('Manage the AI explanation cache');
+    .description('Manage the AI explanation cache')
+    .action(async () => {
+      if (!process.stdout.isTTY || !process.stdin.isTTY) {
+        console.error('Interactive cache browser requires a TTY terminal.');
+        process.exitCode = 1;
+        return;
+      }
+      process.stdout.write('\x1Bc');
+      const { default: React } = await import('react');
+      const { render } = await import('ink');
+      const { CacheDashboard } = await import('../ui/CacheDashboard');
+      const app = render(React.createElement(CacheDashboard));
+      await app.waitUntilExit();
+    });
 
   cacheCmd
     .command('list')

@@ -308,9 +308,9 @@ describe('auth command & AI clients', () => {
       backend: 'google-gemini',
       addArgs: ['-p', 'geminikey'],
       mockJson: { candidates: [{ content: { parts: [{ text: 'gemini response' }] } }] },
-      expectedUrl: 'https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=geminikey',
+      expectedUrl: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent',
       bodyExpectations: (body: any) => expect(body.contents[0].parts[0].text).toBe('test-prompt'),
-      headersExpectations: () => {},
+      headersExpectations: (headers: any) => expect(headers['x-goog-api-key']).toBe('geminikey'),
     },
     {
       backend: 'google-vertex',
@@ -401,7 +401,7 @@ describe('auth command & AI clients', () => {
     expect((cohere as any).model).toBe('command-r-plus');
 
     const gemini = new GoogleGeminiAIClient();
-    await gemini.configure({ name: 'google-gemini' });
+    await gemini.configure({ name: 'google-gemini', password: 'key' });
     expect((gemini as any).model).toBe('gemini-pro');
 
     const vertex = new GoogleVertexAIClient();
@@ -473,6 +473,11 @@ describe('auth command & AI clients', () => {
     const customrest = new CustomRestAIClient();
     await expect(customrest.configure({ name: 'customrest' })).rejects.toThrow(
       'baseUrl is required for customrest',
+    );
+
+    const gemini = new GoogleGeminiAIClient();
+    await expect(gemini.configure({ name: 'google-gemini' })).rejects.toThrow(
+      'API key (password) is required for google-gemini',
     );
   });
 
