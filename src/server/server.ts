@@ -63,7 +63,12 @@ export const readBody = (req: any): Promise<string> =>
  * @param data Response payload.
  */
 export const sendJson = (res: any, status: number, data: unknown): void => {
-  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Content-Security-Policy': "default-src 'none'",
+  });
   res.end(JSON.stringify(data));
 };
 
