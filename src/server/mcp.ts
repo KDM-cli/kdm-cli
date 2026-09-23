@@ -1,5 +1,6 @@
 import { runAnalysis } from '../analysis/analysis';
 import { registry } from '../analyzers';
+import { getInstalledVersion } from '../utils/version-check';
 
 /**
  * MCP tool definition.
@@ -151,6 +152,9 @@ async function handleMCPMessage(
 ): Promise<void> {
   try {
     const msg = JSON.parse(line);
+    if (!Object.prototype.hasOwnProperty.call(msg, 'id')) {
+      return;
+    }
     const response = await dispatchMCPRequest(msg, toolMap);
     process.stdout.write(JSON.stringify(response) + '\n');
   } catch (error) {
@@ -173,6 +177,20 @@ async function dispatchMCPRequest(
   msg: any,
   toolMap: Map<string, MCPTool>,
 ): Promise<any> {
+  if (msg.method === 'initialize') {
+    return {
+      jsonrpc: '2.0',
+      result: {
+        protocolVersion: '2024-11-05',
+        capabilities: { tools: {} },
+        serverInfo: {
+          name: 'kdm',
+          version: getInstalledVersion(),
+        },
+      },
+      id: msg.id,
+    };
+  }
   if (msg.method === 'tools/list') {
     return buildToolListResponse(msg, toolMap);
   }
