@@ -13,5 +13,9 @@
 # Core source
 src/ @utkarsh232005
 
-# Package config
-package.json @utkarsh232005
+# Exclude dependency manifests from code ownership so Dependabot updates can auto-merge without code owner review
+package.json
+package-lock.json
+.github/scripts/package.json
+.github/scripts/package-lock.json
+
