@@ -35,7 +35,12 @@ const ensureCacheDir = (dir: string): void => {
  */
 const safeReadFile = (filePath: string): string | null => {
   try {
-    return fs.readFileSync(filePath, 'utf-8');
+    const fd = fs.openSync(filePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+      return fs.readFileSync(fd, 'utf-8');
+    } finally {
+      fs.closeSync(fd);
+    }
   } catch {
     return null;
   }
@@ -49,11 +54,23 @@ const safeReadFile = (filePath: string): string | null => {
  * @throws Error if the key attempts to traverse outside the cache directory.
  */
 const getSafePath = (cacheDir: string, key: string): string => {
+  const resolvedCacheDir = path.resolve(cacheDir);
   const safePath = path.resolve(cacheDir, key);
-  const normalizedCacheDir = path.resolve(cacheDir) + path.sep;
-  if (!safePath.startsWith(normalizedCacheDir) && safePath !== path.resolve(cacheDir)) {
+  const normalizedCacheDir = resolvedCacheDir + path.sep;
+
+  if (!safePath.startsWith(normalizedCacheDir) && safePath !== resolvedCacheDir) {
     throw new Error(`Invalid cache key: potential directory traversal detected`);
   }
+
+  const dir = path.dirname(safePath);
+  if (fs.existsSync(dir)) {
+    const realDir = fs.realpathSync(dir);
+    const realCacheDir = fs.existsSync(cacheDir) ? fs.realpathSync(cacheDir) : resolvedCacheDir;
+    if (!realDir.startsWith(realCacheDir + path.sep) && realDir !== realCacheDir) {
+      throw new Error(`Invalid cache key: potential directory traversal detected`);
+    }
+  }
+
   return safePath;
 };
 
@@ -82,9 +99,21 @@ export class FileCacheProvider implements CacheProvider {
   private getSafeFilePath(key: string): string {
     const resolvedCacheDir = path.resolve(this.cacheDir);
     const resolvedPath = path.resolve(this.cacheDir, key);
+
     if (!resolvedPath.startsWith(resolvedCacheDir + path.sep) && resolvedPath !== resolvedCacheDir) {
       throw new Error(`Invalid cache key: path traversal detected for key '${key}'`);
     }
+
+    const dir = path.dirname(resolvedPath);
+    if (fs.existsSync(dir)) {
+      const realDir = fs.realpathSync(dir);
+      const realCacheDir = fs.existsSync(this.cacheDir) ? fs.realpathSync(this.cacheDir) : resolvedCacheDir;
+
+      if (!realDir.startsWith(realCacheDir + path.sep) && realDir !== realCacheDir) {
+        throw new Error(`Invalid cache key: path traversal detected for key '${key}'`);
+      }
+    }
+
     return resolvedPath;
   }
 
@@ -96,7 +125,12 @@ export class FileCacheProvider implements CacheProvider {
   async store(key: string, data: string): Promise<void> {
     ensureCacheDir(this.cacheDir);
     const filePath = this.getSafeFilePath(key);
-    fs.writeFileSync(filePath, data, 'utf-8');
+    const fd = fs.openSync(filePath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_NOFOLLOW);
+    try {
+      fs.writeFileSync(fd, data, 'utf-8');
+    } finally {
+      fs.closeSync(fd);
+    }
   }
 
   /**
