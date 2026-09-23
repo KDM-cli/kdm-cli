@@ -42,6 +42,22 @@ const safeReadFile = (filePath: string): string | null => {
 };
 
 /**
+ * Resolves a safe file path for a cache key, preventing directory traversal.
+ * @param cacheDir Absolute path to the cache directory.
+ * @param key The cache key.
+ * @returns Absolute path to the cache entry file.
+ * @throws Error if the key attempts to traverse outside the cache directory.
+ */
+const getSafePath = (cacheDir: string, key: string): string => {
+  const safePath = path.resolve(cacheDir, key);
+  const normalizedCacheDir = path.resolve(cacheDir) + path.sep;
+  if (!safePath.startsWith(normalizedCacheDir) && safePath !== path.resolve(cacheDir)) {
+    throw new Error(`Invalid cache key: potential directory traversal detected`);
+  }
+  return safePath;
+};
+
+/**
  * File-based implementation of the CacheProvider interface.
  * Stores each cached entry as a separate file named by its key.
  */
