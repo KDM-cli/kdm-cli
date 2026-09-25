@@ -155,7 +155,7 @@ const WorkloadListItem: React.FC<{
   }
 
   const isFailing = item.type === 'pod'
-    ? (item.status !== 'Running' && item.status !== 'Pending')
+    ? (item.status !== 'Running' && item.status !== 'Pending' && item.status !== 'Succeeded')
     : (item.status !== 'running');
   
   const icon = isFailing ? '✖' : '✔';

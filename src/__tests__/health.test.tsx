@@ -114,4 +114,31 @@ describe('health command', () => {
 
     unmount();
   });
+
+  it('should treat succeeded pods as healthy', async () => {
+    vi.mocked(getRunningPods).mockResolvedValue([
+      {
+        name: 'succeeded-pod',
+        namespace: 'default',
+        status: 'Succeeded',
+        restarts: 0,
+        node: 'node-1',
+      },
+    ]);
+
+    const { unmount } = render(
+      <HealthDashboard
+        initialTarget="pods"
+        initialWatch={false}
+        initialInterval={5}
+      />,
+      { stdout: mockStdout as any, stdin: mockStdin as any, debug: true }
+    );
+    await waitForFrameToContain(mockStdout, 'succeeded-pod');
+
+    const output = mockStdout.frames.join('\n');
+    expect(output).toContain('✔');
+
+    unmount();
+  });
 });
