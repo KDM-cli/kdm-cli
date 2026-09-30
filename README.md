@@ -382,6 +382,7 @@ Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/d
     <tr>
       <td align="center" valign="top" width="14.28%"><a href="https://www.dynosuprovo.in.net/"><img src="https://avatars.githubusercontent.com/u/143953131?v=4?s=100" width="100px;" alt="Suprovo Mallick (DYNO)"/><br /><sub><b>Suprovo Mallick (DYNO)</b></sub></a><br /><a href="#code-DYNOSuprovo" title="Code">💻</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/harbinresearcher"><img src="https://avatars.githubusercontent.com/u/245993535?v=4?s=100" width="100px;" alt="Luochenchen"/><br /><sub><b>Luochenchen</b></sub></a><br /><a href="#code-harbinresearcher" title="Code">💻</a> <a href="#test-harbinresearcher" title="Tests">⚠️</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://portfolio-s57e.vercel.app"><img src="https://avatars.githubusercontent.com/u/149791354?v=4?s=100" width="100px;" alt="Channa Karawita"/><br /><sub><b>Channa Karawita</b></sub></a><br /><a href="#code-Ch4nnXDev" title="Code">💻</a> <a href="#test-Ch4nnXDev" title="Tests">⚠️</a></td>
     </tr>
   </tbody>
 </table>
