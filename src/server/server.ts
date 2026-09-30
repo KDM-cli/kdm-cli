@@ -225,7 +225,8 @@ export async function createServer(options: ServerOptions): Promise<{ close: () 
   });
 
   return new Promise((resolve) => {
-    server.listen(options.port, () => {
+    // Explicitly bind to 127.0.0.1 to prevent network exposure
+    server.listen(options.port, '127.0.0.1', () => {
       const address = server.address();
       const port = typeof address === 'string' ? 0 : (address?.port ?? 0);
       resolve({
