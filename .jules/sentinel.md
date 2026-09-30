@@ -10,3 +10,7 @@
 **Vulnerability:** The local bridge HTTP server used to integrate with the Python Ollama Multi-Agent Council (`src/server/server.ts`) was listening on `options.port` without specifying a host interface.
 **Learning:** In Node.js, `server.listen(port)` without a host binds to `0.0.0.0` (all IPv4 addresses) by default, exposing the local server (and its unauthenticated `/analyze` and `/config` endpoints) to the entire local network, rather than just `127.0.0.1`.
 **Prevention:** Always explicitly bind local-only servers to `127.0.0.1` (`server.listen(port, '127.0.0.1')`) to prevent unintended network exposure.
+## 2024-11-06 - Local Server CSRF & Caching Gap
+**Vulnerability:** The local CLI server exposed `POST /analyze` without CSRF protection and sent sensitive configuration data without `Cache-Control: no-store` headers.
+**Learning:** Local CLIs exposing HTTP endpoints for Dashboards/MCP are vulnerable to CSRF via simple requests if `Content-Type` is not strictly enforced.
+**Prevention:** Always strictly validate `Content-Type: application/json` to trigger preflight requests, and add `Cache-Control: no-store` to all JSON API responses.
