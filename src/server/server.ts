@@ -68,6 +68,7 @@ export const sendJson = (res: any, status: number, data: unknown): void => {
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'Content-Security-Policy': "default-src 'none'",
+    'Cache-Control': 'no-store, max-age=0',
   });
   res.end(JSON.stringify(data));
 };
@@ -167,6 +168,22 @@ export const routeRequest = (req: any, res: any, options: ServerOptions): void =
   }
 
   if (method === 'POST' && pathname === '/analyze') {
+    const contentType = req.headers['content-type'] || '';
+
+    // Check for multiple Content-Type headers in raw headers
+    let contentTypeCount = 0;
+    if (req.rawHeaders) {
+      for (let i = 0; i < req.rawHeaders.length; i += 2) {
+        if (req.rawHeaders[i].toLowerCase() === 'content-type') {
+          contentTypeCount++;
+        }
+      }
+    }
+
+    if (contentTypeCount > 1 || typeof contentType !== 'string' || contentType.includes(',') || contentType.split(';')[0].trim() !== 'application/json') {
+      sendJson(res, 415, { error: 'Unsupported Media Type: application/json required' });
+      return;
+    }
     handleAnalyze(req, res, options);
     return;
   }
