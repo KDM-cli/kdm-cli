@@ -169,7 +169,18 @@ export const routeRequest = (req: any, res: any, options: ServerOptions): void =
 
   if (method === 'POST' && pathname === '/analyze') {
     const contentType = req.headers['content-type'] || '';
-    if (!contentType.includes('application/json')) {
+
+    // Check for multiple Content-Type headers in raw headers
+    let contentTypeCount = 0;
+    if (req.rawHeaders) {
+      for (let i = 0; i < req.rawHeaders.length; i += 2) {
+        if (req.rawHeaders[i].toLowerCase() === 'content-type') {
+          contentTypeCount++;
+        }
+      }
+    }
+
+    if (contentTypeCount > 1 || typeof contentType !== 'string' || contentType.includes(',') || contentType.split(';')[0].trim() !== 'application/json') {
       sendJson(res, 415, { error: 'Unsupported Media Type: application/json required' });
       return;
     }
