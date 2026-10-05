@@ -359,6 +359,18 @@ async function runSingleAnalyzer(params: RunSingleParams): Promise<void> {
  * @returns Aggregated analysis results containing status, problems, and stats.
  */
 export async function runAnalysis(options: AnalysisOptions): Promise<AnalysisOutput> {
+  // ─── Feature Flag Gate (Phase 0 scaffolding) ───────────────────────────────
+  // When KDM_MULTI_AGENT is enabled, route to the multi-agent engine (Phases 1–24).
+  // For now, the multi-agent path is a no-op placeholder that falls through to legacy.
+  const useMultiAgent = process.env.KDM_MULTI_AGENT === 'true' || options.multiAgent === true;
+
+  if (useMultiAgent) {
+    // TODO(Phase 1+): Route to Multi-Agent Engine
+    // For now, log and fall through to the legacy pipeline.
+    logger.warn('KDM_MULTI_AGENT is enabled but multi-agent engine is not yet implemented. Falling through to legacy pipeline.');
+  }
+
+  // ─── Legacy Pipeline (Frozen Baseline) ─────────────────────────────────────
   const errors: string[] = [];
   const results: AnalyzerResult[] = [];
   const stats: AnalysisStats[] = [];
