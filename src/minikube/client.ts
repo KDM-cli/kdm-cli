@@ -1,16 +1,16 @@
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export const checkMinikubeConnection = async (): Promise<{ installed: boolean; running: boolean }> => {
   try {
     // Check if minikube is installed
-    await execAsync('minikube version');
+    await execFileAsync('minikube', ['version']);
     
     try {
       // Check if minikube is running
-      const { stdout } = await execAsync('minikube status');
+      const { stdout } = await execFileAsync('minikube', ['status']);
       const isRunning = stdout.includes('host: Running') || stdout.includes('apiserver: Running');
       return {
         installed: true,
@@ -34,7 +34,7 @@ export const checkMinikubeConnection = async (): Promise<{ installed: boolean; r
 
 export const getMinikubeStatus = async (): Promise<any[]> => {
   try {
-    const { stdout } = await execAsync('minikube status -o json');
+    const { stdout } = await execFileAsync('minikube', ['status', '-o', 'json']);
     const lines = stdout.split('\n').filter(Boolean);
     const result = [];
     for (const line of lines) {
