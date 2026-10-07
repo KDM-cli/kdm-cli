@@ -19,3 +19,7 @@
 **Vulnerability:** Used `exec` to execute internal minikube commands which can be vulnerable to command injection if user inputs are ever appended.
 **Learning:** Internal system commands should prefer `execFile` or `spawn` instead of `exec` to prevent command injection risks.
 **Prevention:** Always use `execFile` or `spawn` for known internal commands, reserving `exec` only for user-configurable custom analyzers.
+## 2023-11-20 - [DoS vulnerability in Custom HTTP Analyzers]
+**Vulnerability:** Unbounded fetch requests in custom HTTP analyzers
+**Learning:** External webhook analyzers (`config.url`) lacked connection timeouts. As these URLs might be user-configured or target external services, hanging connections could cause the CLI process to wait indefinitely, resulting in a Denial of Service (DoS) vulnerability.
+**Prevention:** Always provide an `AbortSignal.timeout()` when making native `fetch` requests to external services, especially those provided by users.
