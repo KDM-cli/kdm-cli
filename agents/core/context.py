@@ -9,7 +9,7 @@ handle to the current analysis run.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -93,6 +93,11 @@ class AnalysisContext:
 
     metadata: AnalysisMetadata
     """Session-level metadata about the tool and model in use."""
+
+    def __post_init__(self) -> None:
+        """Validate that target matches evidence.target."""
+        if self.target != self.evidence.target:
+            raise ValueError("AnalysisContext.target must match evidence.target")
 
     @classmethod
     def create(

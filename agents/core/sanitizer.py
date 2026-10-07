@@ -52,16 +52,19 @@ def _is_sensitive_key(key: str) -> bool:
 
 
 def redact_sensitive_data(data: Any) -> Any:
-    """Recursively walk *data* and replace values whose keys look sensitive.
+    """Traverse *data* using an explicit stack and replace sensitive values.
 
     The function handles arbitrarily nested structures composed of
-    ``dict``, ``list``, and scalar values.  Non-string dictionary keys that
-    happen to match the pattern are also redacted (though this is uncommon).
+    ``dict``, ``list``, and scalar values using an explicit stack to prevent
+    :exc:`RecursionError` on deeply nested inputs. Sensitive dictionary keys
+    as well as Kubernetes environment entries whose sibling ``name`` matches
+    sensitive patterns have their values replaced by
+    :data:`REDACTED_PLACEHOLDER`. The original object is **not** mutated;
+    a new structure is returned.
 
     Args:
-        data: The data structure to sanitise.  May be a ``dict``, ``list``,
-              or any scalar type.  The original object is **not** mutated;
-              a new structure is returned.
+        data: The data structure to sanitise. May be a ``dict``, ``list``,
+              or any scalar type.
 
     Returns:
         A sanitised copy of *data* with sensitive values replaced by
@@ -77,18 +80,65 @@ def redact_sensitive_data(data: Any) -> Any:
         >>> redact_sensitive_data([{"token": "abc"}, {"safe": "value"}])
         [{'token': '[REDACTED_BY_KDM]'}, {'safe': 'value'}]
 
+        >>> redact_sensitive_data([{"name": "DB_PASSWORD", "value": "s3cr3t"}])
+        [{'name': 'DB_PASSWORD', 'value': '[REDACTED_BY_KDM]'}]
+
         >>> redact_sensitive_data("plain string")
         'plain string'
     """
+    if not isinstance(data, (dict, list)):
+        return data
+
     if isinstance(data, dict):
-        return _redact_dict(data)
-    if isinstance(data, list):
-        return [redact_sensitive_data(item) for item in data]
-    return data
+        root: Any = {}
+    else:
+        root = [None] * len(data)
+
+    stack = [(data, root)]
+
+    while stack:
+        src, dest = stack.pop()
+
+        if isinstance(src, dict):
+            sibling_name_sensitive = any(
+                str(k).lower() == "name" and _is_sensitive_key(str(v))
+                for k, v in src.items()
+            )
+            for key, value in src.items():
+                str_key = str(key)
+                if _is_sensitive_key(str_key) or (
+                    sibling_name_sensitive and str_key.lower() == "value"
+                ):
+                    dest[key] = REDACTED_PLACEHOLDER
+                elif isinstance(value, dict):
+                    child_dict: dict = {}
+                    dest[key] = child_dict
+                    stack.append((value, child_dict))
+                elif isinstance(value, list):
+                    child_list: list = [None] * len(value)
+                    dest[key] = child_list
+                    stack.append((value, child_list))
+                else:
+                    dest[key] = value
+
+        elif isinstance(src, list):
+            for i, item in enumerate(src):
+                if isinstance(item, dict):
+                    child_dict = {}
+                    dest[i] = child_dict
+                    stack.append((item, child_dict))
+                elif isinstance(item, list):
+                    child_list = [None] * len(item)
+                    dest[i] = child_list
+                    stack.append((item, child_list))
+                else:
+                    dest[i] = item
+
+    return root
 
 
 def _redact_dict(data: dict) -> dict:
-    """Return a new dict with sensitive values replaced.
+    """Return a new dict with sensitive values replaced using stack traversal.
 
     Args:
         data: A ``dict`` to sanitise.
@@ -96,11 +146,5 @@ def _redact_dict(data: dict) -> dict:
     Returns:
         A sanitised copy of *data*.
     """
-    result: dict = {}
-    for key, value in data.items():
-        str_key = str(key)
-        if _is_sensitive_key(str_key):
-            result[key] = REDACTED_PLACEHOLDER
-        else:
-            result[key] = redact_sensitive_data(value)
-    return result
+    return redact_sensitive_data(data)
+

@@ -8,26 +8,18 @@ Tests cover:
   - Secret masking across deeply nested dictionaries and lists.
   - PERMISSION_DENIED and TIMEOUT status handling.
   - AnalysisContext and AnalysisMetadata round-trips.
+  - Target consistency invariant between AnalysisContext and EvidenceBundle.
 """
 
 from __future__ import annotations
 
 import json
-import sys
-import os
-
-# ---------------------------------------------------------------------------
-# Make sure ``agents/`` is on the path so imports work when tests are run from
-# the repository root *or* from the agents/ directory directly.
-# ---------------------------------------------------------------------------
-_AGENTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if _AGENTS_DIR not in sys.path:
-    sys.path.insert(0, _AGENTS_DIR)
+import re
 
 import pytest
 
-from core.evidence import CollectionStatus, EvidenceBundle, EvidenceItem, Target
 from core.context import AnalysisContext, AnalysisMetadata
+from core.evidence import CollectionStatus, EvidenceBundle, EvidenceItem, Target
 from core.sanitizer import REDACTED_PLACEHOLDER, redact_sensitive_data
 
 
@@ -38,6 +30,7 @@ from core.sanitizer import REDACTED_PLACEHOLDER, redact_sensitive_data
 
 @pytest.fixture()
 def sample_target() -> Target:
+    """Provide a standard sample Target instance for tests."""
     return Target(
         workload_kind="Deployment",
         workload_name="checkout-api",
@@ -48,14 +41,15 @@ def sample_target() -> Target:
 
 @pytest.fixture()
 def empty_bundle(sample_target: Target) -> EvidenceBundle:
+    """Provide an empty EvidenceBundle targeting sample_target."""
     return EvidenceBundle(target=sample_target, collected_at="2026-09-11T12:00:00Z")
 
 
 @pytest.fixture()
 def populated_bundle(empty_bundle: EvidenceBundle) -> EvidenceBundle:
-    """Bundle pre-loaded with a container-status and an events item."""
+    """Provide an EvidenceBundle pre-loaded with status and event items."""
     empty_bundle.add(
-        EvidenceItem.create(
+        EvidenceItem(
             id="ev.pod.container.status",
             source="kubernetes_api",
             status=CollectionStatus.AVAILABLE,
@@ -67,7 +61,7 @@ def populated_bundle(empty_bundle: EvidenceBundle) -> EvidenceBundle:
         )
     )
     empty_bundle.add(
-        EvidenceItem.create(
+        EvidenceItem(
             id="ev.pod.events",
             source="kubernetes_api",
             status=CollectionStatus.AVAILABLE,
@@ -86,6 +80,7 @@ def populated_bundle(empty_bundle: EvidenceBundle) -> EvidenceBundle:
 
 @pytest.fixture()
 def sample_metadata() -> AnalysisMetadata:
+    """Provide a standard AnalysisMetadata fixture."""
     return AnalysisMetadata.create(
         cli_version="4.0.0",
         backend="ollama",
@@ -100,17 +95,21 @@ def sample_metadata() -> AnalysisMetadata:
 
 
 class TestCollectionStatus:
+    """Test suite for the CollectionStatus enumeration."""
+
     def test_values_are_strings(self) -> None:
-        """CollectionStatus members must be plain strings for JSON compat."""
+        """Verify CollectionStatus members inherit from str for JSON serialisation."""
         assert isinstance(CollectionStatus.AVAILABLE, str)
         assert CollectionStatus.AVAILABLE == "available"
 
     def test_all_statuses_exist(self) -> None:
+        """Verify all mandatory collection status codes exist."""
         expected = {"available", "unavailable", "permission_denied", "timeout", "not_found"}
         actual = {s.value for s in CollectionStatus}
         assert actual == expected
 
     def test_reconstruct_from_string(self) -> None:
+        """Verify CollectionStatus can be instantiated from its raw string value."""
         assert CollectionStatus("permission_denied") is CollectionStatus.PERMISSION_DENIED
 
 
@@ -120,16 +119,21 @@ class TestCollectionStatus:
 
 
 class TestTarget:
+    """Test suite for the Target dataclass."""
+
     def test_round_trip(self, sample_target: Target) -> None:
+        """Verify Target dictionary serialization and deserialization round-trip."""
         assert Target.from_dict(sample_target.to_dict()) == sample_target
 
     def test_optional_fields_omitted(self) -> None:
+        """Verify optional container_name and cluster_context are omitted when None."""
         t = Target(workload_kind="Job", workload_name="batch-job", namespace="default")
         d = t.to_dict()
         assert "container_name" not in d
         assert "cluster_context" not in d
 
     def test_optional_fields_present(self) -> None:
+        """Verify optional container_name and cluster_context are included when set."""
         t = Target(
             workload_kind="StatefulSet",
             workload_name="db",
@@ -142,6 +146,7 @@ class TestTarget:
         assert d["cluster_context"] == "prod-east"
 
     def test_frozen(self, sample_target: Target) -> None:
+        """Verify Target fields cannot be mutated after construction."""
         with pytest.raises((AttributeError, TypeError)):
             sample_target.workload_name = "mutated"  # type: ignore[misc]
 
@@ -152,19 +157,22 @@ class TestTarget:
 
 
 class TestEvidenceItem:
-    def test_create_fills_timestamp(self) -> None:
-        item = EvidenceItem.create(
+    """Test suite for the EvidenceItem dataclass."""
+
+    def test_default_factory_fills_timestamp(self) -> None:
+        """Verify EvidenceItem automatically generates an ISO UTC timestamp by default."""
+        item = EvidenceItem(
             id="ev.pod.container.status",
             source="kubernetes_api",
             status=CollectionStatus.AVAILABLE,
             data={"restartCount": 1},
         )
-        # Timestamp must look like an ISO string
         assert "T" in item.timestamp and "Z" in item.timestamp
 
     def test_explicit_timestamp_preserved(self) -> None:
+        """Verify passing an explicit timestamp overrides the default factory."""
         ts = "2026-01-01T00:00:00Z"
-        item = EvidenceItem.create(
+        item = EvidenceItem(
             id="ev.pod.events",
             source="kubernetes_api",
             status=CollectionStatus.AVAILABLE,
@@ -173,7 +181,8 @@ class TestEvidenceItem:
         assert item.timestamp == ts
 
     def test_round_trip_available(self) -> None:
-        item = EvidenceItem.create(
+        """Verify EvidenceItem with AVAILABLE status serializes and deserializes cleanly."""
+        item = EvidenceItem(
             id="ev.node.pressure",
             source="kubernetes_api",
             status=CollectionStatus.AVAILABLE,
@@ -188,7 +197,8 @@ class TestEvidenceItem:
         assert reconstructed.timestamp == item.timestamp
 
     def test_round_trip_permission_denied(self) -> None:
-        item = EvidenceItem.create(
+        """Verify EvidenceItem with PERMISSION_DENIED serializes error_message."""
+        item = EvidenceItem(
             id="ev.secret.env",
             source="kubernetes_api",
             status=CollectionStatus.PERMISSION_DENIED,
@@ -198,7 +208,7 @@ class TestEvidenceItem:
         d = item.to_dict()
         assert d["status"] == "permission_denied"
         assert d["error_message"] == "secrets is forbidden: User cannot get resource"
-        assert "data" not in d  # absent when None
+        assert "data" not in d
 
         r = EvidenceItem.from_dict(d)
         assert r.status == CollectionStatus.PERMISSION_DENIED
@@ -206,7 +216,8 @@ class TestEvidenceItem:
         assert r.error_message == item.error_message
 
     def test_round_trip_timeout(self) -> None:
-        item = EvidenceItem.create(
+        """Verify EvidenceItem with TIMEOUT status preserves error_message."""
+        item = EvidenceItem(
             id="ev.pod.logs",
             source="kubernetes_api",
             status=CollectionStatus.TIMEOUT,
@@ -218,7 +229,8 @@ class TestEvidenceItem:
         assert r.error_message == "timed out after 5s"
 
     def test_to_dict_excludes_none_error_message(self) -> None:
-        item = EvidenceItem.create(
+        """Verify to_dict does not serialize error_message when it is None."""
+        item = EvidenceItem(
             id="ev.pod.container.status",
             source="kubernetes_api",
             status=CollectionStatus.AVAILABLE,
@@ -234,8 +246,11 @@ class TestEvidenceItem:
 
 
 class TestEvidenceBundle:
+    """Test suite for the EvidenceBundle collection dataclass."""
+
     def test_add_and_get(self, empty_bundle: EvidenceBundle) -> None:
-        item = EvidenceItem.create(
+        """Verify adding an EvidenceItem allows retrieval by its id."""
+        item = EvidenceItem(
             id="ev.pod.container.status",
             source="kubernetes_api",
             status=CollectionStatus.AVAILABLE,
@@ -249,12 +264,14 @@ class TestEvidenceBundle:
         assert retrieved.data["restartCount"] == 2
 
     def test_get_returns_none_for_missing(self, empty_bundle: EvidenceBundle) -> None:
+        """Verify get returns None when an evidence ID is not found."""
         assert empty_bundle.get("ev.does.not.exist") is None
 
     def test_has(self, empty_bundle: EvidenceBundle) -> None:
+        """Verify has returns True only when an evidence ID exists."""
         assert not empty_bundle.has("ev.pod.container.status")
         empty_bundle.add(
-            EvidenceItem.create(
+            EvidenceItem(
                 id="ev.pod.container.status",
                 source="kubernetes_api",
                 status=CollectionStatus.AVAILABLE,
@@ -264,15 +281,15 @@ class TestEvidenceBundle:
         assert empty_bundle.has("ev.pod.container.status")
 
     def test_overwrite_on_duplicate_id(self, empty_bundle: EvidenceBundle) -> None:
-        """Adding an item with an existing id should overwrite the previous one."""
-        item_v1 = EvidenceItem.create(
+        """Verify adding an item with an existing ID overwrites the previous item."""
+        item_v1 = EvidenceItem(
             id="ev.pod.container.status",
             source="kubernetes_api",
             status=CollectionStatus.AVAILABLE,
             data={"restartCount": 1},
             timestamp="2026-09-11T12:00:00Z",
         )
-        item_v2 = EvidenceItem.create(
+        item_v2 = EvidenceItem(
             id="ev.pod.container.status",
             source="kubernetes_api",
             status=CollectionStatus.AVAILABLE,
@@ -281,12 +298,14 @@ class TestEvidenceBundle:
         )
         empty_bundle.add(item_v1)
         empty_bundle.add(item_v2)
-        assert empty_bundle.get("ev.pod.container.status").data["restartCount"] == 5
+        retrieved = empty_bundle.get("ev.pod.container.status")
+        assert retrieved is not None
+        assert retrieved.data["restartCount"] == 5
 
     def test_available_ids(self, populated_bundle: EvidenceBundle) -> None:
-        # Add one unavailable item
+        """Verify available_ids filters for items with AVAILABLE status."""
         populated_bundle.add(
-            EvidenceItem.create(
+            EvidenceItem(
                 id="ev.pod.logs",
                 source="kubernetes_api",
                 status=CollectionStatus.UNAVAILABLE,
@@ -299,8 +318,9 @@ class TestEvidenceBundle:
         assert "ev.pod.logs" not in available
 
     def test_failed_ids(self, empty_bundle: EvidenceBundle) -> None:
+        """Verify failed_ids returns items whose status is not AVAILABLE."""
         empty_bundle.add(
-            EvidenceItem.create(
+            EvidenceItem(
                 id="ev.secret.env",
                 source="kubernetes_api",
                 status=CollectionStatus.PERMISSION_DENIED,
@@ -308,7 +328,7 @@ class TestEvidenceBundle:
             )
         )
         empty_bundle.add(
-            EvidenceItem.create(
+            EvidenceItem(
                 id="ev.pod.logs",
                 source="kubernetes_api",
                 status=CollectionStatus.TIMEOUT,
@@ -319,16 +339,14 @@ class TestEvidenceBundle:
         assert "ev.secret.env" in failed
         assert "ev.pod.logs" in failed
 
-    # -----------------------------------------------------------------------
-    # JSON round-trip
-    # -----------------------------------------------------------------------
-
     def test_to_dict_is_json_serialisable(self, populated_bundle: EvidenceBundle) -> None:
+        """Verify EvidenceBundle.to_dict() output is valid JSON."""
         d = populated_bundle.to_dict()
         serialised = json.dumps(d)
         assert isinstance(serialised, str)
 
     def test_round_trip_preserves_all_items(self, populated_bundle: EvidenceBundle) -> None:
+        """Verify round-trip from_dict preserves all nested evidence items."""
         original_dict = populated_bundle.to_dict()
         restored = EvidenceBundle.from_dict(original_dict)
 
@@ -343,8 +361,9 @@ class TestEvidenceBundle:
             assert restored_item.data == original_item.data
 
     def test_round_trip_with_failed_status(self, empty_bundle: EvidenceBundle) -> None:
+        """Verify round-trip properly restores items with non-available statuses."""
         empty_bundle.add(
-            EvidenceItem.create(
+            EvidenceItem(
                 id="ev.secret.env",
                 source="kubernetes_api",
                 status=CollectionStatus.PERMISSION_DENIED,
@@ -360,13 +379,22 @@ class TestEvidenceBundle:
         assert item.data is None
 
     def test_to_dict_structure(self, populated_bundle: EvidenceBundle) -> None:
-        """Verify the canonical top-level dict schema."""
+        """Verify the canonical top-level dict schema of EvidenceBundle."""
         d = populated_bundle.to_dict()
         assert "target" in d
         assert "collected_at" in d
         assert "items" in d
         assert "ev.pod.container.status" in d["items"]
         assert "ev.pod.events" in d["items"]
+
+    def test_from_dict_missing_collected_at_raises_key_error(self, sample_target: Target) -> None:
+        """Verify EvidenceBundle.from_dict raises KeyError when collected_at is absent."""
+        invalid_data = {
+            "target": sample_target.to_dict(),
+            "items": {},
+        }
+        with pytest.raises(KeyError):
+            EvidenceBundle.from_dict(invalid_data)
 
 
 # ===========================================================================
@@ -375,44 +403,68 @@ class TestEvidenceBundle:
 
 
 class TestSanitizer:
+    """Test suite for credential redaction sanitizer."""
+
     def test_password_key_redacted(self) -> None:
+        """Verify password key is redacted."""
         assert redact_sensitive_data({"password": "s3cr3t"}) == {"password": REDACTED_PLACEHOLDER}
 
     def test_token_key_redacted(self) -> None:
+        """Verify token key is redacted."""
         assert redact_sensitive_data({"api_token": "abc"}) == {"api_token": REDACTED_PLACEHOLDER}
 
     def test_auth_key_redacted(self) -> None:
+        """Verify authorization key is redacted."""
         assert redact_sensitive_data({"Authorization": "Bearer xyz"}) == {
             "Authorization": REDACTED_PLACEHOLDER
         }
 
     def test_case_insensitive(self) -> None:
+        """Verify sensitive key matching is case-insensitive."""
         cases = {"PASSWORD": "a", "Secret": "b", "API_KEY": "c", "Token": "d"}
         result = redact_sensitive_data(cases)
         for k in cases:
             assert result[k] == REDACTED_PLACEHOLDER
 
     def test_safe_key_preserved(self) -> None:
+        """Verify non-sensitive keys preserve their values intact."""
         assert redact_sensitive_data({"restartCount": 4}) == {"restartCount": 4}
 
     def test_nested_dict(self) -> None:
+        """Verify redaction works correctly in nested dictionaries."""
         data = {"outer": {"DB_PASSWORD": "secret", "safe_field": "ok"}}
         result = redact_sensitive_data(data)
         assert result["outer"]["DB_PASSWORD"] == REDACTED_PLACEHOLDER
         assert result["outer"]["safe_field"] == "ok"
 
     def test_deeply_nested(self) -> None:
+        """Verify redaction works across multiple levels of dictionary nesting."""
         data = {"level1": {"level2": {"level3": {"api_key": "deep_secret"}}}}
         result = redact_sensitive_data(data)
         assert result["level1"]["level2"]["level3"]["api_key"] == REDACTED_PLACEHOLDER
 
+    def test_arbitrarily_deep_nesting_no_recursion_error(self) -> None:
+        """Verify stack-based traversal handles deep nesting without RecursionError."""
+        depth = 2000
+        cur: dict = {"api_key": "secret_leaf"}
+        for _ in range(depth):
+            cur = {"child": cur}
+        result = redact_sensitive_data(cur)
+        # Walk down to the leaf to verify redaction
+        target_node = result
+        for _ in range(depth):
+            target_node = target_node["child"]
+        assert target_node["api_key"] == REDACTED_PLACEHOLDER
+
     def test_list_of_dicts(self) -> None:
+        """Verify redaction applies inside lists of dictionaries."""
         data = [{"token": "abc"}, {"safe": "value"}]
         result = redact_sensitive_data(data)
         assert result[0]["token"] == REDACTED_PLACEHOLDER
         assert result[1]["safe"] == "value"
 
     def test_mixed_nested_structure(self) -> None:
+        """Verify envVars sibling name matching and credentials redaction."""
         data = {
             "envVars": [
                 {"name": "DB_HOST", "value": "localhost"},
@@ -421,33 +473,33 @@ class TestSanitizer:
             "credentials": {"cert": "PEM...", "endpoint": "https://example.com"},
         }
         result = redact_sensitive_data(data)
-        # "envVars" key is not sensitive — list items are walked recursively.
-        # "name" and "value" keys are not sensitive, so values are preserved as-is.
         assert result["envVars"][0]["value"] == "localhost"
-        assert result["envVars"][1]["value"] == "supersecret"  # value key is safe; name key is safe
-        # "credentials" key matches the sensitive pattern => entire value redacted.
+        assert result["envVars"][1]["value"] == REDACTED_PLACEHOLDER
         assert result["credentials"] == REDACTED_PLACEHOLDER
 
     def test_scalar_passthrough(self) -> None:
+        """Verify primitive scalar values are returned unmodified."""
         assert redact_sensitive_data("plain string") == "plain string"
         assert redact_sensitive_data(42) == 42
         assert redact_sensitive_data(None) is None
 
     def test_original_not_mutated(self) -> None:
+        """Verify original data structure is not mutated during redaction."""
         original = {"password": "secret", "safe": "data"}
         redact_sensitive_data(original)
-        assert original["password"] == "secret"  # original unchanged
+        assert original["password"] == "secret"
 
     def test_cert_key_redacted(self) -> None:
+        """Verify certificate keys are recognized as sensitive."""
         assert redact_sensitive_data({"tls_cert": "PEM_DATA"}) == {
             "tls_cert": REDACTED_PLACEHOLDER
         }
 
     def test_secret_in_evidence_item(self) -> None:
-        """Demonstrate integration: sanitise before storing in EvidenceItem."""
+        """Verify integration of redaction before creating an EvidenceItem."""
         raw_env = {"DB_HOST": "db.svc", "DB_PASSWORD": "hunter2"}
         safe_env = redact_sensitive_data(raw_env)
-        item = EvidenceItem.create(
+        item = EvidenceItem(
             id="ev.secret.env",
             source="kubernetes_api",
             status=CollectionStatus.AVAILABLE,
@@ -464,7 +516,10 @@ class TestSanitizer:
 
 
 class TestAnalysisMetadata:
+    """Test suite for AnalysisMetadata."""
+
     def test_round_trip(self, sample_metadata: AnalysisMetadata) -> None:
+        """Verify AnalysisMetadata dictionary round-trip."""
         restored = AnalysisMetadata.from_dict(sample_metadata.to_dict())
         assert restored.cli_version == sample_metadata.cli_version
         assert restored.backend == sample_metadata.backend
@@ -472,6 +527,7 @@ class TestAnalysisMetadata:
         assert restored.started_at == sample_metadata.started_at
 
     def test_create_fills_timestamp(self) -> None:
+        """Verify AnalysisMetadata.create auto-fills started_at timestamp."""
         m = AnalysisMetadata.create(cli_version="4.0.0", backend="ollama", model="llama3.1")
         assert "T" in m.started_at and "Z" in m.started_at
 
@@ -482,18 +538,20 @@ class TestAnalysisMetadata:
 
 
 class TestAnalysisContext:
+    """Test suite for AnalysisContext."""
+
     def test_create_generates_uuid(
         self,
         sample_target: Target,
         populated_bundle: EvidenceBundle,
         sample_metadata: AnalysisMetadata,
     ) -> None:
+        """Verify AnalysisContext.create generates a valid UUID for analysis_id."""
         ctx = AnalysisContext.create(
             target=sample_target,
             evidence=populated_bundle,
             metadata=sample_metadata,
         )
-        import re
         uuid_pattern = re.compile(
             r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
         )
@@ -505,6 +563,7 @@ class TestAnalysisContext:
         populated_bundle: EvidenceBundle,
         sample_metadata: AnalysisMetadata,
     ) -> None:
+        """Verify AnalysisContext.create respects explicitly provided analysis_id."""
         explicit_id = "test-run-001"
         ctx = AnalysisContext.create(
             target=sample_target,
@@ -520,6 +579,7 @@ class TestAnalysisContext:
         populated_bundle: EvidenceBundle,
         sample_metadata: AnalysisMetadata,
     ) -> None:
+        """Verify AnalysisContext round-trip serialization and deserialization."""
         ctx = AnalysisContext.create(
             target=sample_target,
             evidence=populated_bundle,
@@ -538,6 +598,7 @@ class TestAnalysisContext:
         populated_bundle: EvidenceBundle,
         sample_metadata: AnalysisMetadata,
     ) -> None:
+        """Verify AnalysisContext.to_dict() output is valid JSON."""
         ctx = AnalysisContext.create(
             target=sample_target,
             evidence=populated_bundle,
@@ -545,3 +606,60 @@ class TestAnalysisContext:
         )
         serialised = json.dumps(ctx.to_dict())
         assert isinstance(serialised, str)
+
+    def test_target_mismatch_raises_value_error_direct(
+        self,
+        populated_bundle: EvidenceBundle,
+        sample_metadata: AnalysisMetadata,
+    ) -> None:
+        """Verify AnalysisContext direct init rejects target differing from evidence.target."""
+        different_target = Target(
+            workload_kind="Deployment",
+            workload_name="other-api",
+            namespace="production",
+        )
+        with pytest.raises(ValueError, match="AnalysisContext.target must match evidence.target"):
+            AnalysisContext(
+                analysis_id="mismatch-test",
+                target=different_target,
+                evidence=populated_bundle,
+                metadata=sample_metadata,
+            )
+
+    def test_target_mismatch_raises_value_error_create(
+        self,
+        populated_bundle: EvidenceBundle,
+        sample_metadata: AnalysisMetadata,
+    ) -> None:
+        """Verify AnalysisContext.create rejects target differing from evidence.target."""
+        different_target = Target(
+            workload_kind="Deployment",
+            workload_name="other-api",
+            namespace="production",
+        )
+        with pytest.raises(ValueError, match="AnalysisContext.target must match evidence.target"):
+            AnalysisContext.create(
+                target=different_target,
+                evidence=populated_bundle,
+                metadata=sample_metadata,
+            )
+
+    def test_target_mismatch_raises_value_error_from_dict(
+        self,
+        populated_bundle: EvidenceBundle,
+        sample_metadata: AnalysisMetadata,
+    ) -> None:
+        """Verify AnalysisContext.from_dict rejects payload with mismatched targets."""
+        different_target = Target(
+            workload_kind="Deployment",
+            workload_name="other-api",
+            namespace="production",
+        )
+        payload = {
+            "analysis_id": "mismatch-dict-test",
+            "target": different_target.to_dict(),
+            "evidence": populated_bundle.to_dict(),
+            "metadata": sample_metadata.to_dict(),
+        }
+        with pytest.raises(ValueError, match="AnalysisContext.target must match evidence.target"):
+            AnalysisContext.from_dict(payload)

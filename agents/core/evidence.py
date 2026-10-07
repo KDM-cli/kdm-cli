@@ -107,7 +107,9 @@ class EvidenceItem:
     status: CollectionStatus
     """Outcome of the collection attempt."""
 
-    timestamp: str
+    timestamp: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    )
     """ISO 8601 UTC timestamp of when the evidence was collected."""
 
     data: Any = None
@@ -115,27 +117,6 @@ class EvidenceItem:
 
     error_message: Optional[str] = None
     """Human-readable description of the failure, populated when ``status != AVAILABLE``."""
-
-    @classmethod
-    def create(
-        cls,
-        id: str,
-        source: str,
-        status: CollectionStatus,
-        data: Any = None,
-        error_message: Optional[str] = None,
-        timestamp: Optional[str] = None,
-    ) -> "EvidenceItem":
-        """Convenience factory that auto-fills an ISO UTC timestamp."""
-        ts = timestamp or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        return cls(
-            id=id,
-            source=source,
-            status=status,
-            timestamp=ts,
-            data=data,
-            error_message=error_message,
-        )
 
     def to_dict(self) -> Dict[str, Any]:
         """Return a plain-dict representation suitable for JSON serialisation."""
@@ -271,7 +252,7 @@ class EvidenceBundle:
         """
         bundle = cls(
             target=Target.from_dict(data["target"]),
-            collected_at=data.get("collected_at", ""),
+            collected_at=data["collected_at"],
         )
         for item_data in data.get("items", {}).values():
             bundle.add(EvidenceItem.from_dict(item_data))
