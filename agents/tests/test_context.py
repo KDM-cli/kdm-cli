@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+from typing import Any, Callable
 
 import pytest
 
@@ -159,59 +160,34 @@ class TestAnalysisContext:
         serialised = json.dumps(ctx.to_dict())
         assert isinstance(serialised, str)
 
-    def test_target_mismatch_raises_value_error_direct(
+    @pytest.mark.parametrize(
+        "factory",
+        [
+            lambda t, b, m: AnalysisContext(
+                analysis_id="mismatch-test", target=t, evidence=b, metadata=m
+            ),
+            lambda t, b, m: AnalysisContext.create(target=t, evidence=b, metadata=m),
+            lambda t, b, m: AnalysisContext.from_dict(
+                {
+                    "analysis_id": "mismatch-dict-test",
+                    "target": t.to_dict(),
+                    "evidence": b.to_dict(),
+                    "metadata": m.to_dict(),
+                }
+            ),
+        ],
+    )
+    def test_target_mismatch_raises_value_error(
         self,
+        factory: Callable[[Target, EvidenceBundle, AnalysisMetadata], Any],
         sample_bundle: EvidenceBundle,
         sample_metadata: AnalysisMetadata,
     ) -> None:
-        """Verify AnalysisContext direct init rejects target differing from evidence.target."""
+        """Verify direct init, create, and from_dict reject target mismatch."""
         different_target = Target(
             workload_kind="Deployment",
             workload_name="other-api",
             namespace="production",
         )
         with pytest.raises(ValueError, match="AnalysisContext.target must match evidence.target"):
-            AnalysisContext(
-                analysis_id="mismatch-test",
-                target=different_target,
-                evidence=sample_bundle,
-                metadata=sample_metadata,
-            )
-
-    def test_target_mismatch_raises_value_error_create(
-        self,
-        sample_bundle: EvidenceBundle,
-        sample_metadata: AnalysisMetadata,
-    ) -> None:
-        """Verify AnalysisContext.create rejects target differing from evidence.target."""
-        different_target = Target(
-            workload_kind="Deployment",
-            workload_name="other-api",
-            namespace="production",
-        )
-        with pytest.raises(ValueError, match="AnalysisContext.target must match evidence.target"):
-            AnalysisContext.create(
-                target=different_target,
-                evidence=sample_bundle,
-                metadata=sample_metadata,
-            )
-
-    def test_target_mismatch_raises_value_error_from_dict(
-        self,
-        sample_bundle: EvidenceBundle,
-        sample_metadata: AnalysisMetadata,
-    ) -> None:
-        """Verify AnalysisContext.from_dict rejects payload with mismatched targets."""
-        different_target = Target(
-            workload_kind="Deployment",
-            workload_name="other-api",
-            namespace="production",
-        )
-        payload = {
-            "analysis_id": "mismatch-dict-test",
-            "target": different_target.to_dict(),
-            "evidence": sample_bundle.to_dict(),
-            "metadata": sample_metadata.to_dict(),
-        }
-        with pytest.raises(ValueError, match="AnalysisContext.target must match evidence.target"):
-            AnalysisContext.from_dict(payload)
+            factory(different_target, sample_bundle, sample_metadata)
