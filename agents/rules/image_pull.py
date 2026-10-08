@@ -52,10 +52,10 @@ class ImagePullRule(BaseRule):
     @staticmethod
     def _get_status_data(bundle: Optional[EvidenceBundle]) -> Optional[Any]:
         """Extract valid container status data from the bundle."""
-        if not bundle or not hasattr(bundle, "get"):
+        if bundle is None or not hasattr(bundle, "get"):
             return None
         item = bundle.get("ev.pod.container.status")
-        if not item or item.status != CollectionStatus.AVAILABLE:
+        if item is None or item.status != CollectionStatus.AVAILABLE:
             return None
         return item.data
 
@@ -92,19 +92,29 @@ class ImagePullRule(BaseRule):
     ) -> Optional[Tuple[Optional[str], str, Optional[str]]]:
         """Extract image pull failure facts safely respecting target container identity."""
         containers = self._extract_container_list(data)
-
         if target_container:
-            target = self._find_target_container(containers, target_container)
-            if target is not None:
-                return self._evaluate_container(target)
-            if any(c.get("name") == target_container for c in containers):
-                return None
+            return self._detect_for_target(containers, target_container)
+        return self._scan_containers(containers)
 
+    def _detect_for_target(
+        self, containers: List[Dict[str, Any]], target_container: str
+    ) -> Optional[Tuple[Optional[str], str, Optional[str]]]:
+        """Evaluate target container when target is specified."""
+        target = self._find_target_container(containers, target_container)
+        if target is not None:
+            return self._evaluate_container(target)
+        if self._has_named_container(containers, target_container):
+            return None
+        return self._scan_containers(containers)
+
+    def _scan_containers(
+        self, containers: List[Dict[str, Any]]
+    ) -> Optional[Tuple[Optional[str], str, Optional[str]]]:
+        """Scan container list sequentially for image pull failures."""
         for container_dict in containers:
             match = self._evaluate_container(container_dict)
             if match:
                 return match
-
         return None
 
     def _evaluate_container(
@@ -113,16 +123,21 @@ class ImagePullRule(BaseRule):
         """Evaluate a single container status dictionary for image pull failure."""
         if not isinstance(container_dict, dict):
             return None
-
         waiting = self._extract_waiting_state(container_dict)
         if not waiting:
             return None
-
         reason = waiting.get("reason")
         if reason in _IMAGE_PULL_REASONS:
             return (container_dict.get("name"), reason, waiting.get("message"))
-
         return None
+
+    @staticmethod
+    def _has_named_container(containers: List[Dict[str, Any]], target_name: str) -> bool:
+        """Check whether any container in the list matches target_name."""
+        for c in containers:
+            if isinstance(c, dict) and c.get("name") == target_name:
+                return True
+        return False
 
     @staticmethod
     def _find_target_container(
@@ -140,8 +155,9 @@ class ImagePullRule(BaseRule):
         if isinstance(data, list):
             return [c for c in data if isinstance(c, dict)]
         if isinstance(data, dict):
-            if "containerStatuses" in data and isinstance(data["containerStatuses"], list):
-                return [c for c in data["containerStatuses"] if isinstance(c, dict)]
+            statuses = data.get("containerStatuses")
+            if isinstance(statuses, list):
+                return [c for c in statuses if isinstance(c, dict)]
             return [data]
         return []
 

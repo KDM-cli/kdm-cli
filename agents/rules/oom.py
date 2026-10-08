@@ -49,10 +49,10 @@ class OOMKilledRule(BaseRule):
     @staticmethod
     def _get_status_data(bundle: Optional[EvidenceBundle]) -> Optional[Any]:
         """Extract valid container status data from the bundle."""
-        if not bundle or not hasattr(bundle, "get"):
+        if bundle is None or not hasattr(bundle, "get"):
             return None
         item = bundle.get("ev.pod.container.status")
-        if not item or item.status != CollectionStatus.AVAILABLE:
+        if item is None or item.status != CollectionStatus.AVAILABLE:
             return None
         return item.data
 
@@ -89,19 +89,29 @@ class OOMKilledRule(BaseRule):
     ) -> Optional[Tuple[Optional[str], Optional[int], Optional[str], float]]:
         """Extract OOM facts safely respecting target container identity."""
         containers = self._extract_container_list(data)
-
         if target_container:
-            target = self._find_target_container(containers, target_container)
-            if target is not None:
-                return self._evaluate_container(target)
-            if any(c.get("name") == target_container for c in containers):
-                return None
+            return self._detect_for_target(containers, target_container)
+        return self._scan_containers(containers)
 
+    def _detect_for_target(
+        self, containers: List[Dict[str, Any]], target_container: str
+    ) -> Optional[Tuple[Optional[str], Optional[int], Optional[str], float]]:
+        """Evaluate target container when target is specified."""
+        target = self._find_target_container(containers, target_container)
+        if target is not None:
+            return self._evaluate_container(target)
+        if self._has_named_container(containers, target_container):
+            return None
+        return self._scan_containers(containers)
+
+    def _scan_containers(
+        self, containers: List[Dict[str, Any]]
+    ) -> Optional[Tuple[Optional[str], Optional[int], Optional[str], float]]:
+        """Scan container list sequentially for OOM signatures."""
         for container_dict in containers:
             match = self._evaluate_container(container_dict)
             if match:
                 return match
-
         return None
 
     def _evaluate_container(
@@ -110,23 +120,32 @@ class OOMKilledRule(BaseRule):
         """Evaluate a single container status dictionary for OOM signatures."""
         if not isinstance(container_dict, dict):
             return None
-
         terminated = self._extract_terminated_state(container_dict)
         if not terminated:
             return None
+        return self._check_oom_signature(container_dict.get("name"), terminated)
 
+    @staticmethod
+    def _check_oom_signature(
+        name: Optional[str], terminated: Dict[str, Any]
+    ) -> Optional[Tuple[Optional[str], Optional[int], Optional[str], float]]:
+        """Check terminated dict for OOMKilled reason or exit code 137."""
         reason = terminated.get("reason")
         exit_code = terminated.get("exitCode", terminated.get("exit_code"))
-        name = container_dict.get("name")
-
         if reason == "OOMKilled":
             code = 137 if str(exit_code) == "137" else exit_code
             return (name, code, reason, 1.0)
-
         if exit_code == 137 or str(exit_code) == "137":
             return (name, 137, reason, 0.8)
-
         return None
+
+    @staticmethod
+    def _has_named_container(containers: List[Dict[str, Any]], target_name: str) -> bool:
+        """Check whether any container in the list matches target_name."""
+        for c in containers:
+            if isinstance(c, dict) and c.get("name") == target_name:
+                return True
+        return False
 
     @staticmethod
     def _find_target_container(
@@ -144,8 +163,9 @@ class OOMKilledRule(BaseRule):
         if isinstance(data, list):
             return [c for c in data if isinstance(c, dict)]
         if isinstance(data, dict):
-            if "containerStatuses" in data and isinstance(data["containerStatuses"], list):
-                return [c for c in data["containerStatuses"] if isinstance(c, dict)]
+            statuses = data.get("containerStatuses")
+            if isinstance(statuses, list):
+                return [c for c in statuses if isinstance(c, dict)]
             return [data]
         return []
 

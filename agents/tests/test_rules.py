@@ -285,6 +285,30 @@ class TestKubernetesRules(unittest.TestCase):
                 False,
             ),
             (
+                "missing_exit_code",
+                {
+                    "state": {"waiting": {"reason": "CrashLoopBackOff"}},
+                    "lastState": {"terminated": {}},
+                },
+                False,
+            ),
+            (
+                "unparseable_exit_code",
+                {
+                    "state": {"waiting": {"reason": "CrashLoopBackOff"}},
+                    "lastState": {"terminated": {"exitCode": "invalid"}},
+                },
+                False,
+            ),
+            (
+                "negative_exit_code",
+                {
+                    "state": {"waiting": {"reason": "CrashLoopBackOff"}},
+                    "lastState": {"terminated": {"exitCode": -1}},
+                },
+                False,
+            ),
+            (
                 "pod_initializing",
                 {
                     "state": {"waiting": {"reason": "PodInitializing"}},

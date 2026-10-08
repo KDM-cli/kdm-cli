@@ -52,10 +52,10 @@ class SchedulingRule(BaseRule):
     @staticmethod
     def _get_events_data(bundle: Optional[EvidenceBundle]) -> Optional[Any]:
         """Extract valid events data from the bundle."""
-        if not bundle or not hasattr(bundle, "get"):
+        if bundle is None or not hasattr(bundle, "get"):
             return None
         events_item = bundle.get("ev.pod.events")
-        if not events_item or events_item.status != CollectionStatus.AVAILABLE:
+        if events_item is None or events_item.status != CollectionStatus.AVAILABLE:
             return None
         return events_item.data
 
@@ -92,37 +92,67 @@ class SchedulingRule(BaseRule):
                     return match
         return None
 
-    @staticmethod
-    def _is_scheduling_event(event: Dict[str, Any]) -> Optional[str]:
+    @classmethod
+    def _is_scheduling_event(cls, event: Dict[str, Any]) -> Optional[str]:
         """Check if a single event represents a FailedScheduling failure."""
         reason = str(event.get("reason", ""))
         message = str(event.get("message", ""))
-
-        if reason == "FailedScheduling" or "failedscheduling" in reason.lower():
+        if cls._reason_matches(reason):
             return message or reason
-        if "failedscheduling" in message.lower():
+        if cls._message_matches(message):
             return message
-        if "0/" in message and ("nodes are available" in message or "node(s) available" in message):
-            return message
-
         return None
 
     @staticmethod
-    def _inspect_pod_phase(bundle: Optional[EvidenceBundle]) -> Tuple[Optional[str], Optional[str]]:
+    def _reason_matches(reason: str) -> bool:
+        """Check if event reason indicates scheduling failure."""
+        if reason == "FailedScheduling":
+            return True
+        return "failedscheduling" in reason.lower()
+
+    @staticmethod
+    def _message_matches(message: str) -> bool:
+        """Check if event message indicates scheduling failure."""
+        if "failedscheduling" in message.lower():
+            return True
+        if "0/" in message:
+            if "nodes are available" in message:
+                return True
+            if "node(s) available" in message:
+                return True
+        return False
+
+    @classmethod
+    def _inspect_pod_phase(cls, bundle: Optional[EvidenceBundle]) -> Tuple[Optional[str], Optional[str]]:
         """Look for pod phase strictly in ev.pod.status or ev.pod.phase."""
-        if not bundle or not hasattr(bundle, "get"):
+        if bundle is None or not hasattr(bundle, "get"):
             return (None, None)
 
         for eid in ("ev.pod.status", "ev.pod.phase"):
-            item = bundle.get(eid)
-            if not item or item.status != CollectionStatus.AVAILABLE or not item.data:
-                continue
-            if isinstance(item.data, dict) and "phase" in item.data:
-                return (str(item.data["phase"]), eid)
-            if isinstance(item.data, str):
-                return (item.data, eid)
+            phase = cls._get_phase_from_id(bundle, eid)
+            if phase is not None:
+                return (phase, eid)
 
         return (None, None)
+
+    @classmethod
+    def _get_phase_from_id(cls, bundle: EvidenceBundle, eid: str) -> Optional[str]:
+        """Retrieve the pod phase string from a specific evidence id."""
+        item = bundle.get(eid)
+        if item is None or item.status != CollectionStatus.AVAILABLE:
+            return None
+        return cls._extract_phase_string(item.data)
+
+    @staticmethod
+    def _extract_phase_string(data: Any) -> Optional[str]:
+        """Extract phase string from data payload."""
+        if isinstance(data, dict):
+            phase = data.get("phase")
+            if phase:
+                return str(phase)
+        if isinstance(data, str):
+            return data
+        return None
 
     @staticmethod
     def _extract_event_list(data: Any) -> List[Dict[str, Any]]:
@@ -130,7 +160,8 @@ class SchedulingRule(BaseRule):
         if isinstance(data, list):
             return [e for e in data if isinstance(e, dict)]
         if isinstance(data, dict):
-            if "items" in data and isinstance(data["items"], list):
-                return [e for e in data["items"] if isinstance(e, dict)]
+            items = data.get("items")
+            if isinstance(items, list):
+                return [e for e in items if isinstance(e, dict)]
             return [data]
         return []
