@@ -22,7 +22,7 @@ Usage
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, List, Tuple
 
 # ---------------------------------------------------------------------------
 # Sentinel value placed in place of redacted credentials.
@@ -49,6 +49,71 @@ def _is_sensitive_key(key: str) -> bool:
         ``True`` when the key matches the sensitive pattern.
     """
     return bool(_SENSITIVE_KEY_PATTERN.search(key))
+
+
+def _has_sensitive_sibling(mapping: dict) -> bool:
+    """Check if mapping contains a sibling 'name' key matching sensitive heuristics.
+
+    Args:
+        mapping: Dictionary representing an object or environment entry.
+
+    Returns:
+        ``True`` if sibling 'name' key matches sensitive patterns.
+    """
+    return any(
+        str(k).lower() == "name" and _is_sensitive_key(str(v))
+        for k, v in mapping.items()
+    )
+
+
+def _prepare_child(value: Any, stack: List[Tuple[Any, Any]]) -> Any:
+    """Prepare placeholder for child container and schedule on stack if compound.
+
+    Args:
+        value: Candidate child value.
+        stack: Iterative traversal stack.
+
+    Returns:
+        Initialized destination container or scalar value.
+    """
+    if isinstance(value, dict):
+        child_dict: dict = {}
+        stack.append((value, child_dict))
+        return child_dict
+    if isinstance(value, list):
+        child_list: list = [None] * len(value)
+        stack.append((value, child_list))
+        return child_list
+    return value
+
+
+def _process_dict(src: dict, dest: dict, stack: List[Tuple[Any, Any]]) -> None:
+    """Process a dictionary entry by checking sensitive keys and queuing children.
+
+    Args:
+        src: Source dictionary being inspected.
+        dest: Sanitized destination dictionary.
+        stack: Traversal stack for nested structures.
+    """
+    has_sensitive_env = _has_sensitive_sibling(src)
+    for key, val in src.items():
+        str_key = str(key)
+        if _is_sensitive_key(str_key) or (has_sensitive_env and str_key.lower() == "value"):
+            dest[key] = REDACTED_PLACEHOLDER
+        else:
+            dest[key] = _prepare_child(val, stack)
+
+
+def _process_list(src: list, dest: list, stack: List[Tuple[Any, Any]]) -> None:
+    """Process a list by queuing nested child containers.
+
+    Args:
+        src: Source list being inspected.
+        dest: Sanitized destination list.
+        stack: Traversal stack for nested structures.
+    """
+    for idx, item in enumerate(src):
+        dest[idx] = _prepare_child(item, stack)
 
 
 def redact_sensitive_data(data: Any) -> Any:
@@ -89,50 +154,15 @@ def redact_sensitive_data(data: Any) -> Any:
     if not isinstance(data, (dict, list)):
         return data
 
-    if isinstance(data, dict):
-        root: Any = {}
-    else:
-        root = [None] * len(data)
-
-    stack = [(data, root)]
+    root: Any = {} if isinstance(data, dict) else [None] * len(data)
+    stack: List[Tuple[Any, Any]] = [(data, root)]
 
     while stack:
         src, dest = stack.pop()
-
         if isinstance(src, dict):
-            sibling_name_sensitive = any(
-                str(k).lower() == "name" and _is_sensitive_key(str(v))
-                for k, v in src.items()
-            )
-            for key, value in src.items():
-                str_key = str(key)
-                if _is_sensitive_key(str_key) or (
-                    sibling_name_sensitive and str_key.lower() == "value"
-                ):
-                    dest[key] = REDACTED_PLACEHOLDER
-                elif isinstance(value, dict):
-                    child_dict: dict = {}
-                    dest[key] = child_dict
-                    stack.append((value, child_dict))
-                elif isinstance(value, list):
-                    child_list: list = [None] * len(value)
-                    dest[key] = child_list
-                    stack.append((value, child_list))
-                else:
-                    dest[key] = value
-
+            _process_dict(src, dest, stack)
         elif isinstance(src, list):
-            for i, item in enumerate(src):
-                if isinstance(item, dict):
-                    child_dict = {}
-                    dest[i] = child_dict
-                    stack.append((item, child_dict))
-                elif isinstance(item, list):
-                    child_list = [None] * len(item)
-                    dest[i] = child_list
-                    stack.append((item, child_list))
-                else:
-                    dest[i] = item
+            _process_list(src, dest, stack)
 
     return root
 
@@ -147,4 +177,3 @@ def _redact_dict(data: dict) -> dict:
         A sanitised copy of *data*.
     """
     return redact_sensitive_data(data)
-
