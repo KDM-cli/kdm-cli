@@ -115,17 +115,28 @@ class CrashLoopRule(BaseRule):
         if not isinstance(container_dict, dict):
             return None
 
-        waiting = self._extract_waiting_state(container_dict)
-        if not waiting or waiting.get("reason") != "CrashLoopBackOff":
+        if not self._is_crashloop_state(container_dict):
             return None
 
         exit_code = self._extract_exit_code(container_dict)
-        if exit_code is None or exit_code <= 0:
+        if not self._is_positive_exit_code(exit_code):
             return None
 
         restart_raw = container_dict.get("restartCount", container_dict.get("restart_count"))
         restart_count = self._parse_int(restart_raw) or 0
         return (container_dict.get("name"), restart_count, exit_code)
+
+    def _is_crashloop_state(self, container_dict: Dict[str, Any]) -> bool:
+        """Check if container waiting reason is CrashLoopBackOff."""
+        waiting = self._extract_waiting_state(container_dict)
+        if not waiting:
+            return False
+        return waiting.get("reason") == "CrashLoopBackOff"
+
+    @staticmethod
+    def _is_positive_exit_code(exit_code: Optional[int]) -> bool:
+        """Issue #275 requires exit code > 0 for CrashLoopBackOff diagnosis."""
+        return exit_code is not None and exit_code > 0
 
     @classmethod
     def _extract_exit_code(cls, container_dict: Dict[str, Any]) -> Optional[int]:

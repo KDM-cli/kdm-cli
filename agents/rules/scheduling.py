@@ -52,12 +52,12 @@ class SchedulingRule(BaseRule):
     @staticmethod
     def _get_events_data(bundle: Optional[EvidenceBundle]) -> Optional[Any]:
         """Extract valid events data from the bundle."""
-        if bundle is None or not hasattr(bundle, "get"):
+        if bundle is None:
             return None
-        events_item = bundle.get("ev.pod.events")
-        if events_item is None or events_item.status != CollectionStatus.AVAILABLE:
-            return None
-        return events_item.data
+        item = getattr(bundle, "get", lambda _: None)("ev.pod.events")
+        if item and item.status == CollectionStatus.AVAILABLE:
+            return item.data
+        return None
 
     def _build_match(
         self,
@@ -66,15 +66,10 @@ class SchedulingRule(BaseRule):
         bundle: EvidenceBundle,
     ) -> RuleMatch:
         """Construct the RuleMatch object for a verified scheduling failure."""
-        evidence_ids = ["ev.pod.events"]
-        if phase_evidence_id and phase_evidence_id not in evidence_ids:
-            evidence_ids.insert(0, phase_evidence_id)
+        evidence_ids = [phase_evidence_id, "ev.pod.events"] if phase_evidence_id else ["ev.pod.events"]
+        target = getattr(bundle, "target", None)
+        workload = getattr(target, "workload_name", None) or "pod"
 
-        workload = (
-            (bundle.target.workload_name if bundle.target else None)
-            or (bundle.target.container_name if bundle.target else None)
-            or "pod"
-        )
         return RuleMatch(
             rule_id=self.rule_id,
             title=self.title,
@@ -97,62 +92,42 @@ class SchedulingRule(BaseRule):
         """Check if a single event represents a FailedScheduling failure."""
         reason = str(event.get("reason", ""))
         message = str(event.get("message", ""))
-        if cls._reason_matches(reason):
+        if cls._is_failed_scheduling(reason):
             return message or reason
-        if cls._message_matches(message):
+        if cls._is_failed_scheduling(message):
             return message
         return None
 
     @staticmethod
-    def _reason_matches(reason: str) -> bool:
-        """Check if event reason indicates scheduling failure."""
-        if reason == "FailedScheduling":
+    def _is_failed_scheduling(text: str) -> bool:
+        """Detect scheduling failure indicator in string."""
+        t = text.lower()
+        if "failedscheduling" in t:
             return True
-        return "failedscheduling" in reason.lower()
-
-    @staticmethod
-    def _message_matches(message: str) -> bool:
-        """Check if event message indicates scheduling failure."""
-        if "failedscheduling" in message.lower():
-            return True
-        if "0/" in message:
-            if "nodes are available" in message:
-                return True
-            if "node(s) available" in message:
-                return True
+        if "0/" in text:
+            return "node" in t
         return False
 
     @classmethod
     def _inspect_pod_phase(cls, bundle: Optional[EvidenceBundle]) -> Tuple[Optional[str], Optional[str]]:
         """Look for pod phase strictly in ev.pod.status or ev.pod.phase."""
-        if bundle is None or not hasattr(bundle, "get"):
+        if not bundle:
             return (None, None)
-
         for eid in ("ev.pod.status", "ev.pod.phase"):
-            phase = cls._get_phase_from_id(bundle, eid)
-            if phase is not None:
+            phase = cls._get_phase(bundle, eid)
+            if phase:
                 return (phase, eid)
-
         return (None, None)
 
-    @classmethod
-    def _get_phase_from_id(cls, bundle: EvidenceBundle, eid: str) -> Optional[str]:
-        """Retrieve the pod phase string from a specific evidence id."""
-        item = bundle.get(eid)
-        if item is None or item.status != CollectionStatus.AVAILABLE:
-            return None
-        return cls._extract_phase_string(item.data)
-
     @staticmethod
-    def _extract_phase_string(data: Any) -> Optional[str]:
-        """Extract phase string from data payload."""
-        if isinstance(data, dict):
-            phase = data.get("phase")
-            if phase:
-                return str(phase)
-        if isinstance(data, str):
-            return data
-        return None
+    def _get_phase(bundle: EvidenceBundle, eid: str) -> Optional[str]:
+        """Extract phase string from a specific evidence item."""
+        item = getattr(bundle, "get", lambda _: None)(eid)
+        if not item:
+            return None
+        if item.status != CollectionStatus.AVAILABLE:
+            return None
+        return _extract_phase(item.data)
 
     @staticmethod
     def _extract_event_list(data: Any) -> List[Dict[str, Any]]:
@@ -160,8 +135,17 @@ class SchedulingRule(BaseRule):
         if isinstance(data, list):
             return [e for e in data if isinstance(e, dict)]
         if isinstance(data, dict):
-            items = data.get("items")
-            if isinstance(items, list):
-                return [e for e in items if isinstance(e, dict)]
-            return [data]
+            items = data.get("items", [data])
+            return [e for e in items if isinstance(e, dict)]
         return []
+
+
+def _extract_phase(data: Any) -> Optional[str]:
+    """Safely extract phase string from status payload."""
+    if isinstance(data, dict):
+        val = data.get("phase")
+        return str(val) if val else None
+    if isinstance(data, str):
+        return data
+    return None
+

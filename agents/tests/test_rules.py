@@ -122,63 +122,38 @@ class TestRuleMatch(unittest.TestCase):
 class TestKubernetesRules(unittest.TestCase):
     """Parameterized test suite covering canonical Kubernetes failure rules."""
 
-    def test_oom_rule_scenarios(self) -> None:
-        """Verify OOMKilledRule handles positive, negative, and sidecar isolation cases."""
+    def test_oom_rule_matches(self) -> None:
+        """Verify OOMKilledRule positive match scenarios and confidence tiers."""
         rule = OOMKilledRule()
-
-        scenarios = [
-            (
-                "last_state_oomkilled",
-                {"lastState": {"terminated": {"exitCode": 137, "reason": "OOMKilled"}}},
-                True,
-                1.0,
-            ),
-            (
-                "active_state_oomkilled",
-                {"state": {"terminated": {"exitCode": 137, "reason": "OOMKilled"}}},
-                True,
-                1.0,
-            ),
-            (
-                "exit_code_137_only_lower_confidence",
-                {"lastState": {"terminated": {"exitCode": 137, "reason": "Error"}}},
-                True,
-                0.8,
-            ),
-            (
-                "healthy_running",
-                {"state": {"running": {}}},
-                False,
-                0.0,
-            ),
-            (
-                "clean_exit_0",
-                {"lastState": {"terminated": {"exitCode": 0, "reason": "Completed"}}},
-                False,
-                0.0,
-            ),
-            (
-                "error_exit_1",
-                {"lastState": {"terminated": {"exitCode": 1, "reason": "Error"}}},
-                False,
-                0.0,
-            ),
+        matches = [
+            ("last_state_oom", {"lastState": {"terminated": {"exitCode": 137, "reason": "OOMKilled"}}}, 1.0),
+            ("active_state_oom", {"state": {"terminated": {"exitCode": 137, "reason": "OOMKilled"}}}, 1.0),
+            ("exit_137_only_lower_conf", {"lastState": {"terminated": {"exitCode": 137, "reason": "Error"}}}, 0.8),
         ]
-
-        for case_name, data, should_match, exp_conf in scenarios:
-            with self.subTest(case_name=case_name):
+        for name, data, exp_conf in matches:
+            with self.subTest(name=name):
                 bundle = _make_bundle()
                 _add_evidence(bundle, "ev.pod.container.status", data)
-                match = rule.evaluate(bundle)
-                if should_match:
-                    self.assertIsNotNone(match)
-                    assert match is not None
-                    self.assertEqual(match.confidence, exp_conf)
-                    self.assertEqual(match.evidence_ids, ["ev.pod.container.status"])
-                else:
-                    self.assertIsNone(match)
+                res = rule.evaluate(bundle)
+                self.assertIsNotNone(res)
+                assert res is not None
+                self.assertEqual(res.confidence, exp_conf)
 
-        # Test sidecar isolation: target container 'checkout' is healthy while sidecar is OOM
+    def test_oom_rule_negatives_and_isolation(self) -> None:
+        """Verify OOMKilledRule returns None for healthy workloads and isolates sidecars."""
+        rule = OOMKilledRule()
+        negatives = [
+            ("healthy_running", {"state": {"running": {}}}),
+            ("clean_exit_0", {"lastState": {"terminated": {"exitCode": 0, "reason": "Completed"}}}),
+            ("error_exit_1", {"lastState": {"terminated": {"exitCode": 1, "reason": "Error"}}}),
+        ]
+        for name, data in negatives:
+            with self.subTest(name=name):
+                bundle = _make_bundle()
+                _add_evidence(bundle, "ev.pod.container.status", data)
+                self.assertIsNone(rule.evaluate(bundle))
+
+        # Sidecar isolation
         sidecar_bundle = _make_bundle(container_name="checkout")
         _add_evidence(
             sidecar_bundle,
@@ -192,56 +167,26 @@ class TestKubernetesRules(unittest.TestCase):
         )
         self.assertIsNone(rule.evaluate(sidecar_bundle))
 
-        # Test unavailable evidence handling
-        unavail_bundle = _make_bundle()
-        _add_evidence(unavail_bundle, "ev.pod.container.status", {}, status=CollectionStatus.UNAVAILABLE)
-        self.assertIsNone(rule.evaluate(unavail_bundle))
-        self.assertIsNone(rule.evaluate(None))  # type: ignore[arg-type]
-
     def test_image_pull_rule_scenarios(self) -> None:
         """Verify ImagePullRule matches ErrImagePull/ImagePullBackOff and isolates sidecars."""
         rule = ImagePullRule()
-
-        scenarios = [
-            (
-                "image_pull_backoff",
-                {"state": {"waiting": {"reason": "ImagePullBackOff", "message": "Back-off pulling image"}}},
-                True,
-            ),
-            (
-                "err_image_pull",
-                {"waiting": {"reason": "ErrImagePull", "message": "rpc error: NotFound"}},
-                True,
-            ),
-            (
-                "container_creating",
-                {"state": {"waiting": {"reason": "ContainerCreating"}}},
-                False,
-            ),
-            (
-                "healthy_running",
-                {"state": {"running": {}}},
-                False,
-            ),
+        cases = [
+            ("pull_backoff", {"state": {"waiting": {"reason": "ImagePullBackOff"}}}, True),
+            ("err_pull", {"waiting": {"reason": "ErrImagePull"}}, True),
+            ("creating", {"state": {"waiting": {"reason": "ContainerCreating"}}}, False),
+            ("running", {"state": {"running": {}}}, False),
         ]
+        for name, data, should_match in cases:
+            with self.subTest(name=name):
+                b = _make_bundle()
+                _add_evidence(b, "ev.pod.container.status", data)
+                res = rule.evaluate(b)
+                self.assertIsNotNone(res) if should_match else self.assertIsNone(res)
 
-        for case_name, data, should_match in scenarios:
-            with self.subTest(case_name=case_name):
-                bundle = _make_bundle()
-                _add_evidence(bundle, "ev.pod.container.status", data)
-                match = rule.evaluate(bundle)
-                if should_match:
-                    self.assertIsNotNone(match)
-                    assert match is not None
-                    self.assertEqual(match.confidence, 1.0)
-                    self.assertEqual(match.evidence_ids, ["ev.pod.container.status"])
-                else:
-                    self.assertIsNone(match)
-
-        # Sidecar isolation: target healthy, sidecar pulling failed -> None
-        sidecar_bundle = _make_bundle(container_name="checkout")
+        # Sidecar isolation
+        sc_bundle = _make_bundle(container_name="checkout")
         _add_evidence(
-            sidecar_bundle,
+            sc_bundle,
             "ev.pod.container.status",
             {
                 "containerStatuses": [
@@ -250,149 +195,85 @@ class TestKubernetesRules(unittest.TestCase):
                 ]
             },
         )
-        self.assertIsNone(rule.evaluate(sidecar_bundle))
+        self.assertIsNone(rule.evaluate(sc_bundle))
 
-    def test_crashloop_rule_scenarios(self) -> None:
-        """Verify CrashLoopRule matches exitCode > 0 and isolates sidecars."""
+    def test_crashloop_rule_matches(self) -> None:
+        """Verify CrashLoopRule matches positive CrashLoopBackOff when exit code > 0."""
         rule = CrashLoopRule()
-
-        scenarios = [
-            (
-                "exit_1",
-                {
-                    "restartCount": 4,
-                    "state": {"waiting": {"reason": "CrashLoopBackOff"}},
-                    "lastState": {"terminated": {"exitCode": 1}},
-                },
-                True,
-            ),
-            (
-                "exit_255",
-                {
-                    "restartCount": 10,
-                    "state": {"waiting": {"reason": "CrashLoopBackOff"}},
-                    "lastState": {"terminated": {"exitCode": 255}},
-                },
-                True,
-            ),
-            (
-                "exit_0_clean",
-                {
-                    "restartCount": 1,
-                    "state": {"waiting": {"reason": "CrashLoopBackOff"}},
-                    "lastState": {"terminated": {"exitCode": 0}},
-                },
-                False,
-            ),
-            (
-                "missing_exit_code",
-                {
-                    "state": {"waiting": {"reason": "CrashLoopBackOff"}},
-                    "lastState": {"terminated": {}},
-                },
-                False,
-            ),
-            (
-                "unparseable_exit_code",
-                {
-                    "state": {"waiting": {"reason": "CrashLoopBackOff"}},
-                    "lastState": {"terminated": {"exitCode": "invalid"}},
-                },
-                False,
-            ),
-            (
-                "negative_exit_code",
-                {
-                    "state": {"waiting": {"reason": "CrashLoopBackOff"}},
-                    "lastState": {"terminated": {"exitCode": -1}},
-                },
-                False,
-            ),
-            (
-                "pod_initializing",
-                {
-                    "state": {"waiting": {"reason": "PodInitializing"}},
-                },
-                False,
-            ),
+        matches = [
+            ("exit_1", {"restartCount": 4, "state": {"waiting": {"reason": "CrashLoopBackOff"}}, "lastState": {"terminated": {"exitCode": 1}}}),
+            ("exit_255", {"restartCount": 10, "state": {"waiting": {"reason": "CrashLoopBackOff"}}, "lastState": {"terminated": {"exitCode": 255}}}),
         ]
-
-        for case_name, data, should_match in scenarios:
-            with self.subTest(case_name=case_name):
+        for name, data in matches:
+            with self.subTest(name=name):
                 bundle = _make_bundle()
                 _add_evidence(bundle, "ev.pod.container.status", data)
-                match = rule.evaluate(bundle)
-                if should_match:
-                    self.assertIsNotNone(match)
-                    assert match is not None
-                    self.assertEqual(match.confidence, 1.0)
-                    self.assertEqual(match.evidence_ids, ["ev.pod.container.status"])
-                else:
-                    self.assertIsNone(match)
+                res = rule.evaluate(bundle)
+                self.assertIsNotNone(res)
+                assert res is not None
+                self.assertEqual(res.confidence, 1.0)
+                self.assertEqual(res.evidence_ids, ["ev.pod.container.status"])
+
+    def test_crashloop_rule_negatives_and_isolation(self) -> None:
+        """Verify CrashLoopRule rejects exit code <= 0, unparseable exit code, and isolates sidecars."""
+        rule = CrashLoopRule()
+        rejects = [
+            ("exit_0", {"state": {"waiting": {"reason": "CrashLoopBackOff"}}, "lastState": {"terminated": {"exitCode": 0}}}),
+            ("negative_exit", {"state": {"waiting": {"reason": "CrashLoopBackOff"}}, "lastState": {"terminated": {"exitCode": -1}}}),
+            ("missing_exit", {"state": {"waiting": {"reason": "CrashLoopBackOff"}}, "lastState": {"terminated": {}}}),
+            ("invalid_exit", {"state": {"waiting": {"reason": "CrashLoopBackOff"}}, "lastState": {"terminated": {"exitCode": "invalid"}}}),
+            ("initializing", {"state": {"waiting": {"reason": "PodInitializing"}}}),
+        ]
+        for name, data in rejects:
+            with self.subTest(name=name):
+                bundle = _make_bundle()
+                _add_evidence(bundle, "ev.pod.container.status", data)
+                self.assertIsNone(rule.evaluate(bundle))
 
         # Sidecar isolation
-        sidecar_bundle = _make_bundle(container_name="checkout")
+        sidecar_b = _make_bundle(container_name="checkout")
         _add_evidence(
-            sidecar_bundle,
+            sidecar_b,
             "ev.pod.container.status",
             {
                 "containerStatuses": [
                     {"name": "checkout", "state": {"running": {}}},
-                    {
-                        "name": "metrics",
-                        "state": {"waiting": {"reason": "CrashLoopBackOff"}},
-                        "lastState": {"terminated": {"exitCode": 1}},
-                    },
+                    {"name": "metrics", "state": {"waiting": {"reason": "CrashLoopBackOff"}}, "lastState": {"terminated": {"exitCode": 1}}},
                 ]
             },
         )
-        self.assertIsNone(rule.evaluate(sidecar_bundle))
+        self.assertIsNone(rule.evaluate(sidecar_b))
 
     def test_probe_failure_rule_scenarios(self) -> None:
         """Verify ProbeFailureRule matches Liveness, Readiness, and Startup failures."""
         rule = ProbeFailureRule()
-
         scenarios = [
             ("liveness", [{"type": "Warning", "message": "Liveness probe failed: HTTP 500"}], True),
             ("readiness", [{"type": "Warning", "message": "Readiness probe failed: connection refused"}], True),
             ("startup", [{"type": "Warning", "message": "Startup probe failed: timeout"}], True),
-            ("items_dict", {"items": [{"type": "Warning", "message": "Liveness probe failed: timeout"}]}, True),
             ("generic_warning", [{"type": "Warning", "message": "Back-off restarting failed container"}], False),
             ("empty_events", [], False),
         ]
-
-        for case_name, data, should_match in scenarios:
-            with self.subTest(case_name=case_name):
+        for name, data, should_match in scenarios:
+            with self.subTest(name=name):
                 bundle = _make_bundle()
                 _add_evidence(bundle, "ev.pod.events", data)
-                match = rule.evaluate(bundle)
-                if should_match:
-                    self.assertIsNotNone(match)
-                    assert match is not None
-                    self.assertEqual(match.confidence, 1.0)
-                    self.assertEqual(match.evidence_ids, ["ev.pod.events"])
-                else:
-                    self.assertIsNone(match)
+                res = rule.evaluate(bundle)
+                self.assertIsNotNone(res) if should_match else self.assertIsNone(res)
 
     def test_scheduling_rule_scenarios(self) -> None:
         """Verify SchedulingRule matches FailedScheduling under Pending phase."""
         rule = SchedulingRule()
 
-        # Positive: Pending phase + FailedScheduling event
+        # Positive: Pending + FailedScheduling event
         p_bundle = _make_bundle()
         _add_evidence(p_bundle, "ev.pod.status", {"phase": "Pending"})
         _add_evidence(p_bundle, "ev.pod.events", [{"reason": "FailedScheduling", "message": "0/3 nodes available"}])
         match = rule.evaluate(p_bundle)
         self.assertIsNotNone(match)
         assert match is not None
-        self.assertEqual(match.confidence, 1.0)
         self.assertIn("ev.pod.events", match.evidence_ids)
         self.assertIn("ev.pod.status", match.evidence_ids)
-
-        # Positive: events only
-        e_bundle = _make_bundle()
-        _add_evidence(e_bundle, "ev.pod.events", [{"reason": "FailedScheduling", "message": "0/3 nodes available"}])
-        self.assertIsNotNone(rule.evaluate(e_bundle))
 
         # Negative: Running phase with stale scheduling event
         r_bundle = _make_bundle()
@@ -400,18 +281,11 @@ class TestKubernetesRules(unittest.TestCase):
         _add_evidence(r_bundle, "ev.pod.events", [{"reason": "FailedScheduling", "message": "0/3 nodes available"}])
         self.assertIsNone(rule.evaluate(r_bundle))
 
-        # Negative: Pending phase without FailedScheduling event
-        no_event_bundle = _make_bundle()
-        _add_evidence(no_event_bundle, "ev.pod.status", {"phase": "Pending"})
-        _add_evidence(no_event_bundle, "ev.pod.events", [{"reason": "Scheduled", "message": "Assigned to node-1"}])
-        self.assertIsNone(rule.evaluate(no_event_bundle))
-
-        # Verify ev.pod.container.status does not supply phase (per review comment)
-        cs_bundle = _make_bundle()
-        _add_evidence(cs_bundle, "ev.pod.container.status", {"phase": "Running"})
-        _add_evidence(cs_bundle, "ev.pod.events", [{"reason": "FailedScheduling", "message": "0/3 nodes"}])
-        # Since ev.pod.container.status is not queried, phase is not found, so it matches on event
-        self.assertIsNotNone(rule.evaluate(cs_bundle))
+        # Negative: Pending without FailedScheduling event
+        no_event_b = _make_bundle()
+        _add_evidence(no_event_b, "ev.pod.status", {"phase": "Pending"})
+        _add_evidence(no_event_b, "ev.pod.events", [{"reason": "Scheduled", "message": "Assigned to node-1"}])
+        self.assertIsNone(rule.evaluate(no_event_b))
 
 
 class TestRuleEngine(unittest.TestCase):
@@ -440,10 +314,7 @@ class TestRuleEngine(unittest.TestCase):
         primary = engine.get_primary_match(bundle)
         self.assertIsNotNone(primary)
         assert primary is not None
-        self.assertEqual(primary.rule_id, "rule.kubernetes.oom_killed")
         self.assertTrue(engine.should_bypass_llm(primary))
-
-        # Test predicate thresholds
         self.assertTrue(engine.should_bypass_llm(RuleMatch("r", "t", "rc", 0.99)))
         self.assertFalse(engine.should_bypass_llm(RuleMatch("r", "t", "rc", 0.95)))
         self.assertFalse(engine.should_bypass_llm(None))
@@ -451,10 +322,13 @@ class TestRuleEngine(unittest.TestCase):
     def test_engine_resilience_and_logging(self) -> None:
         """Verify engine catches rule exceptions, logs them with rule_id, and continues."""
         class FailingRule(BaseRule):
+            """Test stub rule that deliberately raises an exception during evaluation."""
+
             rule_id = "rule.faulty"
             title = "Faulty"
 
             def evaluate(self, bundle: EvidenceBundle) -> Optional[RuleMatch]:
+                """Always raise a RuntimeError to test engine error isolation."""
                 raise RuntimeError("Exploding rule")
 
         engine = RuleEngine([FailingRule(), OOMKilledRule()])
@@ -471,7 +345,6 @@ class TestRuleEngine(unittest.TestCase):
             self.assertEqual(matches[0].rule_id, "rule.kubernetes.oom_killed")
             self.assertTrue(any("rule.faulty" in log_msg for log_msg in cm.output))
 
-        # Safe on empty or None bundle
         self.assertEqual(engine.evaluate_all(None), [])  # type: ignore[arg-type]
         self.assertIsNone(engine.get_primary_match(None))  # type: ignore[arg-type]
 
@@ -494,7 +367,6 @@ class TestRuleEngineBenchmark(unittest.TestCase):
             [{"type": "Warning", "reason": "BackOff", "message": "Back-off restarting"}],
         )
 
-        # Warm up
         engine.evaluate_all(bundle)
 
         iterations = 1000

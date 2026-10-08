@@ -48,23 +48,20 @@ class ProbeFailureRule(BaseRule):
     @staticmethod
     def _get_events_data(bundle: Optional[EvidenceBundle]) -> Optional[Any]:
         """Extract valid events data from the bundle."""
-        if not bundle or not hasattr(bundle, "get"):
+        if bundle is None:
             return None
-        events_item = bundle.get("ev.pod.events")
-        if not events_item or events_item.status != CollectionStatus.AVAILABLE:
-            return None
-        return events_item.data
+        item = getattr(bundle, "get", lambda _: None)("ev.pod.events")
+        if item and item.status == CollectionStatus.AVAILABLE:
+            return item.data
+        return None
 
     def _build_match(
         self, match_info: Tuple[str, str], bundle: EvidenceBundle
     ) -> RuleMatch:
         """Construct the RuleMatch object from extracted probe failure facts."""
         probe_type, message = match_info
-        c_label = (
-            (bundle.target.container_name if bundle.target and bundle.target.container_name else None)
-            or (bundle.target.workload_name if bundle.target else None)
-            or "container"
-        )
+        target = getattr(bundle, "target", None)
+        c_label = getattr(target, "container_name", None) or getattr(target, "workload_name", None) or "container"
         return RuleMatch(
             rule_id=self.rule_id,
             title=f"Container {probe_type} Probe Failure",
@@ -77,13 +74,10 @@ class ProbeFailureRule(BaseRule):
         """Extract probe failure facts from events data structure."""
         events = self._extract_event_list(data)
         for event in events:
-            if not isinstance(event, dict):
-                continue
-
-            match = self._check_event_probe(event)
-            if match:
-                return match
-
+            if isinstance(event, dict):
+                match = self._check_event_probe(event)
+                if match:
+                    return match
         return None
 
     @staticmethod
@@ -91,14 +85,9 @@ class ProbeFailureRule(BaseRule):
         """Inspect a single event dictionary for probe failure signatures."""
         message = str(event.get("message", ""))
         msg_lower = message.lower()
-
-        if "liveness probe failed" in msg_lower:
-            return ("Liveness", message)
-        if "readiness probe failed" in msg_lower:
-            return ("Readiness", message)
-        if "startup probe failed" in msg_lower:
-            return ("Startup", message)
-
+        for probe_type in ("Liveness", "Readiness", "Startup"):
+            if f"{probe_type.lower()} probe failed" in msg_lower:
+                return (probe_type, message)
         return None
 
     @staticmethod
@@ -107,7 +96,6 @@ class ProbeFailureRule(BaseRule):
         if isinstance(data, list):
             return [e for e in data if isinstance(e, dict)]
         if isinstance(data, dict):
-            if "items" in data and isinstance(data["items"], list):
-                return [e for e in data["items"] if isinstance(e, dict)]
-            return [data]
+            items = data.get("items", [data])
+            return [e for e in items if isinstance(e, dict)]
         return []

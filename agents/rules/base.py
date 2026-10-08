@@ -84,6 +84,7 @@ class BaseRule(ABC):
     title: str = ""
 
     def __repr__(self) -> str:
+        """Return developer-friendly string representation of the rule."""
         return f"<{self.__class__.__name__} rule_id={self.rule_id!r}>"
 
     @abstractmethod
