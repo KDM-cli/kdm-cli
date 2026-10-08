@@ -37,30 +37,36 @@ class ImagePullRule(BaseRule):
     title: str = "Container Image Pull Failure (ImagePullBackOff)"
 
     def evaluate(self, bundle: EvidenceBundle) -> Optional[RuleMatch]:
-        """Inspect ``ev.pod.container.status`` for image pull failure signatures.
-
-        Args:
-            bundle: Canonical EvidenceBundle containing collected facts.
-
-        Returns:
-            :class:`RuleMatch` with 1.0 confidence if image pull failure detected, else ``None``.
-        """
-        if not bundle or not hasattr(bundle, "get"):
+        """Inspect ``ev.pod.container.status`` for image pull failure signatures."""
+        data = self._get_status_data(bundle)
+        if not data:
             return None
 
-        status_item = bundle.get("ev.pod.container.status")
-        if not status_item or status_item.status != CollectionStatus.AVAILABLE:
-            return None
-        if not status_item.data:
-            return None
-
-        target_container = bundle.target.container_name if bundle.target else None
-        match_info = self._detect_image_pull_failure(status_item.data, target_container)
+        target_name = bundle.target.container_name if bundle.target else None
+        match_info = self._detect_image_pull_failure(data, target_name)
         if not match_info:
             return None
 
+        return self._build_match(match_info, target_name)
+
+    @staticmethod
+    def _get_status_data(bundle: Optional[EvidenceBundle]) -> Optional[Any]:
+        """Extract valid container status data from the bundle."""
+        if not bundle or not hasattr(bundle, "get"):
+            return None
+        item = bundle.get("ev.pod.container.status")
+        if not item or item.status != CollectionStatus.AVAILABLE:
+            return None
+        return item.data
+
+    def _build_match(
+        self,
+        match_info: Tuple[Optional[str], str, Optional[str]],
+        target_name: Optional[str],
+    ) -> RuleMatch:
+        """Construct the RuleMatch object from extracted image pull failure facts."""
         container_name, reason, message = match_info
-        c_label = container_name or target_container or "container"
+        c_label = container_name or target_name or "container"
 
         if message:
             root_cause = (
@@ -84,33 +90,48 @@ class ImagePullRule(BaseRule):
     def _detect_image_pull_failure(
         self, data: Any, target_container: Optional[str]
     ) -> Optional[Tuple[Optional[str], str, Optional[str]]]:
-        """Extract image pull failure facts from container status data structures."""
+        """Extract image pull failure facts safely respecting target container identity."""
         containers = self._extract_container_list(data)
+
+        if target_container:
+            target = self._find_target_container(containers, target_container)
+            if target is not None:
+                return self._evaluate_container(target)
+            if any(c.get("name") == target_container for c in containers):
+                return None
+
         for container_dict in containers:
-            if not isinstance(container_dict, dict):
-                continue
-            name = container_dict.get("name")
-            if target_container and name and name != target_container:
-                continue
+            match = self._evaluate_container(container_dict)
+            if match:
+                return match
 
-            waiting = self._extract_waiting_state(container_dict)
-            if waiting:
-                reason = waiting.get("reason")
-                if reason in _IMAGE_PULL_REASONS:
-                    return (name, reason, waiting.get("message"))
+        return None
 
-        # Fallback across all containers if target name did not directly match
-        if target_container and containers:
-            for container_dict in containers:
-                if not isinstance(container_dict, dict):
-                    continue
-                name = container_dict.get("name")
-                waiting = self._extract_waiting_state(container_dict)
-                if waiting:
-                    reason = waiting.get("reason")
-                    if reason in _IMAGE_PULL_REASONS:
-                        return (name, reason, waiting.get("message"))
+    def _evaluate_container(
+        self, container_dict: Dict[str, Any]
+    ) -> Optional[Tuple[Optional[str], str, Optional[str]]]:
+        """Evaluate a single container status dictionary for image pull failure."""
+        if not isinstance(container_dict, dict):
+            return None
 
+        waiting = self._extract_waiting_state(container_dict)
+        if not waiting:
+            return None
+
+        reason = waiting.get("reason")
+        if reason in _IMAGE_PULL_REASONS:
+            return (container_dict.get("name"), reason, waiting.get("message"))
+
+        return None
+
+    @staticmethod
+    def _find_target_container(
+        containers: List[Dict[str, Any]], target_name: str
+    ) -> Optional[Dict[str, Any]]:
+        """Find container dictionary matching the target name."""
+        for c in containers:
+            if isinstance(c, dict) and c.get("name") == target_name:
+                return c
         return None
 
     @staticmethod

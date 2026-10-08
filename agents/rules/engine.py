@@ -7,6 +7,7 @@ in < 5ms before invoking any LLM turns.
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from typing import List, Optional
@@ -31,6 +32,8 @@ except ImportError:
     from rules.oom import OOMKilledRule  # type: ignore[no-redef]
     from rules.probes import ProbeFailureRule  # type: ignore[no-redef]
     from rules.scheduling import SchedulingRule  # type: ignore[no-redef]
+
+logger = logging.getLogger(__name__)
 
 
 class RuleEngine:
@@ -94,7 +97,10 @@ class RuleEngine:
                 if match is not None:
                     matches.append(match)
             except Exception:
-                # Rule failure must not crash the overall engine evaluation
+                logger.exception(
+                    "Rule '%s' raised an unexpected exception during evaluation",
+                    getattr(rule, "rule_id", "unknown"),
+                )
                 continue
 
         # Prioritize highest certainty matches first

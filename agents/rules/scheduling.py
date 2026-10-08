@@ -26,7 +26,7 @@ except ImportError:
 class SchedulingRule(BaseRule):
     """Diagnoses pod scheduling failures where pods remain stuck in Pending.
 
-    Triggers when a pod is in phase ``"Pending"`` (or pending status)
+    Triggers when a pod is in phase ``"Pending"`` (or unassigned phase)
     and events report ``FailedScheduling`` (e.g. insufficient CPU or memory).
     """
 
@@ -34,33 +34,38 @@ class SchedulingRule(BaseRule):
     title: str = "Pod Scheduling Failure (FailedScheduling)"
 
     def evaluate(self, bundle: EvidenceBundle) -> Optional[RuleMatch]:
-        """Inspect pod phase Pending and events for FailedScheduling.
-
-        Args:
-            bundle: Canonical EvidenceBundle containing collected facts.
-
-        Returns:
-            :class:`RuleMatch` with 1.0 confidence if scheduling failure detected, else ``None``.
-        """
-        if not bundle or not hasattr(bundle, "get"):
+        """Inspect pod phase Pending and events for FailedScheduling."""
+        events_data = self._get_events_data(bundle)
+        if not events_data:
             return None
 
-        events_item = bundle.get("ev.pod.events")
-        if not events_item or events_item.status != CollectionStatus.AVAILABLE:
-            return None
-        if not events_item.data:
-            return None
-
-        scheduling_event = self._find_scheduling_event(events_item.data)
+        scheduling_event = self._find_scheduling_event(events_data)
         if not scheduling_event:
             return None
 
-        # Inspect pod phase across potential evidence items
-        phase, phase_evidence_id = self._inspect_pod_phase(bundle)
-        # If pod phase is definitively not Pending (e.g. Running, Succeeded), do not match
+        phase, phase_eid = self._inspect_pod_phase(bundle)
         if phase is not None and phase != "Pending":
             return None
 
+        return self._build_match(scheduling_event, phase_eid, bundle)
+
+    @staticmethod
+    def _get_events_data(bundle: Optional[EvidenceBundle]) -> Optional[Any]:
+        """Extract valid events data from the bundle."""
+        if not bundle or not hasattr(bundle, "get"):
+            return None
+        events_item = bundle.get("ev.pod.events")
+        if not events_item or events_item.status != CollectionStatus.AVAILABLE:
+            return None
+        return events_item.data
+
+    def _build_match(
+        self,
+        scheduling_event: str,
+        phase_evidence_id: Optional[str],
+        bundle: EvidenceBundle,
+    ) -> RuleMatch:
+        """Construct the RuleMatch object for a verified scheduling failure."""
         evidence_ids = ["ev.pod.events"]
         if phase_evidence_id and phase_evidence_id not in evidence_ids:
             evidence_ids.insert(0, phase_evidence_id)
@@ -70,50 +75,53 @@ class SchedulingRule(BaseRule):
             or (bundle.target.container_name if bundle.target else None)
             or "pod"
         )
-        root_cause = (
-            f"Pod '{workload}' cannot be scheduled (FailedScheduling): {scheduling_event}"
-        )
-
         return RuleMatch(
             rule_id=self.rule_id,
             title=self.title,
-            root_cause=root_cause,
+            root_cause=f"Pod '{workload}' cannot be scheduled (FailedScheduling): {scheduling_event}",
             confidence=1.0,
             evidence_ids=evidence_ids,
         )
 
     def _find_scheduling_event(self, data: Any) -> Optional[str]:
         """Find the message of a FailedScheduling event if present."""
-        events = self._extract_event_list(data)
-        for event in events:
-            if not isinstance(event, dict):
-                continue
-            reason = str(event.get("reason", ""))
-            message = str(event.get("message", ""))
-            if reason == "FailedScheduling":
-                return message or reason
-            if "failedscheduling" in reason.lower() or "failedscheduling" in message.lower():
-                return message or reason
-            if "0/" in message and ("nodes are available" in message or "node(s) available" in message):
-                return message
+        for event in self._extract_event_list(data):
+            if isinstance(event, dict):
+                match = self._is_scheduling_event(event)
+                if match:
+                    return match
         return None
 
     @staticmethod
-    def _inspect_pod_phase(bundle: EvidenceBundle) -> Tuple[Optional[str], Optional[str]]:
-        """Look for pod phase in known evidence sources (e.g. ev.pod.status, ev.pod.container.status)."""
-        for eid in ("ev.pod.status", "ev.pod.phase", "ev.pod.container.status"):
+    def _is_scheduling_event(event: Dict[str, Any]) -> Optional[str]:
+        """Check if a single event represents a FailedScheduling failure."""
+        reason = str(event.get("reason", ""))
+        message = str(event.get("message", ""))
+
+        if reason == "FailedScheduling" or "failedscheduling" in reason.lower():
+            return message or reason
+        if "failedscheduling" in message.lower():
+            return message
+        if "0/" in message and ("nodes are available" in message or "node(s) available" in message):
+            return message
+
+        return None
+
+    @staticmethod
+    def _inspect_pod_phase(bundle: Optional[EvidenceBundle]) -> Tuple[Optional[str], Optional[str]]:
+        """Look for pod phase strictly in ev.pod.status or ev.pod.phase."""
+        if not bundle or not hasattr(bundle, "get"):
+            return (None, None)
+
+        for eid in ("ev.pod.status", "ev.pod.phase"):
             item = bundle.get(eid)
-            if item and item.status == CollectionStatus.AVAILABLE and item.data:
-                if isinstance(item.data, dict) and "phase" in item.data:
-                    return (str(item.data["phase"]), eid)
-                if isinstance(item.data, str) and item.data in (
-                    "Pending",
-                    "Running",
-                    "Failed",
-                    "Succeeded",
-                    "Unknown",
-                ):
-                    return (item.data, eid)
+            if not item or item.status != CollectionStatus.AVAILABLE or not item.data:
+                continue
+            if isinstance(item.data, dict) and "phase" in item.data:
+                return (str(item.data["phase"]), eid)
+            if isinstance(item.data, str):
+                return (item.data, eid)
+
         return (None, None)
 
     @staticmethod

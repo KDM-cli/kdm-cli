@@ -26,83 +26,116 @@ except ImportError:
 class OOMKilledRule(BaseRule):
     """Diagnoses container terminations caused by exceeding memory limits.
 
-    Triggers when a container's termination state reports exit code 137
-    or reason ``"OOMKilled"``.
+    Triggers when a container's termination state reports reason ``"OOMKilled"``
+    (1.0 confidence) or exit code 137 (0.8 confidence for unconfirmed SIGKILL).
     """
 
     rule_id: str = "rule.kubernetes.oom_killed"
     title: str = "Container Out-Of-Memory (OOMKilled)"
 
     def evaluate(self, bundle: EvidenceBundle) -> Optional[RuleMatch]:
-        """Inspect ``ev.pod.container.status`` for OOM termination signatures.
-
-        Args:
-            bundle: Canonical EvidenceBundle containing collected facts.
-
-        Returns:
-            :class:`RuleMatch` with 1.0 confidence if OOM is detected, else ``None``.
-        """
-        if not bundle or not hasattr(bundle, "get"):
+        """Inspect ``ev.pod.container.status`` for OOM termination signatures."""
+        data = self._get_status_data(bundle)
+        if not data:
             return None
 
-        status_item = bundle.get("ev.pod.container.status")
-        if not status_item or status_item.status != CollectionStatus.AVAILABLE:
-            return None
-        if not status_item.data:
-            return None
-
-        target_container = bundle.target.container_name if bundle.target else None
-        match_info = self._detect_oom(status_item.data, target_container)
+        target_name = bundle.target.container_name if bundle.target else None
+        match_info = self._detect_oom(data, target_name)
         if not match_info:
             return None
 
-        container_name = match_info[0] or target_container or "container"
+        return self._build_match(match_info, target_name)
+
+    @staticmethod
+    def _get_status_data(bundle: Optional[EvidenceBundle]) -> Optional[Any]:
+        """Extract valid container status data from the bundle."""
+        if not bundle or not hasattr(bundle, "get"):
+            return None
+        item = bundle.get("ev.pod.container.status")
+        if not item or item.status != CollectionStatus.AVAILABLE:
+            return None
+        return item.data
+
+    def _build_match(
+        self,
+        match_info: Tuple[Optional[str], Optional[int], Optional[str], float],
+        target_name: Optional[str],
+    ) -> RuleMatch:
+        """Construct the RuleMatch object from extracted OOM facts."""
+        container_name, exit_code, reason, confidence = match_info
+        c_label = container_name or target_name or "container"
+
+        if confidence >= 1.0:
+            root_cause = (
+                f"Container '{c_label}' terminated with exit code 137 (OOMKilled). "
+                "Memory limit was exceeded."
+            )
+        else:
+            root_cause = (
+                f"Container '{c_label}' terminated with exit code {exit_code}. "
+                "Probable memory limit exceeded or external SIGKILL."
+            )
+
         return RuleMatch(
             rule_id=self.rule_id,
             title=self.title,
-            root_cause=(
-                f"Container '{container_name}' terminated with exit code 137 (OOMKilled). "
-                "Memory limit was exceeded."
-            ),
-            confidence=1.0,
+            root_cause=root_cause,
+            confidence=confidence,
             evidence_ids=["ev.pod.container.status"],
         )
 
     def _detect_oom(
         self, data: Any, target_container: Optional[str]
-    ) -> Optional[Tuple[Optional[str], Optional[int], Optional[str]]]:
-        """Extract OOM termination facts from container status data structures."""
+    ) -> Optional[Tuple[Optional[str], Optional[int], Optional[str], float]]:
+        """Extract OOM facts safely respecting target container identity."""
         containers = self._extract_container_list(data)
+
+        if target_container:
+            target = self._find_target_container(containers, target_container)
+            if target is not None:
+                return self._evaluate_container(target)
+            if any(c.get("name") == target_container for c in containers):
+                return None
+
         for container_dict in containers:
-            if not isinstance(container_dict, dict):
-                continue
-            name = container_dict.get("name")
-            if target_container and name and name != target_container:
-                continue
+            match = self._evaluate_container(container_dict)
+            if match:
+                return match
 
-            terminated = self._extract_terminated_state(container_dict)
-            if terminated:
-                reason = terminated.get("reason")
-                exit_code = terminated.get("exitCode")
-                if exit_code is None:
-                    exit_code = terminated.get("exit_code")
+        return None
 
-                if reason == "OOMKilled" or exit_code == 137 or str(exit_code) == "137":
-                    return (name, 137 if str(exit_code) == "137" else exit_code, reason)
+    def _evaluate_container(
+        self, container_dict: Dict[str, Any]
+    ) -> Optional[Tuple[Optional[str], Optional[int], Optional[str], float]]:
+        """Evaluate a single container status dictionary for OOM signatures."""
+        if not isinstance(container_dict, dict):
+            return None
 
-        # If target_container was specified but no match on that name, check all containers
-        if target_container and containers:
-            for container_dict in containers:
-                if not isinstance(container_dict, dict):
-                    continue
-                name = container_dict.get("name")
-                terminated = self._extract_terminated_state(container_dict)
-                if terminated:
-                    reason = terminated.get("reason")
-                    exit_code = terminated.get("exitCode", terminated.get("exit_code"))
-                    if reason == "OOMKilled" or exit_code == 137 or str(exit_code) == "137":
-                        return (name, 137 if str(exit_code) == "137" else exit_code, reason)
+        terminated = self._extract_terminated_state(container_dict)
+        if not terminated:
+            return None
 
+        reason = terminated.get("reason")
+        exit_code = terminated.get("exitCode", terminated.get("exit_code"))
+        name = container_dict.get("name")
+
+        if reason == "OOMKilled":
+            code = 137 if str(exit_code) == "137" else exit_code
+            return (name, code, reason, 1.0)
+
+        if exit_code == 137 or str(exit_code) == "137":
+            return (name, 137, reason, 0.8)
+
+        return None
+
+    @staticmethod
+    def _find_target_container(
+        containers: List[Dict[str, Any]], target_name: str
+    ) -> Optional[Dict[str, Any]]:
+        """Find container dictionary matching the target name."""
+        for c in containers:
+            if isinstance(c, dict) and c.get("name") == target_name:
+                return c
         return None
 
     @staticmethod
@@ -119,13 +152,10 @@ class OOMKilledRule(BaseRule):
     @staticmethod
     def _extract_terminated_state(container_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Find the terminated state dictionary from lastState, state, or top-level."""
-        last_state = container_dict.get("lastState")
-        if isinstance(last_state, dict) and isinstance(last_state.get("terminated"), dict):
-            return last_state["terminated"]
-
-        state = container_dict.get("state")
-        if isinstance(state, dict) and isinstance(state.get("terminated"), dict):
-            return state["terminated"]
+        for key in ("lastState", "state"):
+            sub = container_dict.get(key)
+            if isinstance(sub, dict) and isinstance(sub.get("terminated"), dict):
+                return sub["terminated"]
 
         if isinstance(container_dict.get("terminated"), dict):
             return container_dict["terminated"]

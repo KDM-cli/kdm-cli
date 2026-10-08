@@ -33,30 +33,36 @@ class CrashLoopRule(BaseRule):
     title: str = "Container CrashLoopBackOff"
 
     def evaluate(self, bundle: EvidenceBundle) -> Optional[RuleMatch]:
-        """Inspect ``ev.pod.container.status`` for CrashLoopBackOff signatures.
-
-        Args:
-            bundle: Canonical EvidenceBundle containing collected facts.
-
-        Returns:
-            :class:`RuleMatch` with 1.0 confidence if CrashLoop detected with exitCode > 0, else ``None``.
-        """
-        if not bundle or not hasattr(bundle, "get"):
+        """Inspect ``ev.pod.container.status`` for CrashLoopBackOff signatures."""
+        data = self._get_status_data(bundle)
+        if not data:
             return None
 
-        status_item = bundle.get("ev.pod.container.status")
-        if not status_item or status_item.status != CollectionStatus.AVAILABLE:
-            return None
-        if not status_item.data:
-            return None
-
-        target_container = bundle.target.container_name if bundle.target else None
-        match_info = self._detect_crashloop(status_item.data, target_container)
+        target_name = bundle.target.container_name if bundle.target else None
+        match_info = self._detect_crashloop(data, target_name)
         if not match_info:
             return None
 
+        return self._build_match(match_info, target_name)
+
+    @staticmethod
+    def _get_status_data(bundle: Optional[EvidenceBundle]) -> Optional[Any]:
+        """Extract valid container status data from the bundle."""
+        if not bundle or not hasattr(bundle, "get"):
+            return None
+        item = bundle.get("ev.pod.container.status")
+        if not item or item.status != CollectionStatus.AVAILABLE:
+            return None
+        return item.data
+
+    def _build_match(
+        self,
+        match_info: Tuple[Optional[str], int, Optional[int]],
+        target_name: Optional[str],
+    ) -> RuleMatch:
+        """Construct the RuleMatch object from extracted CrashLoop facts."""
         container_name, restart_count, exit_code = match_info
-        c_label = container_name or target_container or "container"
+        c_label = container_name or target_name or "container"
 
         if exit_code is not None:
             root_cause = (
@@ -82,83 +88,75 @@ class CrashLoopRule(BaseRule):
     def _detect_crashloop(
         self, data: Any, target_container: Optional[str]
     ) -> Optional[Tuple[Optional[str], int, Optional[int]]]:
-        """Extract CrashLoopBackOff facts from container status data structures."""
+        """Extract CrashLoopBackOff facts safely respecting target container identity."""
         containers = self._extract_container_list(data)
-        for container_dict in containers:
-            if not isinstance(container_dict, dict):
-                continue
-            name = container_dict.get("name")
-            if target_container and name and name != target_container:
-                continue
 
-            match = self._evaluate_container_dict(container_dict)
+        if target_container:
+            target = self._find_target_container(containers, target_container)
+            if target is not None:
+                return self._evaluate_container(target)
+            if any(c.get("name") == target_container for c in containers):
+                return None
+
+        for container_dict in containers:
+            match = self._evaluate_container(container_dict)
             if match:
                 return match
 
-        # Fallback across all containers if target name did not directly match
-        if target_container and containers:
-            for container_dict in containers:
-                if not isinstance(container_dict, dict):
-                    continue
-                match = self._evaluate_container_dict(container_dict)
-                if match:
-                    return match
-
         return None
 
-    def _evaluate_container_dict(
+    def _evaluate_container(
         self, container_dict: Dict[str, Any]
     ) -> Optional[Tuple[Optional[str], int, Optional[int]]]:
         """Evaluate a single container dictionary for CrashLoopBackOff status."""
+        if not isinstance(container_dict, dict):
+            return None
+
         waiting = self._extract_waiting_state(container_dict)
         if not waiting or waiting.get("reason") != "CrashLoopBackOff":
             return None
 
-        restart_count = container_dict.get("restartCount", container_dict.get("restart_count", 0))
-        try:
-            restart_count = int(restart_count)
-        except (ValueError, TypeError):
-            restart_count = 0
-
+        restart_count = self._parse_int(
+            container_dict.get("restartCount", container_dict.get("restart_count"))
+        ) or 0
         exit_code = self._extract_exit_code(container_dict)
-        # Per requirement: Matches CrashLoopBackOff with exit codes > 0
+
         if exit_code is not None and exit_code <= 0:
             return None
 
         return (container_dict.get("name"), restart_count, exit_code)
 
-    @staticmethod
-    def _extract_exit_code(container_dict: Dict[str, Any]) -> Optional[int]:
+    @classmethod
+    def _extract_exit_code(cls, container_dict: Dict[str, Any]) -> Optional[int]:
         """Extract the numeric exit code from terminated state if available."""
-        last_state = container_dict.get("lastState")
-        if isinstance(last_state, dict):
-            terminated = last_state.get("terminated")
-            if isinstance(terminated, dict):
-                code = terminated.get("exitCode", terminated.get("exit_code"))
+        for key in ("lastState", "state"):
+            sub = container_dict.get(key)
+            if isinstance(sub, dict) and isinstance(sub.get("terminated"), dict):
+                term = sub["terminated"]
+                code = cls._parse_int(term.get("exitCode", term.get("exit_code")))
                 if code is not None:
-                    try:
-                        return int(code)
-                    except (ValueError, TypeError):
-                        pass
+                    return code
 
-        state = container_dict.get("state")
-        if isinstance(state, dict):
-            terminated = state.get("terminated")
-            if isinstance(terminated, dict):
-                code = terminated.get("exitCode", terminated.get("exit_code"))
-                if code is not None:
-                    try:
-                        return int(code)
-                    except (ValueError, TypeError):
-                        pass
+        return cls._parse_int(container_dict.get("exitCode", container_dict.get("exit_code")))
 
-        top_code = container_dict.get("exitCode", container_dict.get("exit_code"))
-        if top_code is not None:
-            try:
-                return int(top_code)
-            except (ValueError, TypeError):
-                pass
+    @staticmethod
+    def _parse_int(val: Any) -> Optional[int]:
+        """Safely parse an integer value."""
+        if val is None:
+            return None
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return None
 
+    @staticmethod
+    def _find_target_container(
+        containers: List[Dict[str, Any]], target_name: str
+    ) -> Optional[Dict[str, Any]]:
+        """Find container dictionary matching the target name."""
+        for c in containers:
+            if isinstance(c, dict) and c.get("name") == target_name:
+                return c
         return None
 
     @staticmethod
