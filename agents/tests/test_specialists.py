@@ -291,25 +291,6 @@ class TestDomainSpecialistAgents(SpecialistTestBase):
         self.assertIn("fatal: out of memory", prompt)
         self.assertIn("Back-off restarting failed container", prompt)
 
-    def test_runtime_log_agent_healthy_diagnosis(self) -> None:
-        """Verify RuntimeLogAgent produces low-confidence report when healthy."""
-        agent = RuntimeLogAgent(self.mock_client, model="llama3.1")
-        self.mock_client.chat.return_value = {
-            "message": {
-                "content": json.dumps(
-                    {
-                        "summary": "No runtime crashes detected.",
-                        "evidence": ["exitCode == 0"],
-                        "hypotheses": [],
-                        "confidence": "low",
-                    }
-                )
-            }
-        }
-        report = agent.run_investigation(self.make_bundle())
-        self.assertEqual(report["confidence"], "low")
-        self.assertEqual(report["hypotheses"], [])
-
     def test_config_agent_probe_and_mount_evidence(self) -> None:
         """Verify ConfigDependencyAgent extracts probe timeouts and missing ConfigMap mounts."""
         agent = ConfigDependencyAgent(self.mock_client, model="llama3.1")
@@ -404,25 +385,6 @@ class TestDomainSpecialistAgents(SpecialistTestBase):
         self.assertIn("Container 'web' env 'DB_PASS': Secret 'db-secret'", prompt)
         self.assertIn("Container 'init-db' envFrom: Secret 'vault-token'", prompt)
 
-    def test_config_dependency_agent_investigation_report(self) -> None:
-        """Verify ConfigDependencyAgent returns structured diagnostic report for missing configs."""
-        agent = ConfigDependencyAgent(self.mock_client, model="llama3.1")
-        self.mock_client.chat.return_value = {
-            "message": {
-                "content": json.dumps(
-                    {
-                        "summary": "Missing ConfigMap app-config.",
-                        "evidence": ["ConfigMap app-config not found"],
-                        "hypotheses": ["ConfigMap deleted"],
-                        "confidence": "high",
-                    }
-                )
-            }
-        }
-        report = agent.run_investigation(self.make_bundle())
-        self.assertEqual(report["confidence"], "high")
-        self.assertIn("app-config", report["summary"])
-
     def test_cluster_resource_agent_prompt_and_events(self) -> None:
         """Verify ClusterResourceAgent extracts node pressure conditions and scheduling events."""
         agent = ClusterResourceAgent(self.mock_client, model="llama3.1")
@@ -509,24 +471,54 @@ class TestDomainSpecialistAgents(SpecialistTestBase):
                 self.add_evidence(b, "ev.pod.spec", spec)
                 self.assertIn(expected_qos, agent.build_prompt(b))
 
-    def test_cluster_resource_agent_investigation_report(self) -> None:
-        """Verify ClusterResourceAgent returns structured diagnostic report for resource failures."""
-        agent = ClusterResourceAgent(self.mock_client, model="llama3.1")
-        self.mock_client.chat.return_value = {
-            "message": {
-                "content": json.dumps(
-                    {
-                        "summary": "Node under active MemoryPressure.",
-                        "evidence": ["MemoryPressure=True"],
-                        "hypotheses": ["OOM eviction"],
-                        "confidence": "high",
-                    }
-                )
-            }
-        }
-        report = agent.run_investigation(self.make_bundle())
-        self.assertEqual(report["confidence"], "high")
-        self.assertIn("MemoryPressure", report["summary"])
+    def test_specialist_investigation_diagnostic_reports(self) -> None:
+        """Verify structured diagnostic reports across runtime, config, and resource specialists."""
+        cases = [
+            (
+                RuntimeLogAgent(self.mock_client, model="llama3.1"),
+                {
+                    "summary": "No runtime crashes detected.",
+                    "evidence": ["exitCode == 0"],
+                    "hypotheses": [],
+                    "confidence": "low",
+                },
+                "low",
+                None,
+            ),
+            (
+                ConfigDependencyAgent(self.mock_client, model="llama3.1"),
+                {
+                    "summary": "Missing ConfigMap app-config.",
+                    "evidence": ["ConfigMap app-config not found"],
+                    "hypotheses": ["ConfigMap deleted"],
+                    "confidence": "high",
+                },
+                "high",
+                "app-config",
+            ),
+            (
+                ClusterResourceAgent(self.mock_client, model="llama3.1"),
+                {
+                    "summary": "Node under active MemoryPressure.",
+                    "evidence": ["MemoryPressure=True"],
+                    "hypotheses": ["OOM eviction"],
+                    "confidence": "high",
+                },
+                "high",
+                "MemoryPressure",
+            ),
+        ]
+        for agent, payload, expected_conf, expected_summary in cases:
+            with self.subTest(role=agent.role):
+                self.mock_client.chat.return_value = {
+                    "message": {"content": json.dumps(payload)}
+                }
+                report = agent.run_investigation(self.make_bundle())
+                self.assertEqual(report["confidence"], expected_conf)
+                if expected_summary:
+                    self.assertIn(expected_summary, report["summary"])
+                else:
+                    self.assertEqual(report["hypotheses"], [])
 
     def test_schema_consistency_across_all_specialists(self) -> None:
         """Ensure Runtime, Config, and Resource specialists adhere to SpecialistReport schema."""
