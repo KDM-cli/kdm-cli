@@ -46,24 +46,25 @@ except ImportError:
 class DummySpecialist(BaseSpecialistAgent):
     """Mock specialist agent for deterministic concurrency and failure testing."""
 
-    def __init__(
-        self,
-        role: str,
-        delay: float = 0.0,
-        result: Optional[Dict[str, Any]] = None,
-        exception: Optional[Exception] = None,
-        on_start: Optional[Callable[[], None]] = None,
-        on_finish: Optional[Callable[[], None]] = None,
-    ) -> None:
-        """Initialize dummy specialist with controllable latency and exceptions."""
+    def __init__(self, role: str, **kwargs: Any) -> None:
+        """Initialize dummy specialist with controllable latency and exceptions.
+
+        :param role: Specialist role identifier.
+        :param kwargs: Optional behavior parameters including delay, result, exception,
+                       on_start hook, and on_finish hook.
+        """
         self.role = role
         self.display_name = f"Dummy {role.capitalize()}"
         self.icon = "🔍"
-        self.delay = delay
-        self.result = result if result is not None else {"summary": f"{role} success"}
-        self.exception = exception
-        self.on_start = on_start
-        self.on_finish = on_finish
+        self.delay: float = float(kwargs.get("delay", 0.0))
+        self.result: Dict[str, Any] = (
+            kwargs.get("result")
+            if kwargs.get("result") is not None
+            else {"summary": f"{role} success"}
+        )
+        self.exception: Optional[Exception] = kwargs.get("exception")
+        self.on_start: Optional[Callable[[], None]] = kwargs.get("on_start")
+        self.on_finish: Optional[Callable[[], None]] = kwargs.get("on_finish")
         self.call_count = 0
 
     def build_prompt(self, bundle: EvidenceBundle) -> str:
