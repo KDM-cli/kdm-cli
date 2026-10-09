@@ -75,6 +75,15 @@ class ClusterResourceAgent(BaseSpecialistAgent):
         )
 
     @staticmethod
+    def _has_valid_evidence(item: Optional[Any]) -> bool:
+        """Check if an evidence item exists and was successfully collected."""
+        if item is None:
+            return False
+        if item.status != CollectionStatus.AVAILABLE:
+            return False
+        return bool(item.data)
+
+    @staticmethod
     def _extract_target(bundle: EvidenceBundle) -> str:
         """Format target identity from evidence bundle."""
         if not bundle.target:
@@ -88,19 +97,16 @@ class ClusterResourceAgent(BaseSpecialistAgent):
     @classmethod
     def _extract_pod_resources_and_qos(cls, bundle: EvidenceBundle) -> str:
         """Extract resource requests, limits, and determine pod QoS class."""
-        spec_item = (
-            bundle.get("ev.pod.spec")
-            or bundle.get("ev.pod.resources")
-            or bundle.get("ev.pod.manifest")
-        )
-        if (
-            spec_item is None
-            or spec_item.status != CollectionStatus.AVAILABLE
-            or not spec_item.data
-        ):
+        spec_item = bundle.get("ev.pod.spec")
+        if spec_item is None:
+            spec_item = bundle.get("ev.pod.resources")
+        if spec_item is None:
+            spec_item = bundle.get("ev.pod.manifest")
+
+        if not cls._has_valid_evidence(spec_item):
             return "Pod resource specification evidence unavailable."
 
-        containers = cls._extract_container_list(spec_item.data)
+        containers = cls._extract_container_list(spec_item.data)  # type: ignore[union-attr]
         if not containers:
             return "No container resource definitions found."
 
@@ -122,14 +128,19 @@ class ClusterResourceAgent(BaseSpecialistAgent):
                 continue
             line, c_req, c_lim, c_match = cls._inspect_container_resources(c)
             res_lines.append(line)
-            has_requests = has_requests and c_req
-            has_limits = has_limits and c_lim
-            all_match = all_match and c_match
+            if not c_req:
+                has_requests = False
+            if not c_lim:
+                has_limits = False
+            if not c_match:
+                all_match = False
 
         return res_lines, (has_requests, has_limits, all_match)
 
-    @staticmethod
-    def _inspect_container_resources(c: Dict[str, Any]) -> Tuple[str, bool, bool, bool]:
+    @classmethod
+    def _inspect_container_resources(
+        cls, c: Dict[str, Any]
+    ) -> Tuple[str, bool, bool, bool]:
         """Inspect single container resources returning description and boolean flags."""
         name = c.get("name", "container")
         res = c.get("resources", {})
@@ -139,8 +150,22 @@ class ClusterResourceAgent(BaseSpecialistAgent):
         line = f"- Container '{name}': Requests={json.dumps(req)}, Limits={json.dumps(lim)}"
         has_req = bool(req)
         has_lim = bool(lim)
-        match = bool(req and lim and req == lim)
+        match = cls._resources_equal_guaranteed(req, lim)
         return line, has_req, has_lim, match
+
+    @staticmethod
+    def _resources_equal_guaranteed(req: Dict[str, Any], lim: Dict[str, Any]) -> bool:
+        """Check if requests and limits both define matching cpu and memory for Guaranteed QoS."""
+        if not req:
+            return False
+        if not lim:
+            return False
+        if req != lim:
+            return False
+        required = {"cpu", "memory"}
+        if not required.issubset(req):
+            return False
+        return True
 
     @staticmethod
     def _extract_container_list(data: Any) -> List[Dict[str, Any]]:
@@ -158,24 +183,27 @@ class ClusterResourceAgent(BaseSpecialistAgent):
         has_requests: bool, has_limits: bool, all_match: bool
     ) -> str:
         """Determine Kubernetes QoS class based on request/limit matching."""
-        if has_requests and has_limits and all_match:
-            return "Guaranteed"
-        if has_requests or has_limits:
+        if all_match:
+            if has_requests:
+                if has_limits:
+                    return "Guaranteed"
+        if has_requests:
+            return "Burstable"
+        if has_limits:
             return "Burstable"
         return "BestEffort"
 
     @classmethod
     def _extract_node_conditions(cls, bundle: EvidenceBundle) -> str:
         """Extract node condition flags including MemoryPressure and DiskPressure."""
-        node_item = bundle.get("ev.node.conditions") or bundle.get("ev.node.status")
-        if (
-            node_item is None
-            or node_item.status != CollectionStatus.AVAILABLE
-            or not node_item.data
-        ):
+        node_item = bundle.get("ev.node.conditions")
+        if node_item is None:
+            node_item = bundle.get("ev.node.status")
+
+        if not cls._has_valid_evidence(node_item):
             return "Node conditions evidence unavailable."
 
-        data = node_item.data
+        data = node_item.data  # type: ignore[union-attr]
         conditions = data.get("conditions", data) if isinstance(data, dict) else data
         if not isinstance(conditions, list):
             return "Unrecognized node conditions format."
@@ -204,14 +232,10 @@ class ClusterResourceAgent(BaseSpecialistAgent):
     def _extract_oom_cgroup_status(cls, bundle: EvidenceBundle) -> str:
         """Extract cgroup OOM termination status from container status evidence."""
         status_item = bundle.get("ev.pod.container.status")
-        if (
-            status_item is None
-            or status_item.status != CollectionStatus.AVAILABLE
-            or not status_item.data
-        ):
+        if not cls._has_valid_evidence(status_item):
             return "Container cgroup status unavailable."
 
-        data = status_item.data
+        data = status_item.data  # type: ignore[union-attr]
         statuses = (
             data.get("containerStatuses", [data]) if isinstance(data, dict) else data
         )
@@ -241,24 +265,21 @@ class ClusterResourceAgent(BaseSpecialistAgent):
     @staticmethod
     def _is_oom_terminated(term: Dict[str, Any]) -> bool:
         """Check if terminated dict indicates OOMKilled reason or exit code 137."""
-        return term.get("reason") == "OOMKilled" or term.get("exitCode") == 137
+        if term.get("reason") == "OOMKilled":
+            return True
+        if term.get("exitCode") == 137:
+            return True
+        return False
 
     @classmethod
     def _extract_resource_events(cls, bundle: EvidenceBundle) -> str:
         """Extract events relating to scheduling capacity, evictions, and resource limits."""
         events_item = bundle.get("ev.pod.events")
-        if (
-            events_item is None
-            or events_item.status != CollectionStatus.AVAILABLE
-            or not events_item.data
-        ):
+        if not cls._has_valid_evidence(events_item):
             return "No event evidence recorded."
 
-        events = (
-            events_item.data
-            if isinstance(events_item.data, list)
-            else [events_item.data]
-        )
+        data = events_item.data  # type: ignore[union-attr]
+        events = data if isinstance(data, list) else [data]
         matched = [cls._format_event(ev) for ev in events if cls._is_resource_event(ev)]
 
         return (
@@ -280,9 +301,8 @@ class ClusterResourceAgent(BaseSpecialistAgent):
             "oomkilled",
             "pressure",
         )
-        reason = str(ev.get("reason", "")).lower()
-        msg = str(ev.get("message", "")).lower()
-        return any(kw in reason or kw in msg for kw in keywords)
+        text = f"{ev.get('reason', '')} {ev.get('message', '')}".lower()
+        return any(kw in text for kw in keywords)
 
     @staticmethod
     def _format_event(ev: Dict[str, Any]) -> str:

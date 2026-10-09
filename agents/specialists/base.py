@@ -118,6 +118,7 @@ class BaseSpecialistAgent(ABC):
             parsed = json.loads(cleaned)
             if not isinstance(parsed, dict):
                 parsed = {}
+            normalized = self._normalize_report(parsed)
             return {
                 "role": self.role,
                 "agentName": self.display_name,
@@ -125,7 +126,7 @@ class BaseSpecialistAgent(ABC):
                 "status": "completed",
                 "statusText": f"Completed {self.role} analysis",
                 "summary": parsed.get("summary", "Analysis completed."),
-                "evidence": parsed.get("evidence", []),
+                "evidence": normalized.get("evidence", []),
             }
         except Exception:
             return {
@@ -177,8 +178,9 @@ class BaseSpecialistAgent(ABC):
         stripped = text.strip()
         if stripped.startswith("```"):
             lines = stripped.splitlines()
-            if len(lines) >= 2 and lines[-1].strip() == "```":
-                return "\n".join(lines[1:-1]).strip()
+            if len(lines) >= 2:
+                if lines[-1].strip() == "```":
+                    return "\n".join(lines[1:-1]).strip()
             if len(lines) >= 1:
                 return "\n".join(lines[1:]).strip()
         return stripped

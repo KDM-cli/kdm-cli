@@ -10,6 +10,7 @@ Structured, domain-specialized SRE agents leveraging Ollama JSON mode:
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 
@@ -44,12 +45,15 @@ try:
         _spec = importlib.util.spec_from_file_location(
             "_legacy_specialists", _legacy_path
         )
-        if _spec and _spec.loader:
-            _mod = importlib.util.module_from_spec(_spec)
-            _spec.loader.exec_module(_mod)
-            _synth = getattr(_mod, "SynthesizerAgent", None)
-            if _synth is not None:
-                globals()["SynthesizerAgent"] = _synth
-                __all__.append("SynthesizerAgent")
+        if _spec is not None:
+            if _spec.loader is not None:
+                _mod = importlib.util.module_from_spec(_spec)
+                _spec.loader.exec_module(_mod)
+                _synth = getattr(_mod, "SynthesizerAgent", None)
+                if _synth is not None:
+                    globals()["SynthesizerAgent"] = _synth
+                    __all__.append("SynthesizerAgent")
 except Exception:
-    pass
+    logging.getLogger(__name__).exception(
+        "Failed to load legacy SynthesizerAgent from %s", _legacy_path
+    )

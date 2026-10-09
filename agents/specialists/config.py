@@ -74,6 +74,15 @@ class ConfigDependencyAgent(BaseSpecialistAgent):
         )
 
     @staticmethod
+    def _has_valid_evidence(item: Optional[Any]) -> bool:
+        """Check if an evidence item exists and was successfully collected."""
+        if item is None:
+            return False
+        if item.status != CollectionStatus.AVAILABLE:
+            return False
+        return bool(item.data)
+
+    @staticmethod
     def _extract_target(bundle: EvidenceBundle) -> str:
         """Format target identity from evidence bundle."""
         if not bundle.target:
@@ -88,10 +97,10 @@ class ConfigDependencyAgent(BaseSpecialistAgent):
     def _extract_waiting_reason(cls, bundle: EvidenceBundle) -> str:
         """Extract config-related container waiting states such as CreateContainerConfigError."""
         item = bundle.get("ev.pod.container.status")
-        if item is None or item.status != CollectionStatus.AVAILABLE or not item.data:
+        if not cls._has_valid_evidence(item):
             return "Container status evidence unavailable."
 
-        status_data = item.data
+        status_data = item.data  # type: ignore[union-attr]
         statuses = cls._extract_container_statuses(status_data)
         for s in statuses:
             matched = cls._match_config_waiting(s)
@@ -128,19 +137,16 @@ class ConfigDependencyAgent(BaseSpecialistAgent):
     @classmethod
     def _extract_probe_configs(cls, bundle: EvidenceBundle) -> str:
         """Extract probe configurations from pod specification evidence."""
-        spec_item = (
-            bundle.get("ev.pod.spec")
-            or bundle.get("ev.pod.manifest")
-            or bundle.get("ev.manifest")
-        )
-        if (
-            spec_item is None
-            or spec_item.status != CollectionStatus.AVAILABLE
-            or not spec_item.data
-        ):
+        spec_item = bundle.get("ev.pod.spec")
+        if spec_item is None:
+            spec_item = bundle.get("ev.pod.manifest")
+        if spec_item is None:
+            spec_item = bundle.get("ev.manifest")
+
+        if not cls._has_valid_evidence(spec_item):
             return "Pod specification evidence unavailable."
 
-        containers = cls._extract_containers_from_spec(spec_item.data)
+        containers = cls._extract_containers_from_spec(spec_item.data)  # type: ignore[union-attr]
         probe_lines = []
         for c in containers:
             probe_lines.extend(cls._format_container_probes(c))
@@ -161,6 +167,17 @@ class ConfigDependencyAgent(BaseSpecialistAgent):
         return spec_data.get("spec", {}).get("containers", [])
 
     @classmethod
+    def _extract_all_containers_from_spec(
+        cls, pod_spec: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """Extract regular and init containers from spec."""
+        containers = cls._extract_containers_from_spec(pod_spec)
+        init_c = pod_spec.get("initContainers", [])
+        if isinstance(init_c, list):
+            return containers + [c for c in init_c if isinstance(c, dict)]
+        return containers
+
+    @classmethod
     def _format_container_probes(cls, container: Any) -> List[str]:
         """Format liveness, readiness, and startup probes for a container."""
         if not isinstance(container, dict):
@@ -169,8 +186,9 @@ class ConfigDependencyAgent(BaseSpecialistAgent):
         lines = []
         for p_type in ("livenessProbe", "readinessProbe", "startupProbe"):
             probe = container.get(p_type)
-            if probe and isinstance(probe, dict):
-                lines.append(cls._format_single_probe(name, p_type, probe))
+            if probe:
+                if isinstance(probe, dict):
+                    lines.append(cls._format_single_probe(name, p_type, probe))
         return lines
 
     @staticmethod
@@ -185,32 +203,31 @@ class ConfigDependencyAgent(BaseSpecialistAgent):
 
     @classmethod
     def _extract_volume_and_env_configs(cls, bundle: EvidenceBundle) -> str:
-        """Extract volume mounts, configMap references, and secret references."""
-        spec_item = (
-            bundle.get("ev.pod.spec")
-            or bundle.get("ev.pod.manifest")
-            or bundle.get("ev.manifest")
-        )
-        if (
-            spec_item is None
-            or spec_item.status != CollectionStatus.AVAILABLE
-            or not spec_item.data
-        ):
+        """Extract volume mounts, configMap references, and secret references from spec and env."""
+        spec_item = bundle.get("ev.pod.spec")
+        if spec_item is None:
+            spec_item = bundle.get("ev.pod.manifest")
+        if spec_item is None:
+            spec_item = bundle.get("ev.manifest")
+
+        if not cls._has_valid_evidence(spec_item):
             return "Volume & env config evidence unavailable."
 
-        data = spec_item.data
+        data = spec_item.data  # type: ignore[union-attr]
         if not isinstance(data, dict):
             return "Non-dict spec data."
 
         pod_spec = data.get("spec", data)
         volumes = pod_spec.get("volumes", [])
-        vol_lines = [line for v in volumes if (line := cls._format_volume_entry(v))]
+        lines = [line for v in volumes if (line := cls._format_volume_entry(v))]
 
-        return (
-            "\n".join(vol_lines)
-            if vol_lines
-            else "No ConfigMap or Secret volumes declared."
-        )
+        containers = cls._extract_all_containers_from_spec(pod_spec)
+        for c in containers:
+            lines.extend(cls._format_container_env_refs(c))
+
+        if not lines:
+            return "No ConfigMap or Secret volumes/environment references declared."
+        return "\n".join(lines)
 
     @staticmethod
     def _format_volume_entry(v: Any) -> Optional[str]:
@@ -218,28 +235,68 @@ class ConfigDependencyAgent(BaseSpecialistAgent):
         if not isinstance(v, dict):
             return None
         v_name = v.get("name", "volume")
-        if "configMap" in v and isinstance(v["configMap"], dict):
-            return f"- Volume '{v_name}': ConfigMap '{v['configMap'].get('name')}'"
-        if "secret" in v and isinstance(v["secret"], dict):
-            return f"- Volume '{v_name}': Secret '{v['secret'].get('secretName')}'"
+        cm = v.get("configMap")
+        if isinstance(cm, dict):
+            return f"- Volume '{v_name}': ConfigMap '{cm.get('name')}'"
+        sec = v.get("secret")
+        if isinstance(sec, dict):
+            return f"- Volume '{v_name}': Secret '{sec.get('secretName')}'"
+        return None
+
+    @classmethod
+    def _format_container_env_refs(cls, container: Dict[str, Any]) -> List[str]:
+        """Extract envFrom and valueFrom ConfigMap/Secret references from a container."""
+        name = container.get("name", "container")
+        lines = []
+        for ef in container.get("envFrom", []):
+            entry = cls._format_env_from_entry(name, ef)
+            if entry:
+                lines.append(entry)
+        for ev in container.get("env", []):
+            entry = cls._format_env_var_entry(name, ev)
+            if entry:
+                lines.append(entry)
+        return lines
+
+    @staticmethod
+    def _format_env_from_entry(container_name: str, item: Any) -> Optional[str]:
+        """Format ConfigMap or Secret reference from envFrom entry."""
+        if not isinstance(item, dict):
+            return None
+        cm_ref = item.get("configMapRef")
+        if isinstance(cm_ref, dict):
+            return f"- Container '{container_name}' envFrom: ConfigMap '{cm_ref.get('name')}'"
+        sec_ref = item.get("secretRef")
+        if isinstance(sec_ref, dict):
+            return f"- Container '{container_name}' envFrom: Secret '{sec_ref.get('name')}'"
+        return None
+
+    @staticmethod
+    def _format_env_var_entry(container_name: str, item: Any) -> Optional[str]:
+        """Format ConfigMapKeyRef or SecretKeyRef from container env variable."""
+        if not isinstance(item, dict):
+            return None
+        vf = item.get("valueFrom")
+        if not isinstance(vf, dict):
+            return None
+        var_name = item.get("name", "env")
+        cm_ref = vf.get("configMapKeyRef")
+        if isinstance(cm_ref, dict):
+            return f"- Container '{container_name}' env '{var_name}': ConfigMap '{cm_ref.get('name')}' key '{cm_ref.get('key')}'"
+        sec_ref = vf.get("secretKeyRef")
+        if isinstance(sec_ref, dict):
+            return f"- Container '{container_name}' env '{var_name}': Secret '{sec_ref.get('name')}' key '{sec_ref.get('key')}'"
         return None
 
     @classmethod
     def _extract_config_events(cls, bundle: EvidenceBundle) -> str:
         """Extract events relating to probe failures, failed mounts, and missing secrets/configmaps."""
         events_item = bundle.get("ev.pod.events")
-        if (
-            events_item is None
-            or events_item.status != CollectionStatus.AVAILABLE
-            or not events_item.data
-        ):
+        if not cls._has_valid_evidence(events_item):
             return "No event evidence recorded."
 
-        events = (
-            events_item.data
-            if isinstance(events_item.data, list)
-            else [events_item.data]
-        )
+        data = events_item.data  # type: ignore[union-attr]
+        events = data if isinstance(data, list) else [data]
         matched = [cls._format_event(ev) for ev in events if cls._is_config_event(ev)]
 
         return (
@@ -262,9 +319,8 @@ class ConfigDependencyAgent(BaseSpecialistAgent):
             "unhealthy",
             "timeout",
         )
-        reason = str(ev.get("reason", "")).lower()
-        msg = str(ev.get("message", "")).lower()
-        return any(kw in reason or kw in msg for kw in keywords)
+        text = f"{ev.get('reason', '')} {ev.get('message', '')}".lower()
+        return any(kw in text for kw in keywords)
 
     @staticmethod
     def _format_event(ev: Dict[str, Any]) -> str:

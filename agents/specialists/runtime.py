@@ -74,6 +74,15 @@ class RuntimeLogAgent(BaseSpecialistAgent):
         )
 
     @staticmethod
+    def _has_valid_evidence(item: Optional[Any]) -> bool:
+        """Check if an evidence item exists and was successfully collected."""
+        if item is None:
+            return False
+        if item.status != CollectionStatus.AVAILABLE:
+            return False
+        return bool(item.data)
+
+    @staticmethod
     def _extract_target(bundle: EvidenceBundle) -> str:
         """Format target identity from evidence bundle."""
         if not bundle.target:
@@ -84,19 +93,20 @@ class RuntimeLogAgent(BaseSpecialistAgent):
             target_str += f", Container: {t.container_name}"
         return target_str
 
-    def _extract_container_status(self, bundle: EvidenceBundle) -> str:
+    @classmethod
+    def _extract_container_status(cls, bundle: EvidenceBundle) -> str:
         """Extract exit codes, termination reasons, and restart counts from container status."""
         item = bundle.get("ev.pod.container.status")
-        if item is None or item.status != CollectionStatus.AVAILABLE or not item.data:
+        if not cls._has_valid_evidence(item):
             return "Container status evidence unavailable."
 
-        status_data = item.data
+        status_data = item.data  # type: ignore[union-attr]
         target_name = bundle.target.container_name if bundle.target else None
-        target_status = self._find_target_container_status(status_data, target_name)
+        target_status = cls._find_target_container_status(status_data, target_name)
         if not target_status:
             return json.dumps(status_data, indent=2)
 
-        return self._format_status_entry(target_status)
+        return cls._format_status_entry(target_status)
 
     @classmethod
     def _find_target_container_status(
@@ -115,10 +125,12 @@ class RuntimeLogAgent(BaseSpecialistAgent):
     ) -> Dict[str, Any]:
         """Match container name in containerStatuses list or return entire status dict."""
         statuses = status_dict.get("containerStatuses")
-        if isinstance(statuses, list) and target_name:
-            for c in statuses:
-                if isinstance(c, dict) and c.get("name") == target_name:
-                    return c
+        if isinstance(statuses, list):
+            if target_name:
+                for c in statuses:
+                    if isinstance(c, dict):
+                        if c.get("name") == target_name:
+                            return c
         return status_dict
 
     @staticmethod
@@ -127,9 +139,11 @@ class RuntimeLogAgent(BaseSpecialistAgent):
     ) -> Optional[Dict[str, Any]]:
         """Find matching container in a list of container status objects."""
         for c in status_list:
-            if isinstance(c, dict) and (
-                not target_name or c.get("name") == target_name
-            ):
+            if not isinstance(c, dict):
+                continue
+            if not target_name:
+                return c
+            if c.get("name") == target_name:
                 return c
         return None
 
@@ -184,33 +198,29 @@ class RuntimeLogAgent(BaseSpecialistAgent):
             sections.append(curr)
         return "\n\n".join(sections)
 
-    @staticmethod
-    def _get_previous_logs(bundle: EvidenceBundle) -> str:
+    @classmethod
+    def _get_previous_logs(cls, bundle: EvidenceBundle) -> str:
         """Fetch previous crash logs or return explicit note if missing."""
-        prev_item = bundle.get("ev.pod.logs.previous") or bundle.get("ev.logs.previous")
-        if (
-            prev_item
-            and prev_item.status == CollectionStatus.AVAILABLE
-            and prev_item.data
-        ):
-            content = str(prev_item.data).strip()
+        prev_item = bundle.get("ev.pod.logs.previous")
+        if prev_item is None:
+            prev_item = bundle.get("ev.logs.previous")
+
+        if cls._has_valid_evidence(prev_item):
+            content = str(prev_item.data).strip()  # type: ignore[union-attr]
             return f"Previous Crash Logs:\n{content[:2000]}"
         return "Previous Crash Logs: No previous crash log was persisted (empty or unavailable)."
 
-    @staticmethod
-    def _get_current_logs(bundle: EvidenceBundle) -> Optional[str]:
+    @classmethod
+    def _get_current_logs(cls, bundle: EvidenceBundle) -> Optional[str]:
         """Fetch current container logs snippet if available."""
-        curr_item = (
-            bundle.get("ev.pod.logs.current")
-            or bundle.get("ev.pod.logs")
-            or bundle.get("ev.logs")
-        )
-        if (
-            curr_item
-            and curr_item.status == CollectionStatus.AVAILABLE
-            and curr_item.data
-        ):
-            content = str(curr_item.data).strip()
+        curr_item = bundle.get("ev.pod.logs.current")
+        if curr_item is None:
+            curr_item = bundle.get("ev.pod.logs")
+        if curr_item is None:
+            curr_item = bundle.get("ev.logs")
+
+        if cls._has_valid_evidence(curr_item):
+            content = str(curr_item.data).strip()  # type: ignore[union-attr]
             return f"Current Logs:\n{content[:2000]}"
         return None
 
@@ -218,18 +228,11 @@ class RuntimeLogAgent(BaseSpecialistAgent):
     def _extract_runtime_events(cls, bundle: EvidenceBundle) -> str:
         """Extract runtime lifecycle warning events."""
         events_item = bundle.get("ev.pod.events")
-        if (
-            events_item is None
-            or events_item.status != CollectionStatus.AVAILABLE
-            or not events_item.data
-        ):
+        if not cls._has_valid_evidence(events_item):
             return "No event evidence recorded."
 
-        events = (
-            events_item.data
-            if isinstance(events_item.data, list)
-            else [events_item.data]
-        )
+        data = events_item.data  # type: ignore[union-attr]
+        events = data if isinstance(data, list) else [data]
         matched = [cls._format_event(ev) for ev in events if cls._is_runtime_event(ev)]
         return (
             "\n".join(matched[:10])
@@ -251,9 +254,8 @@ class RuntimeLogAgent(BaseSpecialistAgent):
             "error",
             "oom",
         )
-        reason = str(ev.get("reason", "")).lower()
-        msg = str(ev.get("message", "")).lower()
-        return any(kw in reason or kw in msg for kw in keywords)
+        text = f"{ev.get('reason', '')} {ev.get('message', '')}".lower()
+        return any(kw in text for kw in keywords)
 
     @staticmethod
     def _format_event(ev: Dict[str, Any]) -> str:

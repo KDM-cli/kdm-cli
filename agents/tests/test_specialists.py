@@ -226,6 +226,22 @@ class TestBaseSpecialistAgent(unittest.TestCase):
         self.assertEqual(report["hypotheses"], ["Single hypothesis"])
         self.assertEqual(report["confidence"], "low")
 
+    def test_analyze_normalizes_evidence(self) -> None:
+        """Verify analyze() normalizes non-list/null evidence into a list."""
+        self.mock_client.chat.return_value = {
+            "message": {
+                "content": json.dumps(
+                    {
+                        "summary": "Legacy diagnosis",
+                        "evidence": "Single string evidence",
+                    }
+                )
+            }
+        }
+        res = self.agent.analyze("Failure occurred", {"namespace": "default"})
+        self.assertEqual(res["summary"], "Legacy diagnosis")
+        self.assertEqual(res["evidence"], ["Single string evidence"])
+
 
 class TestRuntimeLogAgent(unittest.TestCase):
     """Tests for :class:`~specialists.runtime.RuntimeLogAgent` domain diagnostics."""
@@ -417,6 +433,40 @@ class TestConfigDependencyAgent(unittest.TestCase):
         self.assertIn("app-config", report["summary"])
         self.assertEqual(len(report["evidence"]), 2)
 
+    def test_build_prompt_includes_env_and_init_container_configs(self) -> None:
+        """Verify build_prompt extracts envFrom and valueFrom references from spec."""
+        bundle = _make_bundle(container_name="web")
+        spec_data = {
+            "containers": [
+                {
+                    "name": "web",
+                    "envFrom": [{"configMapRef": {"name": "web-config"}}],
+                    "env": [
+                        {
+                            "name": "DB_PASSWORD",
+                            "valueFrom": {
+                                "secretKeyRef": {
+                                    "name": "db-secret",
+                                    "key": "password",
+                                }
+                            },
+                        }
+                    ],
+                }
+            ],
+            "initContainers": [
+                {
+                    "name": "init-db",
+                    "envFrom": [{"secretRef": {"name": "vault-token"}}],
+                }
+            ],
+        }
+        _add_evidence(bundle, "ev.pod.spec", spec_data)
+        prompt = self.agent.build_prompt(bundle)
+        self.assertIn("Container 'web' envFrom: ConfigMap 'web-config'", prompt)
+        self.assertIn("Container 'web' env 'DB_PASSWORD': Secret 'db-secret'", prompt)
+        self.assertIn("Container 'init-db' envFrom: Secret 'vault-token'", prompt)
+
 
 class TestClusterResourceAgent(unittest.TestCase):
     """Tests for :class:`~specialists.resource.ClusterResourceAgent` domain diagnostics."""
@@ -499,11 +549,26 @@ class TestClusterResourceAgent(unittest.TestCase):
                 }
             ]
         }
+        cpu_only_spec = {
+            "containers": [
+                {
+                    "name": "c1",
+                    "resources": {
+                        "requests": {"cpu": "1"},
+                        "limits": {"cpu": "1"},
+                    },
+                }
+            ]
+        }
         best_effort_spec = {"containers": [{"name": "c2", "resources": {}}]}
 
         g_bundle = _make_bundle()
         _add_evidence(g_bundle, "ev.pod.spec", guaranteed_spec)
         self.assertIn("Guaranteed", self.agent.build_prompt(g_bundle))
+
+        cpu_bundle = _make_bundle()
+        _add_evidence(cpu_bundle, "ev.pod.spec", cpu_only_spec)
+        self.assertIn("Burstable", self.agent.build_prompt(cpu_bundle))
 
         b_bundle = _make_bundle()
         _add_evidence(b_bundle, "ev.pod.spec", best_effort_spec)
