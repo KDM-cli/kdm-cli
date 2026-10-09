@@ -46,6 +46,7 @@ To set up your development environment:
    ```bash
    npm install
    ```
+   *(This automatically initializes Husky Git hooks to ensure code quality standards on commit and push)*
 3. To start the development watcher:
    ```bash
    npm run dev
