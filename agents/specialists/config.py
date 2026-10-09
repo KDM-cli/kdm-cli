@@ -183,13 +183,23 @@ class ConfigDependencyAgent(BaseSpecialistAgent):
         if not isinstance(container, dict):
             return []
         name = container.get("name", "container")
+        probe_types = ("livenessProbe", "readinessProbe", "startupProbe")
         lines = []
-        for p_type in ("livenessProbe", "readinessProbe", "startupProbe"):
-            probe = container.get(p_type)
-            if probe:
-                if isinstance(probe, dict):
-                    lines.append(cls._format_single_probe(name, p_type, probe))
+        for p_type in probe_types:
+            line = cls._extract_probe_line(name, container, p_type)
+            if line:
+                lines.append(line)
         return lines
+
+    @classmethod
+    def _extract_probe_line(
+        cls, container_name: str, container: Dict[str, Any], probe_type: str
+    ) -> Optional[str]:
+        """Extract formatted line for a probe if present in container."""
+        probe = container.get(probe_type)
+        if isinstance(probe, dict):
+            return cls._format_single_probe(container_name, probe_type, probe)
+        return None
 
     @staticmethod
     def _format_single_probe(
@@ -247,16 +257,17 @@ class ConfigDependencyAgent(BaseSpecialistAgent):
     def _format_container_env_refs(cls, container: Dict[str, Any]) -> List[str]:
         """Extract envFrom and valueFrom ConfigMap/Secret references from a container."""
         name = container.get("name", "container")
-        lines = []
-        for ef in container.get("envFrom", []):
-            entry = cls._format_env_from_entry(name, ef)
-            if entry:
-                lines.append(entry)
-        for ev in container.get("env", []):
-            entry = cls._format_env_var_entry(name, ev)
-            if entry:
-                lines.append(entry)
-        return lines
+        env_from_lines = [
+            line
+            for ef in container.get("envFrom", [])
+            if (line := cls._format_env_from_entry(name, ef))
+        ]
+        env_var_lines = [
+            line
+            for ev in container.get("env", [])
+            if (line := cls._format_env_var_entry(name, ev))
+        ]
+        return env_from_lines + env_var_lines
 
     @staticmethod
     def _format_env_from_entry(container_name: str, item: Any) -> Optional[str]:

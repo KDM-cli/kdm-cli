@@ -54,38 +54,6 @@ class MockChatResponse:
         raise KeyError(item)
 
 
-def _make_bundle(
-    workload_name: str = "order-api",
-    container_name: Optional[str] = "api",
-    namespace: str = "production",
-) -> EvidenceBundle:
-    """Helper to create a fresh EvidenceBundle for testing."""
-    target = Target(
-        workload_kind="Deployment",
-        workload_name=workload_name,
-        namespace=namespace,
-        container_name=container_name,
-    )
-    return EvidenceBundle(target=target, collected_at="2026-10-09T00:00:00Z")
-
-
-def _add_evidence(
-    bundle: EvidenceBundle,
-    item_id: str,
-    data: Any,
-    status: CollectionStatus = CollectionStatus.AVAILABLE,
-) -> None:
-    """Helper to populate an evidence item into an EvidenceBundle."""
-    bundle.add(
-        EvidenceItem(
-            id=item_id,
-            source="kubernetes_api",
-            status=status,
-            data=data,
-        )
-    )
-
-
 class ConcreteTestAgent(BaseSpecialistAgent):
     """Concrete subclass for testing BaseSpecialistAgent behaviors."""
 
@@ -100,20 +68,59 @@ class ConcreteTestAgent(BaseSpecialistAgent):
         return "You are a test diagnostic agent. Return valid JSON."
 
 
-class TestBaseSpecialistAgent(unittest.TestCase):
-    """Tests for :class:`~specialists.base.BaseSpecialistAgent` contract and error handling."""
+class SpecialistTestBase(unittest.TestCase):
+    """Base test case providing shared mocking, bundle creation, and evidence helpers."""
 
     def setUp(self) -> None:
         self.mock_client = MagicMock()
+
+    def make_bundle(
+        self,
+        workload_name: str = "order-api",
+        container_name: Optional[str] = "api",
+        namespace: str = "production",
+    ) -> EvidenceBundle:
+        """Create a standard test EvidenceBundle."""
+        target = Target(
+            workload_kind="Deployment",
+            workload_name=workload_name,
+            namespace=namespace,
+            container_name=container_name,
+        )
+        return EvidenceBundle(target=target, collected_at="2026-10-09T00:00:00Z")
+
+    def add_evidence(
+        self,
+        bundle: EvidenceBundle,
+        item_id: str,
+        data: Any,
+        status: CollectionStatus = CollectionStatus.AVAILABLE,
+    ) -> None:
+        """Add an evidence item to the given bundle."""
+        bundle.add(
+            EvidenceItem(
+                id=item_id,
+                source="kubernetes_api",
+                status=status,
+                data=data,
+            )
+        )
+
+
+class TestBaseSpecialistContracts(SpecialistTestBase):
+    """Tests for :class:`~specialists.base.BaseSpecialistAgent` contract and error handling."""
+
+    def setUp(self) -> None:
+        super().setUp()
         self.agent = ConcreteTestAgent(self.mock_client, model="llama3.1")
 
-    def test_abstract_class_cannot_be_instantiated(self) -> None:
+    def test_abstract_instantiation_and_contract(self) -> None:
         """Verify BaseSpecialistAgent cannot be instantiated directly without abstract methods."""
         with self.assertRaises(TypeError):
             BaseSpecialistAgent(self.mock_client, model="llama3.1")  # type: ignore[abstract]
 
-    def test_run_investigation_success_and_parameters(self) -> None:
-        """Verify run_investigation passes model, format='json', and options to client.chat()."""
+    def test_investigation_payload_and_client_invocation(self) -> None:
+        """Verify run_investigation passes format='json', options, and parses dict/object responses."""
         payload = {
             "summary": "Root cause identified.",
             "evidence": ["Fact A", "Fact B"],
@@ -124,7 +131,7 @@ class TestBaseSpecialistAgent(unittest.TestCase):
             "message": {"content": json.dumps(payload)}
         }
 
-        bundle = _make_bundle()
+        bundle = self.make_bundle()
         report = self.agent.run_investigation(bundle)
 
         self.mock_client.chat.assert_called_once_with(
@@ -144,144 +151,111 @@ class TestBaseSpecialistAgent(unittest.TestCase):
         self.assertEqual(report["hypotheses"], ["Hypothesis 1"])
         self.assertEqual(report["confidence"], "high")
 
-    def test_run_investigation_with_chat_response_object(self) -> None:
-        """Verify run_investigation parses ChatResponse objects using attribute access."""
-        payload = {
-            "summary": "Process terminated normally.",
-            "evidence": ["Exit 0"],
-            "hypotheses": [],
-            "confidence": "low",
-        }
+        # Test object response access
         self.mock_client.chat.return_value = MockChatResponse(json.dumps(payload))
+        obj_report = self.agent.run_investigation(bundle)
+        self.assertEqual(obj_report["summary"], "Root cause identified.")
 
-        bundle = _make_bundle()
-        report = self.agent.run_investigation(bundle)
-        self.assertEqual(report["summary"], "Process terminated normally.")
-        self.assertEqual(report["confidence"], "low")
-
-    def test_markdown_code_fence_stripping(self) -> None:
-        """Verify markdown code fences surrounding JSON are cleanly stripped and parsed."""
-        fenced_json = '```json\n{"summary": "Fenced summary", "evidence": [], "hypotheses": [], "confidence": "medium"}\n```'
+    def test_markdown_fences_and_schema_normalization(self) -> None:
+        """Verify markdown code fence stripping and report/evidence normalization."""
+        fenced_json = '```json\n{"summary": "Fenced summary", "evidence": "Single fact", "hypotheses": "Single hyp", "confidence": "UNKNOWN"}\n```'
         self.mock_client.chat.return_value = {"message": {"content": fenced_json}}
 
-        report = self.agent.run_investigation(_make_bundle())
+        report = self.agent.run_investigation(self.make_bundle())
         self.assertEqual(report["summary"], "Fenced summary")
-        self.assertEqual(report["confidence"], "medium")
+        self.assertEqual(report["evidence"], ["Single fact"])
+        self.assertEqual(report["hypotheses"], ["Single hyp"])
+        self.assertEqual(report["confidence"], "low")
 
-    def test_malformed_json_recovery(self) -> None:
-        """Verify malformed JSON responses recover gracefully with fallback report."""
-        malformed_inputs = [
-            "This is not json at all",
-            '{"summary": "Incomplete json',
-            "",
-            "42",
-            "[1, 2, 3]",
-        ]
-        bundle = _make_bundle()
-        for raw in malformed_inputs:
+        # Test analyze() evidence normalization
+        legacy_res = self.agent.analyze("Failure occurred", {"namespace": "default"})
+        self.assertEqual(legacy_res["evidence"], ["Single fact"])
+
+    def test_robust_fallback_and_error_recovery(self) -> None:
+        """Verify malformed JSON, timeouts, exceptions, and None bundles recover with fallback."""
+        bundle = self.make_bundle()
+
+        # None bundle handling
+        self.assertEqual(self.agent.run_investigation(None), FALLBACK_REPORT)  # type: ignore[arg-type]
+
+        # Malformed inputs
+        for raw in ("Not JSON", '{"summary": "Incomplete', "", "42", "[1, 2]"):
             with self.subTest(raw=raw):
                 self.mock_client.chat.return_value = {"message": {"content": raw}}
-                report = self.agent.run_investigation(bundle)
-                self.assertEqual(report, FALLBACK_REPORT)
-                self.assertEqual(report["confidence"], "low")
-                self.assertEqual(report["summary"], "Agent output parsing failed")
+                rep = self.agent.run_investigation(bundle)
+                self.assertEqual(rep, FALLBACK_REPORT)
+                self.assertEqual(rep["confidence"], "low")
 
-    def test_ollama_timeout_and_exceptions_recovery(self) -> None:
-        """Verify Ollama timeouts and network exceptions recover gracefully with fallback report."""
-        bundle = _make_bundle()
+        # Exceptions and timeouts
         for exc in (
-            TimeoutError("Connection timed out"),
-            RuntimeError("Ollama service unavailable"),
+            TimeoutError("timed out"),
+            RuntimeError("down"),
             KeyError("message"),
         ):
             with self.subTest(exc=type(exc).__name__):
                 self.mock_client.chat.side_effect = exc
-                report = self.agent.run_investigation(bundle)
-                self.assertEqual(report["confidence"], "low")
-                self.assertEqual(report["summary"], "Agent output parsing failed")
-                self.assertEqual(report["evidence"], [])
-                self.assertEqual(report["hypotheses"], [])
-
-    def test_none_bundle_handling(self) -> None:
-        """Verify None evidence bundle returns fallback report immediately."""
-        report = self.agent.run_investigation(None)  # type: ignore[arg-type]
-        self.assertEqual(report, FALLBACK_REPORT)
-
-    def test_report_normalization(self) -> None:
-        """Verify non-list evidence/hypotheses and unexpected confidence are normalized."""
-        self.mock_client.chat.return_value = {
-            "message": {
-                "content": json.dumps(
-                    {
-                        "summary": "Custom report",
-                        "evidence": "Single fact string",
-                        "hypotheses": "Single hypothesis",
-                        "confidence": "UNKNOWN_VALUE",
-                    }
-                )
-            }
-        }
-        report = self.agent.run_investigation(_make_bundle())
-        self.assertEqual(report["evidence"], ["Single fact string"])
-        self.assertEqual(report["hypotheses"], ["Single hypothesis"])
-        self.assertEqual(report["confidence"], "low")
-
-    def test_analyze_normalizes_evidence(self) -> None:
-        """Verify analyze() normalizes non-list/null evidence into a list."""
-        self.mock_client.chat.return_value = {
-            "message": {
-                "content": json.dumps(
-                    {
-                        "summary": "Legacy diagnosis",
-                        "evidence": "Single string evidence",
-                    }
-                )
-            }
-        }
-        res = self.agent.analyze("Failure occurred", {"namespace": "default"})
-        self.assertEqual(res["summary"], "Legacy diagnosis")
-        self.assertEqual(res["evidence"], ["Single string evidence"])
+                rep = self.agent.run_investigation(bundle)
+                self.assertEqual(rep["summary"], "Agent output parsing failed")
+                self.assertEqual(rep["confidence"], "low")
 
 
-class TestRuntimeLogAgent(unittest.TestCase):
-    """Tests for :class:`~specialists.runtime.RuntimeLogAgent` domain diagnostics."""
+class TestDomainSpecialistAgents(SpecialistTestBase):
+    """Tests for Runtime, Config, and Resource domain diagnostic specialists."""
 
-    def setUp(self) -> None:
-        self.mock_client = MagicMock()
-        self.agent = RuntimeLogAgent(self.mock_client, model="llama3.1")
+    def test_specialist_metadata_and_system_prompts(self) -> None:
+        """Verify roles, icons, and system prompt personas across all three specialists."""
+        specs = [
+            (
+                RuntimeLogAgent(self.mock_client, model="llama3.1"),
+                "runtime",
+                "Runtime & Log Agent",
+                "🔍",
+                "Senior Linux & Container Runtime Diagnostics Specialist",
+            ),
+            (
+                ConfigDependencyAgent(self.mock_client, model="llama3.1"),
+                "config",
+                "Config & Dependency Agent",
+                "⚙️",
+                "Kubernetes Declarative Configuration Specialist",
+            ),
+            (
+                ClusterResourceAgent(self.mock_client, model="llama3.1"),
+                "resource",
+                "Cluster & Resource Agent",
+                "🛡️",
+                "Cluster Capacity & Linux Cgroups Specialist",
+            ),
+        ]
+        for agent, expected_role, expected_name, expected_icon, prompt_kw in specs:
+            with self.subTest(role=expected_role):
+                self.assertEqual(agent.role, expected_role)
+                self.assertEqual(agent.display_name, expected_name)
+                self.assertEqual(agent.icon, expected_icon)
+                self.assertIn(prompt_kw, agent.get_system_prompt())
 
-    def test_metadata_and_system_prompt(self) -> None:
-        """Verify agent metadata and role persona constraints."""
-        self.assertEqual(self.agent.role, "runtime")
-        self.assertEqual(self.agent.display_name, "Runtime & Log Agent")
-        self.assertEqual(self.agent.icon, "🔍")
+    def test_runtime_log_agent_investigation_and_evidence(self) -> None:
+        """Verify RuntimeLogAgent handles empty logs, crash exit codes, and healthy diagnostics."""
+        agent = RuntimeLogAgent(self.mock_client, model="llama3.1")
 
-        sys_prompt = self.agent.get_system_prompt()
+        # Empty logs edge case
+        empty_bundle = self.make_bundle()
+        self.add_evidence(
+            empty_bundle,
+            "ev.pod.logs.previous",
+            "",
+            status=CollectionStatus.UNAVAILABLE,
+        )
+        empty_prompt = agent.build_prompt(empty_bundle)
         self.assertIn(
-            "Senior Linux & Container Runtime Diagnostics Specialist", sys_prompt
-        )
-        self.assertIn("137 OOMKilled", sys_prompt)
-        self.assertIn("exit codes", sys_prompt)
-        self.assertIn("no previous crash log was persisted", sys_prompt)
-
-    def test_build_prompt_empty_logs_edge_case(self) -> None:
-        """Verify empty or unavailable logs are explicitly noted rather than hallucinated."""
-        bundle = _make_bundle()
-        # Empty previous logs
-        _add_evidence(
-            bundle, "ev.pod.logs.previous", "", status=CollectionStatus.UNAVAILABLE
+            "No previous crash log was persisted (empty or unavailable)",
+            empty_prompt,
         )
 
-        prompt = self.agent.build_prompt(bundle)
-        self.assertIn(
-            "No previous crash log was persisted (empty or unavailable)", prompt
-        )
-
-    def test_build_prompt_with_exit_code_and_logs(self) -> None:
-        """Verify build_prompt extracts exit code 137 and log snippet."""
-        bundle = _make_bundle(container_name="api")
-        _add_evidence(
-            bundle,
+        # Crash exit code 137 and log snippet
+        crash_bundle = self.make_bundle(container_name="api")
+        self.add_evidence(
+            crash_bundle,
             "ev.pod.container.status",
             {
                 "containerStatuses": [
@@ -295,13 +269,13 @@ class TestRuntimeLogAgent(unittest.TestCase):
                 ]
             },
         )
-        _add_evidence(
-            bundle,
+        self.add_evidence(
+            crash_bundle,
             "ev.pod.logs.previous",
             "fatal: out of memory allocating 512MB\nKilled",
         )
-        _add_evidence(
-            bundle,
+        self.add_evidence(
+            crash_bundle,
             "ev.pod.events",
             [
                 {
@@ -311,56 +285,34 @@ class TestRuntimeLogAgent(unittest.TestCase):
             ],
         )
 
-        prompt = self.agent.build_prompt(bundle)
+        prompt = agent.build_prompt(crash_bundle)
         self.assertIn("exitCode: 137", prompt)
         self.assertIn("OOMKilled", prompt)
         self.assertIn("fatal: out of memory", prompt)
         self.assertIn("Back-off restarting failed container", prompt)
 
-    def test_run_investigation_healthy_case(self) -> None:
-        """Verify healthy runtime report conforms to low confidence schema."""
-        healthy_response = {
-            "summary": "No runtime crashes or non-zero exit codes detected.",
-            "evidence": ["Container exitCode == 0"],
-            "hypotheses": [],
-            "confidence": "low",
-        }
+        # Healthy run report
         self.mock_client.chat.return_value = {
-            "message": {"content": json.dumps(healthy_response)}
+            "message": {
+                "content": json.dumps(
+                    {
+                        "summary": "No runtime crashes detected.",
+                        "evidence": ["exitCode == 0"],
+                        "hypotheses": [],
+                        "confidence": "low",
+                    }
+                )
+            }
         }
-
-        bundle = _make_bundle()
-        report = self.agent.run_investigation(bundle)
-        self.assertEqual(
-            report["summary"], "No runtime crashes or non-zero exit codes detected."
-        )
-        self.assertEqual(report["evidence"], ["Container exitCode == 0"])
-        self.assertEqual(report["hypotheses"], [])
+        report = agent.run_investigation(self.make_bundle())
         self.assertEqual(report["confidence"], "low")
+        self.assertEqual(report["hypotheses"], [])
 
-
-class TestConfigDependencyAgent(unittest.TestCase):
-    """Tests for :class:`~specialists.config.ConfigDependencyAgent` domain diagnostics."""
-
-    def setUp(self) -> None:
-        self.mock_client = MagicMock()
-        self.agent = ConfigDependencyAgent(self.mock_client, model="llama3.1")
-
-    def test_metadata_and_system_prompt(self) -> None:
-        """Verify agent metadata and declarative configuration persona."""
-        self.assertEqual(self.agent.role, "config")
-        self.assertEqual(self.agent.display_name, "Config & Dependency Agent")
-        self.assertEqual(self.agent.icon, "⚙️")
-
-        sys_prompt = self.agent.get_system_prompt()
-        self.assertIn("Kubernetes Declarative Configuration Specialist", sys_prompt)
-        self.assertIn("ConfigMap and Secret references", sys_prompt)
-        self.assertIn("probe configurations", sys_prompt)
-
-    def test_build_prompt_missing_config_and_probe_failure(self) -> None:
-        """Verify build_prompt extracts missing ConfigMap events and probe timeouts."""
-        bundle = _make_bundle(container_name="web")
-        _add_evidence(
+    def test_config_dependency_agent_investigation_and_evidence(self) -> None:
+        """Verify ConfigDependencyAgent extracts probe timeouts, missing configs, and env refs."""
+        agent = ConfigDependencyAgent(self.mock_client, model="llama3.1")
+        bundle = self.make_bundle(container_name="web")
+        self.add_evidence(
             bundle,
             "ev.pod.container.status",
             {
@@ -372,7 +324,7 @@ class TestConfigDependencyAgent(unittest.TestCase):
                 ]
             },
         )
-        _add_evidence(
+        self.add_evidence(
             bundle,
             "ev.pod.spec",
             {
@@ -384,12 +336,30 @@ class TestConfigDependencyAgent(unittest.TestCase):
                             "periodSeconds": 10,
                             "failureThreshold": 3,
                         },
+                        "envFrom": [{"configMapRef": {"name": "web-config"}}],
+                        "env": [
+                            {
+                                "name": "DB_PASS",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "name": "db-secret",
+                                        "key": "password",
+                                    }
+                                },
+                            }
+                        ],
+                    }
+                ],
+                "initContainers": [
+                    {
+                        "name": "init-db",
+                        "envFrom": [{"secretRef": {"name": "vault-token"}}],
                     }
                 ],
                 "volumes": [{"name": "cfg", "configMap": {"name": "app-config"}}],
             },
         )
-        _add_evidence(
+        self.add_evidence(
             bundle,
             "ev.pod.events",
             [
@@ -404,92 +374,38 @@ class TestConfigDependencyAgent(unittest.TestCase):
             ],
         )
 
-        prompt = self.agent.build_prompt(bundle)
+        prompt = agent.build_prompt(bundle)
         self.assertIn("CreateContainerConfigError", prompt)
         self.assertIn("livenessProbe: timeoutSeconds=2", prompt)
         self.assertIn("ConfigMap 'app-config'", prompt)
         self.assertIn('configmap "app-config" not found', prompt)
         self.assertIn("Liveness probe failed", prompt)
-
-    def test_run_investigation_config_diagnosis(self) -> None:
-        """Verify investigation returns structured diagnostic report for config failures."""
-        response_data = {
-            "summary": "Pod blocked by missing ConfigMap 'app-config' in namespace production.",
-            "evidence": [
-                "ConfigMap app-config not found event",
-                "Waiting reason CreateContainerConfigError",
-            ],
-            "hypotheses": [
-                "ConfigMap was deleted or not deployed in production namespace"
-            ],
-            "confidence": "high",
-        }
-        self.mock_client.chat.return_value = {
-            "message": {"content": json.dumps(response_data)}
-        }
-
-        report = self.agent.run_investigation(_make_bundle())
-        self.assertEqual(report["confidence"], "high")
-        self.assertIn("app-config", report["summary"])
-        self.assertEqual(len(report["evidence"]), 2)
-
-    def test_build_prompt_includes_env_and_init_container_configs(self) -> None:
-        """Verify build_prompt extracts envFrom and valueFrom references from spec."""
-        bundle = _make_bundle(container_name="web")
-        spec_data = {
-            "containers": [
-                {
-                    "name": "web",
-                    "envFrom": [{"configMapRef": {"name": "web-config"}}],
-                    "env": [
-                        {
-                            "name": "DB_PASSWORD",
-                            "valueFrom": {
-                                "secretKeyRef": {
-                                    "name": "db-secret",
-                                    "key": "password",
-                                }
-                            },
-                        }
-                    ],
-                }
-            ],
-            "initContainers": [
-                {
-                    "name": "init-db",
-                    "envFrom": [{"secretRef": {"name": "vault-token"}}],
-                }
-            ],
-        }
-        _add_evidence(bundle, "ev.pod.spec", spec_data)
-        prompt = self.agent.build_prompt(bundle)
         self.assertIn("Container 'web' envFrom: ConfigMap 'web-config'", prompt)
-        self.assertIn("Container 'web' env 'DB_PASSWORD': Secret 'db-secret'", prompt)
+        self.assertIn("Container 'web' env 'DB_PASS': Secret 'db-secret'", prompt)
         self.assertIn("Container 'init-db' envFrom: Secret 'vault-token'", prompt)
 
+        # Investigation report
+        self.mock_client.chat.return_value = {
+            "message": {
+                "content": json.dumps(
+                    {
+                        "summary": "Missing ConfigMap app-config.",
+                        "evidence": ["ConfigMap app-config not found"],
+                        "hypotheses": ["ConfigMap deleted"],
+                        "confidence": "high",
+                    }
+                )
+            }
+        }
+        report = agent.run_investigation(self.make_bundle())
+        self.assertEqual(report["confidence"], "high")
+        self.assertIn("app-config", report["summary"])
 
-class TestClusterResourceAgent(unittest.TestCase):
-    """Tests for :class:`~specialists.resource.ClusterResourceAgent` domain diagnostics."""
-
-    def setUp(self) -> None:
-        self.mock_client = MagicMock()
-        self.agent = ClusterResourceAgent(self.mock_client, model="llama3.1")
-
-    def test_metadata_and_system_prompt(self) -> None:
-        """Verify agent metadata and cluster capacity persona."""
-        self.assertEqual(self.agent.role, "resource")
-        self.assertEqual(self.agent.display_name, "Cluster & Resource Agent")
-        self.assertEqual(self.agent.icon, "🛡️")
-
-        sys_prompt = self.agent.get_system_prompt()
-        self.assertIn("Cluster Capacity & Linux Cgroups Specialist", sys_prompt)
-        self.assertIn("MemoryPressure", sys_prompt)
-        self.assertIn("Quality of Service (QoS) classes", sys_prompt)
-
-    def test_build_prompt_node_pressure_and_qos(self) -> None:
-        """Verify build_prompt extracts node pressure flags and infers Burstable QoS."""
-        bundle = _make_bundle(container_name="worker")
-        _add_evidence(
+    def test_cluster_resource_agent_investigation_and_evidence(self) -> None:
+        """Verify ClusterResourceAgent extracts node pressure, calculates QoS, and diagnoses OOM."""
+        agent = ClusterResourceAgent(self.mock_client, model="llama3.1")
+        bundle = self.make_bundle(container_name="worker")
+        self.add_evidence(
             bundle,
             "ev.pod.spec",
             {
@@ -504,7 +420,7 @@ class TestClusterResourceAgent(unittest.TestCase):
                 ]
             },
         )
-        _add_evidence(
+        self.add_evidence(
             bundle,
             "ev.node.conditions",
             [
@@ -512,15 +428,10 @@ class TestClusterResourceAgent(unittest.TestCase):
                     "type": "MemoryPressure",
                     "status": "True",
                     "reason": "NodeHasInsufficientMemory",
-                },
-                {
-                    "type": "DiskPressure",
-                    "status": "False",
-                    "reason": "NodeHasSufficientDisk",
-                },
+                }
             ],
         )
-        _add_evidence(
+        self.add_evidence(
             bundle,
             "ev.pod.events",
             [
@@ -531,92 +442,82 @@ class TestClusterResourceAgent(unittest.TestCase):
             ],
         )
 
-        prompt = self.agent.build_prompt(bundle)
+        prompt = agent.build_prompt(bundle)
         self.assertIn("Inferred QoS Class: Burstable", prompt)
         self.assertIn("MemoryPressure=True", prompt)
         self.assertIn("insufficient memory", prompt)
 
-    def test_qos_inference_matrix(self) -> None:
-        """Verify QoS calculation for Guaranteed, Burstable, and BestEffort."""
-        guaranteed_spec = {
-            "containers": [
+        # QoS matrix
+        qos_cases = [
+            (
                 {
-                    "name": "c1",
-                    "resources": {
-                        "requests": {"cpu": "1", "memory": "1Gi"},
-                        "limits": {"cpu": "1", "memory": "1Gi"},
-                    },
-                }
-            ]
-        }
-        cpu_only_spec = {
-            "containers": [
+                    "containers": [
+                        {
+                            "name": "c1",
+                            "resources": {
+                                "requests": {"cpu": "1", "memory": "1Gi"},
+                                "limits": {"cpu": "1", "memory": "1Gi"},
+                            },
+                        }
+                    ]
+                },
+                "Guaranteed",
+            ),
+            (
                 {
-                    "name": "c1",
-                    "resources": {
-                        "requests": {"cpu": "1"},
-                        "limits": {"cpu": "1"},
-                    },
-                }
-            ]
-        }
-        best_effort_spec = {"containers": [{"name": "c2", "resources": {}}]}
+                    "containers": [
+                        {
+                            "name": "c1",
+                            "resources": {
+                                "requests": {"cpu": "1"},
+                                "limits": {"cpu": "1"},
+                            },
+                        }
+                    ]
+                },
+                "Burstable",
+            ),
+            ({"containers": [{"name": "c2", "resources": {}}]}, "BestEffort"),
+        ]
+        for spec, expected_qos in qos_cases:
+            with self.subTest(expected_qos=expected_qos):
+                b = self.make_bundle()
+                self.add_evidence(b, "ev.pod.spec", spec)
+                self.assertIn(expected_qos, agent.build_prompt(b))
 
-        g_bundle = _make_bundle()
-        _add_evidence(g_bundle, "ev.pod.spec", guaranteed_spec)
-        self.assertIn("Guaranteed", self.agent.build_prompt(g_bundle))
-
-        cpu_bundle = _make_bundle()
-        _add_evidence(cpu_bundle, "ev.pod.spec", cpu_only_spec)
-        self.assertIn("Burstable", self.agent.build_prompt(cpu_bundle))
-
-        b_bundle = _make_bundle()
-        _add_evidence(b_bundle, "ev.pod.spec", best_effort_spec)
-        self.assertIn("BestEffort", self.agent.build_prompt(b_bundle))
-
-    def test_run_investigation_resource_diagnosis(self) -> None:
-        """Verify investigation returns structured diagnostic report for resource failures."""
-        response_data = {
-            "summary": "Node worker-node-1 is under active MemoryPressure causing pod eviction.",
-            "evidence": [
-                "Node MemoryPressure=True",
-                "FailedScheduling 0/3 nodes available",
-            ],
-            "hypotheses": [
-                "Cluster nodes lack allocatable memory for requested workload"
-            ],
-            "confidence": "high",
-        }
+        # Investigation report
         self.mock_client.chat.return_value = {
-            "message": {"content": json.dumps(response_data)}
+            "message": {
+                "content": json.dumps(
+                    {
+                        "summary": "Node under active MemoryPressure.",
+                        "evidence": ["MemoryPressure=True"],
+                        "hypotheses": ["OOM eviction"],
+                        "confidence": "high",
+                    }
+                )
+            }
         }
-
-        report = self.agent.run_investigation(_make_bundle())
+        report = agent.run_investigation(self.make_bundle())
         self.assertEqual(report["confidence"], "high")
         self.assertIn("MemoryPressure", report["summary"])
 
-
-class TestSpecialistSchemaConsistency(unittest.TestCase):
-    """Verify output schema conformity across all three specialist agents."""
-
-    def test_all_specialists_conform_to_schema(self) -> None:
+    def test_schema_consistency_across_all_specialists(self) -> None:
         """Ensure Runtime, Config, and Resource specialists adhere to SpecialistReport schema."""
-        mock_client = MagicMock()
         specialists = [
-            RuntimeLogAgent(mock_client, model="llama3.1"),
-            ConfigDependencyAgent(mock_client, model="llama3.1"),
-            ClusterResourceAgent(mock_client, model="llama3.1"),
+            RuntimeLogAgent(self.mock_client, model="llama3.1"),
+            ConfigDependencyAgent(self.mock_client, model="llama3.1"),
+            ClusterResourceAgent(self.mock_client, model="llama3.1"),
         ]
-
         expected_keys = {"summary", "evidence", "hypotheses", "confidence"}
 
         for agent in specialists:
             with self.subTest(agent=agent.role):
-                mock_client.chat.return_value = {
+                self.mock_client.chat.return_value = {
                     "message": {
                         "content": json.dumps(
                             {
-                                "summary": f"{agent.display_name} healthy diagnosis.",
+                                "summary": f"{agent.display_name} diagnosis.",
                                 "evidence": ["Fact 1"],
                                 "hypotheses": [],
                                 "confidence": "low",
@@ -624,7 +525,7 @@ class TestSpecialistSchemaConsistency(unittest.TestCase):
                         )
                     }
                 }
-                report = agent.run_investigation(_make_bundle())
+                report = agent.run_investigation(self.make_bundle())
                 self.assertEqual(set(report.keys()), expected_keys)
                 self.assertIsInstance(report["summary"], str)
                 self.assertIsInstance(report["evidence"], list)

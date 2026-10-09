@@ -12,7 +12,7 @@ import json
 import logging
 import os
 import sys
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import ollama
 
@@ -129,18 +129,18 @@ class BaseSpecialistAgent(ABC):
                 "evidence": normalized.get("evidence", []),
             }
         except Exception:
+            fallback_label = "workload issue"
+            lines = failure_text.splitlines() if failure_text else []
+            if lines:
+                fallback_label = lines[0]
             return {
                 "role": self.role,
                 "agentName": self.display_name,
                 "icon": self.icon,
                 "status": "completed",
                 "statusText": f"Completed {self.role} analysis",
-                "summary": f"Failure detected in {self.role}: {failure_text.splitlines()[0] if failure_text else 'workload issue'}",
-                "evidence": [
-                    failure_text.splitlines()[0]
-                    if failure_text
-                    else "Lifecycle anomaly"
-                ],
+                "summary": f"Failure detected in {self.role}: {fallback_label}",
+                "evidence": [fallback_label],
             }
 
     def _parse_chat_response(self, response: Any) -> Dict[str, Any]:
@@ -156,58 +156,70 @@ class BaseSpecialistAgent(ABC):
             return dict(FALLBACK_REPORT)
 
     @staticmethod
-    def _extract_content(response: Any) -> str:
+    def _extract_from_message(msg: Any) -> str:
+        """Extract content from a message dictionary or object."""
+        if isinstance(msg, dict):
+            return str(msg.get("content", ""))
+        return str(getattr(msg, "content", ""))
+
+    @staticmethod
+    def _extract_item_content(response: Any) -> str:
+        """Fallback extraction for subscriptable response objects."""
+        try:
+            return str(response["message"]["content"])
+        except Exception:
+            return str(response)
+
+    @classmethod
+    def _extract_content(cls, response: Any) -> str:
         """Extract text content from dict or ChatResponse objects."""
         if isinstance(response, dict):
-            return response.get("message", {}).get("content", "")
+            return str(response.get("message", {}).get("content", ""))
         if hasattr(response, "message"):
-            msg = response.message
-            if isinstance(msg, dict):
-                return msg.get("content", "")
-            return getattr(msg, "content", "")
-        if hasattr(response, "__getitem__"):
-            try:
-                return response["message"]["content"]
-            except Exception:
-                pass
-        return str(response)
+            return cls._extract_from_message(response.message)
+        return cls._extract_item_content(response)
 
     @staticmethod
-    def _strip_markdown_fences(text: str) -> str:
+    def _unwrap_fenced_lines(lines: List[str]) -> str:
+        """Unwrap lines contained within markdown code fences."""
+        if not lines:
+            return ""
+        if lines[-1].strip() == "```":
+            return "\n".join(lines[1:-1]).strip()
+        return "\n".join(lines[1:]).strip()
+
+    @classmethod
+    def _strip_markdown_fences(cls, text: str) -> str:
         """Strip markdown code fence blocks if returned by the LLM."""
         stripped = text.strip()
-        if stripped.startswith("```"):
-            lines = stripped.splitlines()
-            if len(lines) >= 2:
-                if lines[-1].strip() == "```":
-                    return "\n".join(lines[1:-1]).strip()
-            if len(lines) >= 1:
-                return "\n".join(lines[1:]).strip()
-        return stripped
+        if not stripped.startswith("```"):
+            return stripped
+        return cls._unwrap_fenced_lines(stripped.splitlines())
 
     @staticmethod
-    def _normalize_report(data: Dict[str, Any]) -> Dict[str, Any]:
+    def _ensure_string_list(items: Any) -> List[str]:
+        """Ensure an input field is converted to a list of strings."""
+        if isinstance(items, list):
+            return [str(item) for item in items]
+        if items:
+            return [str(items)]
+        return []
+
+    @staticmethod
+    def _normalize_confidence(val: Any) -> str:
+        """Normalize confidence score to 'high', 'medium', or 'low'."""
+        text = str(val or "low").lower()
+        if text in ("high", "medium", "low"):
+            return text
+        return "low"
+
+    @classmethod
+    def _normalize_report(cls, data: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize report dictionary to ensure all required fields are typed."""
         summary = str(data.get("summary") or "Investigation completed.")
-        evidence = data.get("evidence")
-        if not isinstance(evidence, list):
-            evidence = [str(evidence)] if evidence else []
-        else:
-            evidence = [str(item) for item in evidence]
-
-        hypotheses = data.get("hypotheses")
-        if not isinstance(hypotheses, list):
-            hypotheses = [str(hypotheses)] if hypotheses else []
-        else:
-            hypotheses = [str(item) for item in hypotheses]
-
-        confidence = str(data.get("confidence") or "low").lower()
-        if confidence not in ("high", "medium", "low"):
-            confidence = "low"
-
         return {
             "summary": summary,
-            "evidence": evidence,
-            "hypotheses": hypotheses,
-            "confidence": confidence,
+            "evidence": cls._ensure_string_list(data.get("evidence")),
+            "hypotheses": cls._ensure_string_list(data.get("hypotheses")),
+            "confidence": cls._normalize_confidence(data.get("confidence")),
         }

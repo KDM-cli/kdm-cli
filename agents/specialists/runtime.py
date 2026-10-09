@@ -120,32 +120,42 @@ class RuntimeLogAgent(BaseSpecialistAgent):
         return None
 
     @staticmethod
-    def _match_dict_status(
-        status_dict: Dict[str, Any], target_name: Optional[str]
-    ) -> Dict[str, Any]:
-        """Match container name in containerStatuses list or return entire status dict."""
-        statuses = status_dict.get("containerStatuses")
-        if isinstance(statuses, list):
-            if target_name:
-                for c in statuses:
-                    if isinstance(c, dict):
-                        if c.get("name") == target_name:
-                            return c
-        return status_dict
-
-    @staticmethod
-    def _match_list_status(
-        status_list: List[Any], target_name: Optional[str]
+    def _find_named_container(
+        items: List[Dict[str, Any]], target_name: str
     ) -> Optional[Dict[str, Any]]:
-        """Find matching container in a list of container status objects."""
-        for c in status_list:
-            if not isinstance(c, dict):
-                continue
-            if not target_name:
-                return c
+        """Find container matching target name from list of dicts."""
+        for c in items:
             if c.get("name") == target_name:
                 return c
         return None
+
+    @classmethod
+    def _match_dict_status(
+        cls, status_dict: Dict[str, Any], target_name: Optional[str]
+    ) -> Dict[str, Any]:
+        """Match container name in containerStatuses list or return entire status dict."""
+        if not target_name:
+            return status_dict
+        statuses = status_dict.get("containerStatuses")
+        if not isinstance(statuses, list):
+            return status_dict
+        dict_items = [c for c in statuses if isinstance(c, dict)]
+        matched = cls._find_named_container(dict_items, target_name)
+        if matched is not None:
+            return matched
+        return status_dict
+
+    @classmethod
+    def _match_list_status(
+        cls, status_list: List[Any], target_name: Optional[str]
+    ) -> Optional[Dict[str, Any]]:
+        """Find matching container in a list of container status objects."""
+        dict_items = [c for c in status_list if isinstance(c, dict)]
+        if not dict_items:
+            return None
+        if not target_name:
+            return dict_items[0]
+        return cls._find_named_container(dict_items, target_name)
 
     @classmethod
     def _format_status_entry(cls, status: Dict[str, Any]) -> str:
