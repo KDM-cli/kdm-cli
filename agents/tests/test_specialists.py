@@ -234,8 +234,8 @@ class TestDomainSpecialistAgents(SpecialistTestBase):
                 self.assertEqual(agent.icon, expected_icon)
                 self.assertIn(prompt_kw, agent.get_system_prompt())
 
-    def test_runtime_log_agent_investigation_and_evidence(self) -> None:
-        """Verify RuntimeLogAgent handles empty logs, crash exit codes, and healthy diagnostics."""
+    def test_runtime_log_agent_prompt_evidence(self) -> None:
+        """Verify RuntimeLogAgent prompt extraction for empty logs, exit code 137, and events."""
         agent = RuntimeLogAgent(self.mock_client, model="llama3.1")
 
         # Empty logs edge case
@@ -291,7 +291,9 @@ class TestDomainSpecialistAgents(SpecialistTestBase):
         self.assertIn("fatal: out of memory", prompt)
         self.assertIn("Back-off restarting failed container", prompt)
 
-        # Healthy run report
+    def test_runtime_log_agent_healthy_diagnosis(self) -> None:
+        """Verify RuntimeLogAgent produces low-confidence report when healthy."""
+        agent = RuntimeLogAgent(self.mock_client, model="llama3.1")
         self.mock_client.chat.return_value = {
             "message": {
                 "content": json.dumps(
@@ -308,8 +310,8 @@ class TestDomainSpecialistAgents(SpecialistTestBase):
         self.assertEqual(report["confidence"], "low")
         self.assertEqual(report["hypotheses"], [])
 
-    def test_config_dependency_agent_investigation_and_evidence(self) -> None:
-        """Verify ConfigDependencyAgent extracts probe timeouts, missing configs, and env refs."""
+    def test_config_agent_probe_and_mount_evidence(self) -> None:
+        """Verify ConfigDependencyAgent extracts probe timeouts and missing ConfigMap mounts."""
         agent = ConfigDependencyAgent(self.mock_client, model="llama3.1")
         bundle = self.make_bundle(container_name="web")
         self.add_evidence(
@@ -336,24 +338,6 @@ class TestDomainSpecialistAgents(SpecialistTestBase):
                             "periodSeconds": 10,
                             "failureThreshold": 3,
                         },
-                        "envFrom": [{"configMapRef": {"name": "web-config"}}],
-                        "env": [
-                            {
-                                "name": "DB_PASS",
-                                "valueFrom": {
-                                    "secretKeyRef": {
-                                        "name": "db-secret",
-                                        "key": "password",
-                                    }
-                                },
-                            }
-                        ],
-                    }
-                ],
-                "initContainers": [
-                    {
-                        "name": "init-db",
-                        "envFrom": [{"secretRef": {"name": "vault-token"}}],
                     }
                 ],
                 "volumes": [{"name": "cfg", "configMap": {"name": "app-config"}}],
@@ -380,11 +364,49 @@ class TestDomainSpecialistAgents(SpecialistTestBase):
         self.assertIn("ConfigMap 'app-config'", prompt)
         self.assertIn('configmap "app-config" not found', prompt)
         self.assertIn("Liveness probe failed", prompt)
+
+    def test_config_agent_env_and_init_container_refs(self) -> None:
+        """Verify ConfigDependencyAgent extracts envFrom and valueFrom configs across containers."""
+        agent = ConfigDependencyAgent(self.mock_client, model="llama3.1")
+        bundle = self.make_bundle(container_name="web")
+        self.add_evidence(
+            bundle,
+            "ev.pod.spec",
+            {
+                "containers": [
+                    {
+                        "name": "web",
+                        "envFrom": [{"configMapRef": {"name": "web-config"}}],
+                        "env": [
+                            {
+                                "name": "DB_PASS",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "name": "db-secret",
+                                        "key": "password",
+                                    }
+                                },
+                            }
+                        ],
+                    }
+                ],
+                "initContainers": [
+                    {
+                        "name": "init-db",
+                        "envFrom": [{"secretRef": {"name": "vault-token"}}],
+                    }
+                ],
+            },
+        )
+
+        prompt = agent.build_prompt(bundle)
         self.assertIn("Container 'web' envFrom: ConfigMap 'web-config'", prompt)
         self.assertIn("Container 'web' env 'DB_PASS': Secret 'db-secret'", prompt)
         self.assertIn("Container 'init-db' envFrom: Secret 'vault-token'", prompt)
 
-        # Investigation report
+    def test_config_dependency_agent_investigation_report(self) -> None:
+        """Verify ConfigDependencyAgent returns structured diagnostic report for missing configs."""
+        agent = ConfigDependencyAgent(self.mock_client, model="llama3.1")
         self.mock_client.chat.return_value = {
             "message": {
                 "content": json.dumps(
@@ -401,8 +423,8 @@ class TestDomainSpecialistAgents(SpecialistTestBase):
         self.assertEqual(report["confidence"], "high")
         self.assertIn("app-config", report["summary"])
 
-    def test_cluster_resource_agent_investigation_and_evidence(self) -> None:
-        """Verify ClusterResourceAgent extracts node pressure, calculates QoS, and diagnoses OOM."""
+    def test_cluster_resource_agent_prompt_and_events(self) -> None:
+        """Verify ClusterResourceAgent extracts node pressure conditions and scheduling events."""
         agent = ClusterResourceAgent(self.mock_client, model="llama3.1")
         bundle = self.make_bundle(container_name="worker")
         self.add_evidence(
@@ -447,7 +469,9 @@ class TestDomainSpecialistAgents(SpecialistTestBase):
         self.assertIn("MemoryPressure=True", prompt)
         self.assertIn("insufficient memory", prompt)
 
-        # QoS matrix
+    def test_cluster_resource_agent_qos_matrix(self) -> None:
+        """Verify ClusterResourceAgent QoS class calculation across resource profiles."""
+        agent = ClusterResourceAgent(self.mock_client, model="llama3.1")
         qos_cases = [
             (
                 {
@@ -485,7 +509,9 @@ class TestDomainSpecialistAgents(SpecialistTestBase):
                 self.add_evidence(b, "ev.pod.spec", spec)
                 self.assertIn(expected_qos, agent.build_prompt(b))
 
-        # Investigation report
+    def test_cluster_resource_agent_investigation_report(self) -> None:
+        """Verify ClusterResourceAgent returns structured diagnostic report for resource failures."""
+        agent = ClusterResourceAgent(self.mock_client, model="llama3.1")
         self.mock_client.chat.return_value = {
             "message": {
                 "content": json.dumps(
