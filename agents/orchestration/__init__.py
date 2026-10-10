@@ -16,7 +16,10 @@ if _AGENTS_DIR not in sys.path:
 
 try:
     from agents.orchestration.orchestrator import AgentOrchestrator
+    from agents.orchestration.tool_loop import ProgressiveInvestigationLoop
 except ImportError:
     from orchestration.orchestrator import AgentOrchestrator  # type: ignore[no-redef]
+    from orchestration.tool_loop import ProgressiveInvestigationLoop  # type: ignore[no-redef]
 
-__all__ = ["AgentOrchestrator"]
+__all__ = ["AgentOrchestrator", "ProgressiveInvestigationLoop"]
+

@@ -80,7 +80,7 @@ class TestToolRegistry:
         """Calling an unknown tool must raise ValueError immediately."""
         registry = ToolRegistry()
         with pytest.raises(ValueError, match="Unauthorized or unknown tool: delete_pod"):
-            asyncio.get_event_loop().run_until_complete(registry.execute("delete_pod"))
+            asyncio.run(registry.execute("delete_pod"))
 
     def test_register_and_execute_returns_result(self) -> None:
         """A registered async tool is callable through execute()."""
@@ -90,7 +90,7 @@ class TestToolRegistry:
         async def ping() -> dict:
             return {"status": "pong"}
 
-        result = asyncio.get_event_loop().run_until_complete(registry.execute("ping"))
+        result = asyncio.run(registry.execute("ping"))
         assert result == {"status": "pong"}
 
     def test_ollama_schema_required_fields(self) -> None:
@@ -143,7 +143,7 @@ class TestToolRegistry:
             await asyncio.sleep(_TOOL_TIMEOUT_SECONDS + 5)
             return {}
 
-        result = asyncio.get_event_loop().run_until_complete(registry.execute("slow"))
+        result = asyncio.run(registry.execute("slow"))
         assert "error" in result
         assert "timed out" in result["error"]
 
