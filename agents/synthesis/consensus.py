@@ -499,6 +499,38 @@ def _resolve_confidence_tier(
     return CONFIDENCE_HIGH
 
 
+@dataclass
+class ConsensusContext:
+    """Optional context parameters for consensus diagnosis synthesis.
+
+    Attributes:
+        best_solution: Optional pre-constructed BestSolution or dictionary.
+        evidence_citations: Optional explicit evidence identifiers.
+        validation_result: Optional outcome from CrossAgentValidator.
+        confidence_score: Optional override numerical confidence score.
+        target_name: Optional target workload name for command formatting.
+    """
+
+    best_solution: Optional[Any] = None
+    evidence_citations: Optional[List[str]] = None
+    validation_result: Optional[Any] = None
+    confidence_score: Optional[float] = None
+    target_name: str = ""
+
+
+def _resolve_generator_context(
+    context: Optional[ConsensusContext], kwargs: Dict[str, Any]
+) -> Tuple[Any, Optional[List[str]], Any, Optional[float], str]:
+    """Extract options from ConsensusContext merged with kwargs."""
+    ctx = context or ConsensusContext()
+    sol = kwargs.get("best_solution", ctx.best_solution)
+    cites = kwargs.get("evidence_citations", ctx.evidence_citations)
+    val = kwargs.get("validation_result", ctx.validation_result)
+    score = kwargs.get("confidence_score", ctx.confidence_score)
+    target = kwargs.get("target_name", ctx.target_name)
+    return (sol, cites, val, score, str(target or ""))
+
+
 class ConsensusGenerator:
     """Engine that synthesizes specialist findings and top hypotheses into a ConsensusDiagnosis."""
 
@@ -507,39 +539,34 @@ class ConsensusGenerator:
         cls,
         hypothesis: Optional[Any] = None,
         findings: Optional[List[Dict[str, Any]]] = None,
-        best_solution: Optional[Any] = None,
-        evidence_citations: Optional[List[str]] = None,
-        validation_result: Optional[Any] = None,
-        confidence_score: Optional[float] = None,
-        target_name: str = "",
+        context: Optional[ConsensusContext] = None,
+        **kwargs: Any,
     ) -> ConsensusDiagnosis:
         """Synthesize a complete validated ConsensusDiagnosis object.
 
         :param hypothesis: Top hypothesis instance, dictionary, or description string.
         :param findings: Diagnostic reports from domain specialists.
-        :param best_solution: Optional pre-constructed BestSolution or dictionary.
-        :param evidence_citations: Optional list of explicit evidence identifiers.
-        :param validation_result: Optional outcome from CrossAgentValidator.
-        :param confidence_score: Optional override numerical confidence score.
-        :param target_name: Optional target workload name for command formatting.
+        :param context: Optional ConsensusContext holding remediation and validation options.
+        :param kwargs: Backward-compatible keyword arguments (best_solution, target_name, etc.).
         :return: Standardized ConsensusDiagnosis instance.
         """
         clean_findings = list(findings) if isinstance(findings, list) else []
         desc, hyp_likelihood, hyp_evidence = _extract_hypothesis_text(hypothesis)
+        sol, cites, val, score, target = _resolve_generator_context(context, kwargs)
 
         confidence_tier = _resolve_confidence_tier(
-            validation_result=validation_result,
-            score=confidence_score,
+            validation_result=val,
+            score=score,
             hyp_likelihood=hyp_likelihood,
         )
 
-        if best_solution is not None:
-            solution = _resolve_solution_instance(best_solution)
+        if sol is not None:
+            solution = _resolve_solution_instance(sol)
         else:
-            solution = _synthesize_remediation(desc, target=target_name)
+            solution = _synthesize_remediation(desc, target=target)
 
         citations = _collect_citations(
-            explicit=evidence_citations,
+            explicit=cites,
             findings=clean_findings,
             hypothesis_evidence=hyp_evidence,
         )
@@ -556,29 +583,20 @@ class ConsensusGenerator:
 def generate_consensus_diagnosis(
     hypothesis: Optional[Any] = None,
     findings: Optional[List[Dict[str, Any]]] = None,
-    best_solution: Optional[Any] = None,
-    evidence_citations: Optional[List[str]] = None,
-    validation_result: Optional[Any] = None,
-    confidence_score: Optional[float] = None,
-    target_name: str = "",
+    context: Optional[ConsensusContext] = None,
+    **kwargs: Any,
 ) -> ConsensusDiagnosis:
     """Convenience functional interface for generating a ConsensusDiagnosis.
 
     :param hypothesis: Top hypothesis instance, dictionary, or description string.
     :param findings: Diagnostic reports from domain specialists.
-    :param best_solution: Optional pre-constructed BestSolution or dictionary.
-    :param evidence_citations: Optional list of explicit evidence identifiers.
-    :param validation_result: Optional outcome from CrossAgentValidator.
-    :param confidence_score: Optional override numerical confidence score.
-    :param target_name: Optional target workload name for command formatting.
+    :param context: Optional ConsensusContext holding remediation and validation options.
+    :param kwargs: Backward-compatible keyword arguments (best_solution, target_name, etc.).
     :return: Standardized ConsensusDiagnosis instance.
     """
     return ConsensusGenerator.generate(
         hypothesis=hypothesis,
         findings=findings,
-        best_solution=best_solution,
-        evidence_citations=evidence_citations,
-        validation_result=validation_result,
-        confidence_score=confidence_score,
-        target_name=target_name,
+        context=context,
+        **kwargs,
     )

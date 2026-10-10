@@ -17,6 +17,7 @@ if _AGENTS_DIR not in sys.path:
 try:
     from agents.synthesis.consensus import (
         BestSolution,
+        ConsensusContext,
         ConsensusDiagnosis,
         ConsensusGenerator,
         generate_consensus_diagnosis,
@@ -27,6 +28,7 @@ try:
 except ImportError:
     from synthesis.consensus import (  # type: ignore[no-redef]
         BestSolution,
+        ConsensusContext,
         ConsensusDiagnosis,
         ConsensusGenerator,
         generate_consensus_diagnosis,
@@ -37,6 +39,7 @@ except ImportError:
 
 __all__ = [
     "BestSolution",
+    "ConsensusContext",
     "ConsensusDiagnosis",
     "ConsensusGenerator",
     "Hypothesis",
