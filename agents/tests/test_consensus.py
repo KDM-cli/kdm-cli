@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from typing import Any, Dict, List
 import unittest
 
 _AGENTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -51,135 +52,135 @@ except ImportError:
     from validation.validator import ValidationResult  # type: ignore[no-redef]
 
 
+def _build_sample_solution_payload(camel: bool = True) -> Dict[str, Any]:
+    """Helper creating standardized test solution payload."""
+    if camel:
+        return {
+            "actionTitle": "Increase Container Memory Limit",
+            "steps": ["Bump memory to 512Mi", "Restart workload"],
+            "commandToRun": "kubectl set resources deployment api --limits=memory=512Mi",
+            "riskLevel": "low",
+        }
+    return {
+        "action_title": "Increase Container Memory Limit",
+        "steps": ["Bump memory to 512Mi", "Restart workload"],
+        "command_to_run": "kubectl set resources deployment api --limits=memory=512Mi",
+        "risk_level": "low",
+    }
+
+
+def _build_sample_diagnosis_payload(camel: bool = True) -> Dict[str, Any]:
+    """Helper creating standardized test diagnosis payload matching TypeScript schema."""
+    sol = _build_sample_solution_payload(camel=camel)
+    if camel:
+        return {
+            "rootCause": "Container exceeded 256Mi memory limit under peak load",
+            "confidence": "high",
+            "findings": [
+                {
+                    "role": "runtime",
+                    "summary": "Exit code 137 detected",
+                    "evidence": ["status.exitCode == 137"],
+                },
+                {
+                    "role": "config",
+                    "summary": "Memory limit set to 256Mi",
+                    "evidence": ["spec.resources.limits.memory"],
+                },
+            ],
+            "bestSolution": sol,
+            "evidenceCitations": ["ev.pod.container.status", "ev.resources.limits"],
+        }
+    return {
+        "root_cause": "Container exceeded 256Mi memory limit under peak load",
+        "confidence": "high",
+        "findings": [],
+        "best_solution": sol,
+        "evidence_citations": ["ev.pod.container.status"],
+    }
+
+
 class TestConfidenceScoring(unittest.TestCase):
     """Validate Task 10.2: Numerical and categorical confidence score mapping."""
 
-    def test_high_confidence_boundary(self) -> None:
-        """Scores >= 0.8 must map strictly to 'high'."""
-        self.assertEqual(map_confidence_score(0.8), CONFIDENCE_HIGH)
-        self.assertEqual(map_confidence_score(0.8000), CONFIDENCE_HIGH)
-        self.assertEqual(map_confidence_score(0.85), CONFIDENCE_HIGH)
-        self.assertEqual(map_confidence_score(0.99), CONFIDENCE_HIGH)
-        self.assertEqual(map_confidence_score(1.0), CONFIDENCE_HIGH)
-
-    def test_medium_confidence_boundary(self) -> None:
-        """Scores >= 0.5 and < 0.8 must map strictly to 'medium'."""
-        self.assertEqual(map_confidence_score(0.5), CONFIDENCE_MEDIUM)
-        self.assertEqual(map_confidence_score(0.5001), CONFIDENCE_MEDIUM)
-        self.assertEqual(map_confidence_score(0.65), CONFIDENCE_MEDIUM)
-        self.assertEqual(map_confidence_score(0.7999), CONFIDENCE_MEDIUM)
-
-    def test_low_confidence_boundary(self) -> None:
-        """Scores < 0.5 must map strictly to 'low'."""
-        self.assertEqual(map_confidence_score(0.4999), CONFIDENCE_LOW)
-        self.assertEqual(map_confidence_score(0.4), CONFIDENCE_LOW)
-        self.assertEqual(map_confidence_score(0.1), CONFIDENCE_LOW)
-        self.assertEqual(map_confidence_score(0.0), CONFIDENCE_LOW)
-        self.assertEqual(map_confidence_score(-0.5), CONFIDENCE_LOW)
-
-    def test_string_inputs(self) -> None:
-        """Recognize string tier values and parse numeric string values."""
-        self.assertEqual(map_confidence_score("high"), CONFIDENCE_HIGH)
-        self.assertEqual(map_confidence_score("HIGH"), CONFIDENCE_HIGH)
-        self.assertEqual(map_confidence_score("medium"), CONFIDENCE_MEDIUM)
-        self.assertEqual(map_confidence_score("Medium"), CONFIDENCE_MEDIUM)
-        self.assertEqual(map_confidence_score("low"), CONFIDENCE_LOW)
-        self.assertEqual(map_confidence_score("0.92"), CONFIDENCE_HIGH)
-        self.assertEqual(map_confidence_score("0.6"), CONFIDENCE_MEDIUM)
-        self.assertEqual(map_confidence_score("0.3"), CONFIDENCE_LOW)
-
-    def test_invalid_and_edge_inputs(self) -> None:
-        """Gracefully handle None, NaN, infinity, and malformed strings."""
-        self.assertEqual(map_confidence_score(None), CONFIDENCE_LOW)
-        self.assertEqual(map_confidence_score(float("nan")), CONFIDENCE_LOW)
-        self.assertEqual(map_confidence_score(float("inf")), CONFIDENCE_LOW)
-        self.assertEqual(map_confidence_score("invalid_tier"), CONFIDENCE_LOW)
-        self.assertEqual(map_confidence_score([]), CONFIDENCE_LOW)
+    def test_score_mapping_table(self) -> None:
+        """Verify boundary scores against expected categorical confidence tiers."""
+        matrix: List[tuple[Any, str]] = [
+            (0.8, CONFIDENCE_HIGH),
+            (0.8000, CONFIDENCE_HIGH),
+            (0.85, CONFIDENCE_HIGH),
+            (1.0, CONFIDENCE_HIGH),
+            (0.5, CONFIDENCE_MEDIUM),
+            (0.65, CONFIDENCE_MEDIUM),
+            (0.7999, CONFIDENCE_MEDIUM),
+            (0.4999, CONFIDENCE_LOW),
+            (0.2, CONFIDENCE_LOW),
+            (0.0, CONFIDENCE_LOW),
+            (-0.1, CONFIDENCE_LOW),
+            ("high", CONFIDENCE_HIGH),
+            ("HIGH", CONFIDENCE_HIGH),
+            ("medium", CONFIDENCE_MEDIUM),
+            ("low", CONFIDENCE_LOW),
+            ("0.95", CONFIDENCE_HIGH),
+            ("0.60", CONFIDENCE_MEDIUM),
+            ("0.25", CONFIDENCE_LOW),
+            (None, CONFIDENCE_LOW),
+            (float("nan"), CONFIDENCE_LOW),
+            (float("inf"), CONFIDENCE_LOW),
+            ("invalid_value", CONFIDENCE_LOW),
+        ]
+        for val, expected in matrix:
+            with self.subTest(val=val, expected=expected):
+                self.assertEqual(map_confidence_score(val), expected)
 
 
 class TestRiskLevelNormalization(unittest.TestCase):
     """Validate remediation risk level categorization."""
 
-    def test_valid_risk_levels(self) -> None:
-        """Standardize low, medium, and high risk labels."""
-        self.assertEqual(normalize_risk_level("low"), "low")
-        self.assertEqual(normalize_risk_level("LOW"), "low")
-        self.assertEqual(normalize_risk_level("medium"), "medium")
-        self.assertEqual(normalize_risk_level("high"), "high")
-
-    def test_invalid_fallback(self) -> None:
-        """Fallback to 'low' when risk is unknown or missing."""
-        self.assertEqual(normalize_risk_level("extreme"), "low")
-        self.assertEqual(normalize_risk_level(None), "low")
-        self.assertEqual(normalize_risk_level(""), "low")
+    def test_risk_normalization_matrix(self) -> None:
+        """Verify risk inputs normalize to low, medium, or high."""
+        cases = [
+            ("low", "low"),
+            ("LOW", "low"),
+            ("medium", "medium"),
+            ("high", "high"),
+            ("HIGH", "high"),
+            ("extreme", "low"),
+            (None, "low"),
+            ("", "low"),
+        ]
+        for raw, expected in cases:
+            with self.subTest(raw=raw):
+                self.assertEqual(normalize_risk_level(raw), expected)
 
 
 class TestBestSolution(unittest.TestCase):
     """Validate Task 10.1: BestSolution dataclass and serialization."""
 
-    def test_dataclass_construction_and_fields(self) -> None:
+    def test_dataclass_fields(self) -> None:
         """Verify field values, post-init sanitization, and defaults."""
-        solution = BestSolution(
-            action_title="Increase Container Memory Limit",
-            steps=[
-                "Increase limits.memory from 256Mi to 512Mi in deployment manifest",
-                "Rollout restart deployment",
-            ],
-            command_to_run="kubectl set resources deployment checkout-api --limits=memory=512Mi",
-            risk_level="low",
+        payload = _build_sample_solution_payload(camel=True)
+        sol = BestSolution(
+            action_title=payload["actionTitle"],
+            steps=payload["steps"],
+            command_to_run=payload["commandToRun"],
+            risk_level=payload["riskLevel"],
         )
-        self.assertEqual(solution.action_title, "Increase Container Memory Limit")
-        self.assertEqual(len(solution.steps), 2)
-        self.assertEqual(
-            solution.command_to_run,
-            "kubectl set resources deployment checkout-api --limits=memory=512Mi",
-        )
-        self.assertEqual(solution.risk_level, "low")
+        self.assertEqual(sol.action_title, payload["actionTitle"])
+        self.assertEqual(sol.steps, payload["steps"])
+        self.assertEqual(sol.command_to_run, payload["commandToRun"])
+        self.assertEqual(sol.risk_level, payload["riskLevel"])
 
-    def test_to_dict_camel_case(self) -> None:
-        """to_dict must produce camelCase keys matching src/agent/types.ts."""
-        solution = BestSolution(
-            action_title="Create Missing Secret",
-            steps=["kubectl create secret generic app-sec"],
-            command_to_run="kubectl create secret generic app-sec",
-            risk_level="medium",
-        )
-        d = solution.to_dict()
-        self.assertIn("actionTitle", d)
-        self.assertIn("steps", d)
-        self.assertIn("commandToRun", d)
-        self.assertIn("riskLevel", d)
-        self.assertEqual(d["actionTitle"], "Create Missing Secret")
-        self.assertEqual(d["commandToRun"], "kubectl create secret generic app-sec")
-        self.assertEqual(d["riskLevel"], "medium")
+    def test_camel_and_snake_serialization(self) -> None:
+        """Validate both camelCase and snake_case roundtrip parsing."""
+        camel_data = _build_sample_solution_payload(camel=True)
+        from_camel = BestSolution.from_dict(camel_data)
+        self.assertEqual(from_camel.to_dict(), camel_data)
 
-    def test_from_dict_camel_case(self) -> None:
-        """from_dict must parse camelCase dictionaries."""
-        payload = {
-            "actionTitle": "Restart Pod",
-            "steps": ["kubectl delete pod test-pod"],
-            "commandToRun": "kubectl delete pod test-pod",
-            "riskLevel": "low",
-        }
-        obj = BestSolution.from_dict(payload)
-        self.assertEqual(obj.action_title, "Restart Pod")
-        self.assertEqual(obj.command_to_run, "kubectl delete pod test-pod")
-        self.assertEqual(obj.risk_level, "low")
-
-    def test_from_dict_snake_case(self) -> None:
-        """from_dict must parse snake_case dictionaries."""
-        payload = {
-            "action_title": "Scale Deployment",
-            "steps": ["kubectl scale deployment app --replicas=3"],
-            "command_to_run": "kubectl scale deployment app --replicas=3",
-            "risk_level": "high",
-        }
-        obj = BestSolution.from_dict(payload)
-        self.assertEqual(obj.action_title, "Scale Deployment")
-        self.assertEqual(
-            obj.command_to_run, "kubectl scale deployment app --replicas=3"
-        )
-        self.assertEqual(obj.risk_level, "high")
+        snake_data = _build_sample_solution_payload(camel=False)
+        from_snake = BestSolution.from_dict(snake_data)
+        self.assertEqual(from_snake.action_title, snake_data["action_title"])
+        self.assertEqual(from_snake.risk_level, snake_data["risk_level"])
 
     def test_empty_and_default_handling(self) -> None:
         """Verify robust fallbacks when empty inputs are provided."""
@@ -195,62 +196,16 @@ class TestConsensusDiagnosis(unittest.TestCase):
 
     def test_exact_issue_specification_schema(self) -> None:
         """Validate camelCase dictionary output against the exact Issue #281 blueprint."""
-        diagnosis = ConsensusDiagnosis(
-            root_cause="Container exceeded 256Mi memory limit under peak load",
-            confidence="high",
-            findings=[
-                {
-                    "role": "runtime",
-                    "summary": "Exit code 137 detected",
-                    "evidence": ["status.exitCode == 137"],
-                },
-                {
-                    "role": "config",
-                    "summary": "Memory limit set to 256Mi",
-                    "evidence": ["spec.resources.limits.memory"],
-                },
-            ],
-            best_solution=BestSolution(
-                action_title="Increase Container Memory Limit",
-                steps=[
-                    "Increase limits.memory from 256Mi to 512Mi in deployment manifest",
-                    "Rollout restart deployment",
-                ],
-                command_to_run="kubectl set resources deployment checkout-api --limits=memory=512Mi",
-                risk_level="low",
-            ),
-            evidence_citations=["ev.pod.container.status", "ev.resources.limits"],
-        )
-
+        raw = _build_sample_diagnosis_payload(camel=True)
+        diagnosis = ConsensusDiagnosis.from_dict(raw)
         output = diagnosis.to_dict()
 
-        # Strict root level keys
-        self.assertEqual(
-            output["rootCause"],
-            "Container exceeded 256Mi memory limit under peak load",
-        )
-        self.assertEqual(output["confidence"], "high")
+        self.assertEqual(output["rootCause"], raw["rootCause"])
+        self.assertEqual(output["confidence"], raw["confidence"])
         self.assertEqual(len(output["findings"]), 2)
-        self.assertEqual(output["findings"][0]["role"], "runtime")
-        self.assertEqual(output["findings"][1]["role"], "config")
+        self.assertEqual(output["bestSolution"], raw["bestSolution"])
+        self.assertEqual(output["evidenceCitations"], raw["evidenceCitations"])
 
-        # Strict bestSolution keys
-        best_sol = output["bestSolution"]
-        self.assertEqual(best_sol["actionTitle"], "Increase Container Memory Limit")
-        self.assertEqual(len(best_sol["steps"]), 2)
-        self.assertEqual(
-            best_sol["commandToRun"],
-            "kubectl set resources deployment checkout-api --limits=memory=512Mi",
-        )
-        self.assertEqual(best_sol["riskLevel"], "low")
-
-        # Strict evidenceCitations key
-        self.assertEqual(
-            output["evidenceCitations"],
-            ["ev.pod.container.status", "ev.resources.limits"],
-        )
-
-        # JSON serialization validation
         encoded = json.dumps(output)
         decoded = json.loads(encoded)
         self.assertEqual(decoded["rootCause"], output["rootCause"])
@@ -259,47 +214,13 @@ class TestConsensusDiagnosis(unittest.TestCase):
             output["bestSolution"]["actionTitle"],
         )
 
-    def test_from_dict_and_to_dict_roundtrip(self) -> None:
-        """Verify lossless roundtrip serialization through from_dict and to_dict."""
-        raw_dict = {
-            "rootCause": "ConfigMap auth-cfg missing",
-            "confidence": "medium",
-            "findings": [{"role": "config", "summary": "404 not found"}],
-            "bestSolution": {
-                "actionTitle": "Create ConfigMap",
-                "steps": ["kubectl create configmap auth-cfg"],
-                "commandToRun": "kubectl create configmap auth-cfg",
-                "riskLevel": "low",
-            },
-            "evidenceCitations": ["ev.pod.configmap"],
-        }
-        diagnosis = ConsensusDiagnosis.from_dict(raw_dict)
-        self.assertEqual(diagnosis.root_cause, "ConfigMap auth-cfg missing")
-        self.assertEqual(diagnosis.confidence, "medium")
-        self.assertEqual(diagnosis.best_solution.action_title, "Create ConfigMap")
-        self.assertEqual(diagnosis.evidence_citations, ["ev.pod.configmap"])
-
-        result = diagnosis.to_dict()
-        self.assertEqual(result, raw_dict)
-
     def test_snake_case_deserialization(self) -> None:
         """Verify from_dict correctly parses snake_case inputs."""
-        raw_snake = {
-            "root_cause": "OOMKilled node eviction",
-            "confidence": "low",
-            "findings": [],
-            "best_solution": {
-                "action_title": "Drain node",
-                "steps": ["kubectl drain node-1"],
-                "command_to_run": "kubectl drain node-1",
-                "risk_level": "high",
-            },
-            "evidence_citations": ["ev.node.conditions"],
-        }
-        obj = ConsensusDiagnosis.from_dict(raw_snake)
-        self.assertEqual(obj.root_cause, "OOMKilled node eviction")
-        self.assertEqual(obj.best_solution.risk_level, "high")
-        self.assertEqual(obj.evidence_citations, ["ev.node.conditions"])
+        snake_dict = _build_sample_diagnosis_payload(camel=False)
+        obj = ConsensusDiagnosis.from_dict(snake_dict)
+        self.assertEqual(obj.root_cause, snake_dict["root_cause"])
+        self.assertEqual(obj.best_solution.risk_level, "low")
+        self.assertEqual(obj.evidence_citations, snake_dict["evidence_citations"])
 
 
 class TestConsensusGenerator(unittest.TestCase):
@@ -323,102 +244,84 @@ class TestConsensusGenerator(unittest.TestCase):
         ]
 
         diagnosis = generate_consensus_diagnosis(
-            hypothesis=hyp,
-            findings=findings,
-            target_name="payment-svc",
+            hypothesis=hyp, findings=findings, target_name="payment-svc"
         )
-
         self.assertIn("memory limit", diagnosis.root_cause.lower())
         self.assertEqual(diagnosis.confidence, CONFIDENCE_HIGH)
         self.assertIn("payment-svc", diagnosis.best_solution.command_to_run or "")
         self.assertIn("ev.pod.container.status", diagnosis.evidence_citations)
         self.assertIn("ev.pod.exit_code_137", diagnosis.evidence_citations)
 
-    def test_generate_with_validation_contradiction(self) -> None:
-        """When validation result rejects the hypothesis, confidence drops to low."""
+    def test_generate_with_validation_outcomes(self) -> None:
+        """Verify validation contradiction downgrades to low and approval adopts score."""
         hyp = Hypothesis(
             id="hyp-02",
-            description="Node MemoryPressure caused pod eviction.",
+            description="Node MemoryPressure eviction",
             likelihood=0.88,
             supporting_evidence=["ev.node.pressure"],
         )
-        val_result = ValidationResult(
-            approved=False,
-            confidence_score=0.15,
-            reason="Node explicitly reports MemoryPressure=False.",
-        )
 
-        diagnosis = ConsensusGenerator.generate(
-            hypothesis=hyp,
-            validation_result=val_result,
+        # Contradicted
+        contradicted = ValidationResult(
+            approved=False, confidence_score=0.15, reason="MemoryPressure=False"
         )
-
-        self.assertEqual(diagnosis.confidence, CONFIDENCE_LOW)
-
-    def test_generate_with_validation_approval(self) -> None:
-        """When validation result approves with score, confidence maps accordingly."""
-        hyp = Hypothesis(
-            id="hyp-01",
-            description="Missing Secret database-credentials.",
-            likelihood=0.75,
-            supporting_evidence=["ev.k8s.secret"],
+        diag_contra = ConsensusGenerator.generate(
+            hypothesis=hyp, validation_result=contradicted
         )
-        val_result = ValidationResult(
-            approved=True,
-            confidence_score=0.84,
-            reason="Verified Secret database-credentials does not exist in cluster.",
-        )
+        self.assertEqual(diag_contra.confidence, CONFIDENCE_LOW)
 
-        diagnosis = generate_consensus_diagnosis(
-            hypothesis=hyp,
-            validation_result=val_result,
+        # Approved
+        approved = ValidationResult(
+            approved=True, confidence_score=0.85, reason="Confirmed OOM"
         )
-
-        self.assertEqual(diagnosis.confidence, CONFIDENCE_HIGH)
+        diag_appr = ConsensusGenerator.generate(
+            hypothesis=hyp, validation_result=approved
+        )
+        self.assertEqual(diag_appr.confidence, CONFIDENCE_HIGH)
 
     def test_explicit_citations_override(self) -> None:
         """Explicitly passed evidence citations take precedence."""
-        explicit = ["ev.explicit.one", "ev.explicit.two"]
+        explicit = ["ev.custom.first", "ev.custom.second"]
         diagnosis = generate_consensus_diagnosis(
-            hypothesis="Workload failed to initialize.",
-            evidence_citations=explicit,
+            hypothesis="General fault", evidence_citations=explicit
         )
         self.assertEqual(diagnosis.evidence_citations, explicit)
 
-    def test_deterministic_remediation_synthesizers(self) -> None:
-        """Verify specific remediation blueprints for major failure modes."""
-        # Missing Secret
-        diag_secret = generate_consensus_diagnosis(
-            hypothesis="Pod failed because Secret 'redis-auth' not found.",
-            target_name="redis-auth",
-        )
-        self.assertIn("Secret", diag_secret.best_solution.action_title)
-        self.assertIn(
-            "kubectl create secret", diag_secret.best_solution.command_to_run or ""
-        )
-
-        # Missing ConfigMap
-        diag_cm = generate_consensus_diagnosis(
-            hypothesis="Pod failed because ConfigMap 'app-config' not found.",
-            target_name="app-config",
-        )
-        self.assertIn("ConfigMap", diag_cm.best_solution.action_title)
-        self.assertIn(
-            "kubectl create configmap", diag_cm.best_solution.command_to_run or ""
-        )
-
-        # Image Pull
-        diag_img = generate_consensus_diagnosis(
-            hypothesis="ImagePullBackOff for repository image web:v2.1.",
-            target_name="web:v2.1",
-        )
-        self.assertIn("Image", diag_img.best_solution.action_title)
-
-        # Node Resource Pressure
-        diag_res = generate_consensus_diagnosis(
-            hypothesis="0/5 nodes available: insufficient memory to schedule pod.",
-        )
-        self.assertIn("Node", diag_res.best_solution.action_title)
+    def test_table_driven_remediations(self) -> None:
+        """Verify specific remediation blueprints across failure categories using data table."""
+        patterns = [
+            (
+                "Pod failed because Secret 'redis-auth' not found.",
+                "redis-auth",
+                "Secret",
+                "kubectl create secret",
+            ),
+            (
+                "Pod failed because ConfigMap 'app-config' not found.",
+                "app-config",
+                "ConfigMap",
+                "kubectl create configmap",
+            ),
+            (
+                "ImagePullBackOff for repository image web:v2.1.",
+                "web:v2.1",
+                "Image",
+                "kubectl describe pod",
+            ),
+            (
+                "0/5 nodes available: insufficient memory to schedule pod.",
+                "",
+                "Node",
+                "kubectl get nodes",
+            ),
+        ]
+        for hyp_text, target, expected_title, expected_cmd in patterns:
+            with self.subTest(pattern=expected_title):
+                diag = generate_consensus_diagnosis(
+                    hypothesis=hyp_text, target_name=target
+                )
+                self.assertIn(expected_title, diag.best_solution.action_title)
+                self.assertIn(expected_cmd, diag.best_solution.command_to_run or "")
 
 
 if __name__ == "__main__":

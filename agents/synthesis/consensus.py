@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import math
 import os
+import re
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -37,8 +38,26 @@ VALID_CONFIDENCE_LEVELS: Tuple[str, ...] = (
 VALID_RISK_LEVELS: Tuple[str, ...] = ("low", "medium", "high")
 
 
+def _parse_score_float(score: Any) -> Optional[float]:
+    """Extract a finite float value from numeric or string inputs."""
+    try:
+        val = float(score)
+        return val if math.isfinite(val) else None
+    except (ValueError, TypeError):
+        return None
+
+
+def _score_to_tier(val: float) -> str:
+    """Map a finite float score to a categorical confidence tier."""
+    if val >= 0.8:
+        return CONFIDENCE_HIGH
+    if val >= 0.5:
+        return CONFIDENCE_MEDIUM
+    return CONFIDENCE_LOW
+
+
 def map_confidence_score(score: Any) -> str:
-    """Map a numerical confidence or likelihood score to a categorical tier.
+    """Map a numerical confidence score or tier string to a standardized tier.
 
     Threshold mapping:
       - score >= 0.8 -> 'high'
@@ -46,34 +65,15 @@ def map_confidence_score(score: Any) -> str:
       - score < 0.5  -> 'low'
 
     :param score: Numeric score, tier string, or None.
-    :return: Standardized confidence tier string ('high', 'medium', or 'low').
+    :return: Standardized confidence tier ('high', 'medium', or 'low').
     """
-    if score is None:
-        return CONFIDENCE_LOW
-
     if isinstance(score, str):
-        normalized = score.strip().lower()
-        if normalized in VALID_CONFIDENCE_LEVELS:
-            return normalized
-        try:
-            val = float(normalized)
-        except (ValueError, TypeError):
-            return CONFIDENCE_LOW
-    elif isinstance(score, (int, float)):
-        try:
-            val = float(score)
-        except (ValueError, TypeError):
-            return CONFIDENCE_LOW
-    else:
-        return CONFIDENCE_LOW
+        cleaned = score.strip().lower()
+        if cleaned in VALID_CONFIDENCE_LEVELS:
+            return cleaned
 
-    if not math.isfinite(val):
-        return CONFIDENCE_LOW
-    if val >= 0.8:
-        return CONFIDENCE_HIGH
-    if val >= 0.5:
-        return CONFIDENCE_MEDIUM
-    return CONFIDENCE_LOW
+    val = _parse_score_float(score)
+    return _score_to_tier(val) if val is not None else CONFIDENCE_LOW
 
 
 def normalize_risk_level(risk: Any) -> str:
@@ -87,6 +87,19 @@ def normalize_risk_level(risk: Any) -> str:
         if cleaned in VALID_RISK_LEVELS:
             return cleaned
     return "low"
+
+
+def _sanitize_steps(raw_steps: Any) -> List[str]:
+    """Sanitize steps into a non-empty list of string instructions."""
+    if isinstance(raw_steps, list):
+        cleaned = [str(s).strip() for s in raw_steps if str(s).strip()]
+        if cleaned:
+            return cleaned
+    elif raw_steps:
+        cleaned_single = str(raw_steps).strip()
+        if cleaned_single:
+            return [cleaned_single]
+    return ["Review workload status and logs."]
 
 
 @dataclass
@@ -109,23 +122,9 @@ class BestSolution:
         """Validate, sanitize, and format solution fields."""
         title = str(self.action_title or "").strip()
         self.action_title = title if title else "Apply Recommended Fix"
-
-        if isinstance(self.steps, list):
-            cleaned_steps = [str(s).strip() for s in self.steps if str(s).strip()]
-        elif self.steps:
-            cleaned_steps = [str(self.steps).strip()]
-        else:
-            cleaned_steps = []
-        self.steps = (
-            cleaned_steps if cleaned_steps else ["Review workload status and logs."]
-        )
-
-        if self.command_to_run:
-            cmd = str(self.command_to_run).strip()
-            self.command_to_run = cmd if cmd else None
-        else:
-            self.command_to_run = None
-
+        self.steps = _sanitize_steps(self.steps)
+        cmd = str(self.command_to_run).strip() if self.command_to_run else None
+        self.command_to_run = cmd if cmd else None
         self.risk_level = normalize_risk_level(self.risk_level)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -153,18 +152,10 @@ class BestSolution:
                 steps=["Review workload status and logs."],
             )
 
-        title = (
-            data.get("actionTitle")
-            if "actionTitle" in data
-            else data.get("action_title")
-        )
+        title = data.get("actionTitle") or data.get("action_title")
         raw_steps = data.get("steps", [])
-        cmd = (
-            data.get("commandToRun")
-            if "commandToRun" in data
-            else data.get("command_to_run")
-        )
-        risk = data.get("riskLevel") if "riskLevel" in data else data.get("risk_level")
+        cmd = data.get("commandToRun", data.get("command_to_run"))
+        risk = data.get("riskLevel", data.get("risk_level"))
 
         return cls(
             action_title=str(title or "Apply Recommended Fix"),
@@ -172,6 +163,18 @@ class BestSolution:
             command_to_run=cmd,
             risk_level=str(risk or "low"),
         )
+
+
+def _resolve_solution_instance(solution: Any) -> BestSolution:
+    """Normalize input into a validated BestSolution instance."""
+    if isinstance(solution, BestSolution):
+        return solution
+    if isinstance(solution, dict):
+        return BestSolution.from_dict(solution)
+    return BestSolution(
+        action_title="Apply Recommended Fix",
+        steps=["Review workload status and logs."],
+    )
 
 
 @dataclass
@@ -201,27 +204,9 @@ class ConsensusDiagnosis:
             cause if cause else "Root cause identified from agent consensus."
         )
         self.confidence = map_confidence_score(self.confidence)
-
-        if not isinstance(self.findings, list):
-            self.findings = []
-
-        if isinstance(self.best_solution, dict):
-            self.best_solution = BestSolution.from_dict(self.best_solution)
-        elif not isinstance(self.best_solution, BestSolution):
-            self.best_solution = BestSolution(
-                action_title="Apply Recommended Fix",
-                steps=["Review workload status and logs."],
-            )
-
-        if isinstance(self.evidence_citations, list):
-            self.evidence_citations = [
-                str(c).strip() for c in self.evidence_citations if str(c).strip()
-            ]
-        elif self.evidence_citations:
-            cleaned = str(self.evidence_citations).strip()
-            self.evidence_citations = [cleaned] if cleaned else []
-        else:
-            self.evidence_citations = []
+        self.findings = list(self.findings) if isinstance(self.findings, list) else []
+        self.best_solution = _resolve_solution_instance(self.best_solution)
+        self.evidence_citations = _dedup_citations(self.evidence_citations)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert ConsensusDiagnosis to a camelCase dictionary for Node/TypeScript compatibility.
@@ -259,36 +244,17 @@ class ConsensusDiagnosis:
                 evidence_citations=[],
             )
 
-        cause = data.get("rootCause") if "rootCause" in data else data.get("root_cause")
+        cause = data.get("rootCause") or data.get("root_cause")
         conf = data.get("confidence", CONFIDENCE_LOW)
         findings = data.get("findings", [])
-        solution_data = (
-            data.get("bestSolution")
-            if "bestSolution" in data
-            else data.get("best_solution")
-        )
-        citations = (
-            data.get("evidenceCitations")
-            if "evidenceCitations" in data
-            else data.get("evidence_citations")
-        )
-
-        parsed_solution = (
-            BestSolution.from_dict(solution_data)
-            if isinstance(solution_data, dict)
-            else (solution_data if isinstance(solution_data, BestSolution) else None)
-        )
-        if parsed_solution is None:
-            parsed_solution = BestSolution(
-                action_title="Apply Recommended Fix",
-                steps=["Review workload logs."],
-            )
+        solution_data = data.get("bestSolution") or data.get("best_solution")
+        citations = data.get("evidenceCitations") or data.get("evidence_citations")
 
         return cls(
             root_cause=str(cause or "Root cause identified from agent consensus."),
             confidence=str(conf),
             findings=list(findings) if isinstance(findings, list) else [],
-            best_solution=parsed_solution,
+            best_solution=_resolve_solution_instance(solution_data),
             evidence_citations=list(citations) if isinstance(citations, list) else [],
         )
 
@@ -403,12 +369,8 @@ def _extract_target_name(cause_text: str, fallback_target: str) -> str:
     """Extract target resource name from explicit input or quoted substrings."""
     if fallback_target:
         return fallback_target
-    import re
-
     match = re.search(r"['\"]([a-zA-Z0-9_\-\.]+)['\"]", str(cause_text or ""))
-    if match:
-        return match.group(1)
-    return ""
+    return match.group(1) if match else ""
 
 
 def _synthesize_remediation(cause_text: str, target: str = "") -> BestSolution:
@@ -426,6 +388,34 @@ def _synthesize_remediation(cause_text: str, target: str = "") -> BestSolution:
     return _build_default_remediation(resolved_target)
 
 
+def _dedup_citations(sources: Any) -> List[str]:
+    """De-duplicate citation string items preserving original order."""
+    if not isinstance(sources, (list, tuple, set)):
+        if sources:
+            cleaned = str(sources).strip()
+            return [cleaned] if cleaned else []
+        return []
+
+    seen: set[str] = set()
+    result: List[str] = []
+    for s in sources:
+        cleaned = str(s).strip()
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            result.append(cleaned)
+    return result
+
+
+def _extract_finding_evidence(findings: List[Dict[str, Any]]) -> List[str]:
+    """Extract evidence items from findings without deep indentation nesting."""
+    items: List[str] = []
+    for f in findings:
+        ev = f.get("evidence")
+        if isinstance(ev, list):
+            items.extend(ev)
+    return items
+
+
 def _collect_citations(
     explicit: Optional[List[str]],
     findings: List[Dict[str, Any]],
@@ -438,31 +428,40 @@ def _collect_citations(
     :param hypothesis_evidence: Supporting evidence from the top hypothesis.
     :return: De-duplicated list of evidence citation strings.
     """
-    seen: set[str] = set()
-    citations: List[str] = []
-
-    def _add(item: Any) -> None:
-        val = str(item).strip()
-        if val and val not in seen:
-            seen.add(val)
-            citations.append(val)
-
     if explicit:
-        for item in explicit:
-            _add(item)
-        return citations
+        return _dedup_citations(explicit)
 
-    if hypothesis_evidence:
-        for item in hypothesis_evidence:
-            _add(item)
+    sources = list(hypothesis_evidence or [])
+    sources.extend(_extract_finding_evidence(findings))
+    return _dedup_citations(sources)
 
-    for f in findings:
-        evidence_list = f.get("evidence", [])
-        if isinstance(evidence_list, list):
-            for ev in evidence_list:
-                _add(ev)
 
-    return citations
+def _parse_dict_hypothesis(
+    data: Dict[str, Any],
+) -> Tuple[str, Optional[float], List[str]]:
+    """Extract hypothesis fields from dictionary structure."""
+    desc = str(
+        data.get("description")
+        or data.get("root_cause")
+        or data.get("rootCause")
+        or "Root cause identified from agent consensus."
+    )
+    raw_prob = data.get("likelihood", data.get("confidence_score"))
+    prob = _parse_score_float(raw_prob)
+    ev = data.get("supporting_evidence", data.get("evidence", []))
+    evidence_list = list(ev) if isinstance(ev, list) else []
+    return (desc, prob, evidence_list)
+
+
+def _parse_obj_hypothesis(hyp: Any) -> Tuple[str, Optional[float], List[str]]:
+    """Extract hypothesis fields from object instance."""
+    desc = str(
+        getattr(hyp, "description", "Root cause identified from agent consensus.")
+    )
+    prob = _parse_score_float(getattr(hyp, "likelihood", None))
+    ev = getattr(hyp, "supporting_evidence", [])
+    evidence_list = list(ev) if isinstance(ev, list) else []
+    return (desc, prob, evidence_list)
 
 
 def _extract_hypothesis_text(hypothesis: Any) -> Tuple[str, Optional[float], List[str]]:
@@ -473,32 +472,12 @@ def _extract_hypothesis_text(hypothesis: Any) -> Tuple[str, Optional[float], Lis
     """
     if hypothesis is None:
         return ("Root cause identified from agent consensus.", None, [])
-
     if isinstance(hypothesis, str):
         return (hypothesis.strip(), None, [])
-
     if isinstance(hypothesis, dict):
-        desc = str(
-            hypothesis.get("description")
-            or hypothesis.get("root_cause")
-            or hypothesis.get("rootCause")
-            or "Root cause identified from agent consensus."
-        )
-        raw_prob = hypothesis.get("likelihood", hypothesis.get("confidence_score"))
-        try:
-            prob = float(raw_prob) if raw_prob is not None else None
-        except (ValueError, TypeError):
-            prob = None
-        evidence = hypothesis.get("supporting_evidence", hypothesis.get("evidence", []))
-        evidence_list = list(evidence) if isinstance(evidence, list) else []
-        return (desc, prob, evidence_list)
-
+        return _parse_dict_hypothesis(hypothesis)
     if hasattr(hypothesis, "description"):
-        desc = str(hypothesis.description)
-        prob = getattr(hypothesis, "likelihood", None)
-        supp = getattr(hypothesis, "supporting_evidence", [])
-        return (desc, prob, list(supp) if isinstance(supp, list) else [])
-
+        return _parse_obj_hypothesis(hypothesis)
     return (str(hypothesis), None, [])
 
 
@@ -515,18 +494,15 @@ def _resolve_confidence_tier(
     :return: Standardized confidence tier ('high', 'medium', or 'low').
     """
     if validation_result is not None:
-        is_approved = getattr(validation_result, "approved", True)
-        if not is_approved:
+        if not getattr(validation_result, "approved", True):
             return CONFIDENCE_LOW
         val_score = getattr(validation_result, "confidence_score", None)
         if val_score is not None:
             return map_confidence_score(val_score)
 
-    if score is not None:
-        return map_confidence_score(score)
-
-    if hyp_likelihood is not None:
-        return map_confidence_score(hyp_likelihood)
+    effective_score = score if score is not None else hyp_likelihood
+    if effective_score is not None:
+        return map_confidence_score(effective_score)
 
     return CONFIDENCE_HIGH
 
@@ -565,10 +541,8 @@ class ConsensusGenerator:
             hyp_likelihood=hyp_likelihood,
         )
 
-        if isinstance(best_solution, BestSolution):
-            solution = best_solution
-        elif isinstance(best_solution, dict):
-            solution = BestSolution.from_dict(best_solution)
+        if best_solution is not None:
+            solution = _resolve_solution_instance(best_solution)
         else:
             solution = _synthesize_remediation(desc, target=target_name)
 
