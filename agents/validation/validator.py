@@ -25,6 +25,13 @@ except ImportError:
     from core.evidence import CollectionStatus, EvidenceBundle, EvidenceItem  # type: ignore[no-redef]
     from synthesis.hypotheses import Hypothesis  # type: ignore[no-redef]
 
+_DNS_KEYS: Tuple[str, ...] = (
+    "ev.cluster.dns.status",
+    "ev.dns.status",
+    "ev.coredns.status",
+    "ev.cluster.dns",
+)
+
 _NODE_CHECKS: Tuple[Tuple[Tuple[str, ...], str, str, str], ...] = (
     (
         ("memorypressure", "memory pressure"),
@@ -120,6 +127,19 @@ def _safe_int(val: Any) -> Optional[int]:
         return None
 
 
+def _contains_any(text: str, keywords: Tuple[str, ...]) -> bool:
+    """Check if any keyword in tuple appears in text.
+
+    :param text: Lowercased search string.
+    :param keywords: Tuple of candidate substrings.
+    :return: True if at least one substring matches.
+    """
+    for kw in keywords:
+        if kw in text:
+            return True
+    return False
+
+
 def _match_container(c: Any, target_name: Optional[str]) -> bool:
     """Check if candidate dictionary matches target name.
 
@@ -169,6 +189,21 @@ def _extract_container_dict(
     if isinstance(data, list):
         return _find_container_in_list(data, target_name)
     return None
+
+
+def _get_target_container(bundle: Optional[EvidenceBundle]) -> Optional[Dict[str, Any]]:
+    """Retrieve normalized container dictionary for the bundle target workload.
+
+    :param bundle: EvidenceBundle containing status facts.
+    :return: Matched container status dictionary or None.
+    """
+    if not bundle:
+        return None
+    item = bundle.get("ev.pod.container.status")
+    if not item or not item.data:
+        return None
+    t_name = getattr(bundle.target, "container_name", None)
+    return _extract_container_dict(item.data, t_name)
 
 
 def _extract_terminated_block(c_dict: Dict[str, Any], key: str) -> Optional[Dict[str, Any]]:
@@ -265,6 +300,17 @@ def _build_oom_contradiction_reason(exit_code: int) -> str:
     return f"Hypothesis claims OOMKilled but container exit code was {exit_code}, not 137."
 
 
+def _is_oom_hypothesis(desc: str) -> bool:
+    """Check if hypothesis asserts OOMKilled root cause.
+
+    :param desc: Hypothesis description.
+    :return: True if OOM assertion is present.
+    """
+    if "OOMKilled" in desc:
+        return True
+    return _contains_any(desc.lower(), ("oomkilled", "out of memory"))
+
+
 def _check_oom_contradiction(
     hyp: Hypothesis, bundle: EvidenceBundle
 ) -> Optional[str]:
@@ -274,26 +320,14 @@ def _check_oom_contradiction(
     :param bundle: EvidenceBundle containing cluster facts.
     :return: Contradiction reason if refuted, None otherwise.
     """
-    desc = hyp.description
-    is_oom = "OOMKilled" in desc or any(
-        k in desc.lower() for k in ("oomkilled", "out of memory")
-    )
-    if not is_oom:
+    if not _is_oom_hypothesis(hyp.description):
         return None
-
-    status_item = bundle.get("ev.pod.container.status")
-    if not status_item or not status_item.data:
-        return None
-
-    target_name = bundle.target.container_name if bundle.target else None
-    c_dict = _extract_container_dict(status_item.data, target_name)
+    c_dict = _get_target_container(bundle)
     if not c_dict:
         return None
-
     exit_code = _extract_exit_code(c_dict)
     if exit_code is None or exit_code == 137:
         return None
-
     return _build_oom_contradiction_reason(exit_code)
 
 
@@ -340,6 +374,19 @@ def _is_dns_service_healthy(data: Any) -> bool:
     return False
 
 
+def _get_dns_evidence(bundle: EvidenceBundle) -> Optional[EvidenceItem]:
+    """Extract first available DNS evidence item from bundle.
+
+    :param bundle: EvidenceBundle containing cluster facts.
+    :return: Available DNS evidence item or None.
+    """
+    for key in _DNS_KEYS:
+        item = bundle.get(key)
+        if item and item.status == CollectionStatus.AVAILABLE:
+            return item
+    return None
+
+
 def _check_dns_contradiction(
     hyp: Hypothesis, bundle: EvidenceBundle
 ) -> Optional[str]:
@@ -349,25 +396,40 @@ def _check_dns_contradiction(
     :param bundle: EvidenceBundle containing cluster facts.
     :return: Contradiction reason if refuted, None otherwise.
     """
-    desc_lower = hyp.description.lower()
-    if "dns" not in desc_lower and "coredns" not in desc_lower:
+    desc = hyp.description.lower()
+    if not _contains_any(desc, ("dns", "coredns")):
         return None
-
-    dns_item = (
-        bundle.get("ev.cluster.dns.status")
-        or bundle.get("ev.dns.status")
-        or bundle.get("ev.coredns.status")
-        or bundle.get("ev.cluster.dns")
+    dns_item = _get_dns_evidence(bundle)
+    if not dns_item or not _is_dns_service_healthy(dns_item.data):
+        return None
+    return (
+        "Hypothesis claims DNS failure, but CoreDNS is 100% healthy "
+        "with no resolution errors."
     )
-    if not dns_item or dns_item.status != CollectionStatus.AVAILABLE or not dns_item.data:
-        return None
 
-    if _is_dns_service_healthy(dns_item.data):
-        return (
-            "Hypothesis claims DNS failure, but CoreDNS is 100% healthy "
-            "with no resolution errors."
-        )
-    return None
+
+def _is_clean_exit(exit_code: Optional[int], restarts: Optional[int]) -> bool:
+    """Check if container had a zero exit code and no restarts.
+
+    :param exit_code: Detected container exit code.
+    :param restarts: Container restart count.
+    :return: True if execution terminated cleanly.
+    """
+    if exit_code != 0:
+        return False
+    return not restarts
+
+
+def _is_zero_restart_failure(desc: str, restarts: Optional[int]) -> bool:
+    """Check if hypothesis claims repeated restarts despite zero restarts.
+
+    :param desc: Lowercased hypothesis description.
+    :param restarts: Container restart count.
+    :return: True if description asserts repeated restarts with 0 restarts.
+    """
+    if "repeated" not in desc:
+        return False
+    return restarts == 0
 
 
 def _check_crash_contradiction(
@@ -379,28 +441,20 @@ def _check_crash_contradiction(
     :param bundle: EvidenceBundle containing cluster facts.
     :return: Contradiction reason if refuted, None otherwise.
     """
-    desc_lower = hyp.description.lower()
-    is_crash = any(k in desc_lower for k in ("crash", "panic", "crashloop"))
-    if not is_crash:
+    desc = hyp.description.lower()
+    if not _contains_any(desc, ("crash", "panic", "crashloop")):
         return None
-
-    status_item = bundle.get("ev.pod.container.status")
-    if not status_item or not status_item.data:
-        return None
-
-    target_name = bundle.target.container_name if bundle.target else None
-    c_dict = _extract_container_dict(status_item.data, target_name)
+    c_dict = _get_target_container(bundle)
     if not c_dict:
         return None
-
     exit_code = _extract_exit_code(c_dict)
     restarts = _extract_restart_count(c_dict)
-    if exit_code == 0 and (restarts is None or restarts == 0):
+    if _is_clean_exit(exit_code, restarts):
         return (
             "Hypothesis claims process crash, but container exited cleanly "
             "with exit code 0."
         )
-    if "repeated" in desc_lower and restarts == 0:
+    if _is_zero_restart_failure(desc, restarts):
         return (
             "Hypothesis claims repeated crash restarts, but container "
             "restart count is 0."
@@ -507,10 +561,7 @@ def _check_probe_contradiction(
     :return: Contradiction reason if refuted, None otherwise.
     """
     desc = hyp.description.lower()
-    is_probe = "probe" in desc and any(
-        k in desc for k in ("fail", "timeout", "liveness", "readiness")
-    )
-    if not is_probe:
+    if not ("probe" in desc and _contains_any(desc, ("fail", "timeout", "liveness", "readiness"))):
         return None
 
     if _spec_contradicts_probe(bundle):
@@ -556,6 +607,19 @@ def _extract_node_conditions_map(data: Any) -> Dict[str, str]:
     return {k: v for pair in parsed if pair is not None for k, v in [pair]}
 
 
+def _get_node_evidence(bundle: EvidenceBundle) -> Optional[EvidenceItem]:
+    """Extract first available node conditions evidence item.
+
+    :param bundle: EvidenceBundle containing cluster facts.
+    :return: Available node evidence item or None.
+    """
+    for key in ("ev.node.conditions", "ev.node.status"):
+        item = bundle.get(key)
+        if item and item.status == CollectionStatus.AVAILABLE:
+            return item
+    return None
+
+
 def _check_node_contradiction(
     hyp: Hypothesis, bundle: EvidenceBundle
 ) -> Optional[str]:
@@ -565,14 +629,14 @@ def _check_node_contradiction(
     :param bundle: EvidenceBundle containing cluster facts.
     :return: Contradiction reason if refuted, None otherwise.
     """
-    desc = hyp.description.lower()
-    node_item = bundle.get("ev.node.conditions") or bundle.get("ev.node.status")
-    if not node_item or node_item.status != CollectionStatus.AVAILABLE or not node_item.data:
+    item = _get_node_evidence(bundle)
+    if not item or not item.data:
         return None
 
-    cond_map = _extract_node_conditions_map(node_item.data)
+    desc = hyp.description.lower()
+    cond_map = _extract_node_conditions_map(item.data)
     for keywords, cond_type, expected_status, reason in _NODE_CHECKS:
-        if any(k in desc for k in keywords) and cond_map.get(cond_type) == expected_status:
+        if _contains_any(desc, keywords) and cond_map.get(cond_type) == expected_status:
             return reason
 
     return None
@@ -588,15 +652,10 @@ def _check_image_pull_contradiction(
     :return: Contradiction reason if refuted, None otherwise.
     """
     desc = hyp.description.lower()
-    if "imagepull" not in desc and "errimagepull" not in desc:
+    if not _contains_any(desc, ("imagepull", "errimagepull")):
         return None
 
-    status_item = bundle.get("ev.pod.container.status")
-    if not status_item or not status_item.data:
-        return None
-
-    target_name = bundle.target.container_name if bundle.target else None
-    c_dict = _extract_container_dict(status_item.data, target_name)
+    c_dict = _get_target_container(bundle)
     if not c_dict or not _is_container_running(c_dict):
         return None
 
