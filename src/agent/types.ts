@@ -58,6 +58,8 @@ export interface ConsensusDiagnosis {
   findings: AgentFinding[];
   /** The synthesized best remediation solution. */
   bestSolution: BestSolution;
+  /** Canonical evidence identifiers cited in support of this consensus diagnosis. */
+  evidenceCitations?: string[];
 }
 
 /**
