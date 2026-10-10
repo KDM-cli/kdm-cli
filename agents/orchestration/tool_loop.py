@@ -38,6 +38,136 @@ MAX_DEPTH_INSTRUCTION: str = (
 )
 
 
+def _extract_from_dict(decision: Dict[str, Any]) -> List[Any]:
+    """Extract native tool calls from dictionary payload.
+
+    :param decision: Dictionary representation of response.
+    :return: List of tool calls.
+    """
+    if "tool_calls" in decision and decision["tool_calls"]:
+        return list(decision["tool_calls"])
+    msg = decision.get("message")
+    if isinstance(msg, dict) and msg.get("tool_calls"):
+        return list(msg["tool_calls"])
+    return []
+
+
+def _extract_from_object(decision: Any) -> List[Any]:
+    """Extract native tool calls from ChatResponse-like objects.
+
+    :param decision: Response object.
+    :return: List of tool calls.
+    """
+    msg = getattr(decision, "message", None)
+    if msg is not None and hasattr(msg, "tool_calls"):
+        return list(msg.tool_calls or [])
+    if hasattr(decision, "tool_calls"):
+        return list(decision.tool_calls or [])
+    return []
+
+
+def _extract_native_tool_calls(decision: Any) -> List[Any]:
+    """Extract native tool calls from Ollama chat response objects.
+
+    :param decision: Agent decision object or dictionary.
+    :return: List of native tool calls if present.
+    """
+    if isinstance(decision, dict):
+        return _extract_from_dict(decision)
+    return _extract_from_object(decision)
+
+
+def _parse_json_args_str(raw_args: str) -> Dict[str, Any]:
+    """Safely parse JSON-encoded string arguments.
+
+    :param raw_args: JSON string to decode.
+    :return: Parsed arguments dictionary.
+    """
+    try:
+        parsed = json.loads(raw_args)
+        return parsed if isinstance(parsed, dict) else {}
+    except (json.JSONDecodeError, ValueError):
+        return {}
+
+
+def _ensure_dict_args(raw_args: Any) -> Dict[str, Any]:
+    """Normalize raw tool arguments into a dictionary.
+
+    :param raw_args: Raw arguments (dict or JSON string).
+    :return: Dictionary of parsed arguments.
+    """
+    if isinstance(raw_args, dict):
+        return dict(raw_args)
+    if isinstance(raw_args, str):
+        return _parse_json_args_str(raw_args)
+    return {}
+
+
+def _extract_call_action(decision: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract tool call action details from dictionary.
+
+    :param decision: Raw action dictionary.
+    :return: Standardized call action dictionary.
+    """
+    tool_name = str(decision.get("tool") or decision.get("name") or "")
+    raw_args = decision.get("args") or decision.get("arguments") or {}
+    args = _ensure_dict_args(raw_args)
+    return {"action": "call", "tool": tool_name, "args": args, "report": {}}
+
+
+def _extract_final_action(decision: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract final answer report from dictionary.
+
+    :param decision: Raw final answer dictionary.
+    :return: Standardized final answer dictionary.
+    """
+    report = decision.get("report") if "report" in decision else decision
+    valid_report = report if isinstance(report, dict) else {}
+    return {
+        "action": "final_answer",
+        "tool": "",
+        "args": {},
+        "report": valid_report,
+    }
+
+
+def _format_dict_decision(decision: Dict[str, Any]) -> Dict[str, Any]:
+    """Format structured dictionary decision.
+
+    :param decision: Decision dictionary from agent.
+    :return: Standardized action dictionary.
+    """
+    action = str(decision.get("action", "")).lower()
+    if action in ("call", "call_tool"):
+        return _extract_call_action(decision)
+    return _extract_final_action(decision)
+
+
+def _format_native_call(tool_call: Any) -> Dict[str, Any]:
+    """Format an Ollama native function call object.
+
+    :param tool_call: Native tool call object or dict.
+    :return: Standardized action dictionary.
+    """
+    func = (
+        tool_call.get("function", {})
+        if isinstance(tool_call, dict)
+        else getattr(tool_call, "function", {})
+    )
+    name = func.get("name", "") if isinstance(func, dict) else getattr(func, "name", "")
+    raw_args = (
+        func.get("arguments", {})
+        if isinstance(func, dict)
+        else getattr(func, "arguments", {})
+    )
+    return {
+        "action": "call",
+        "tool": str(name),
+        "args": _ensure_dict_args(raw_args),
+        "report": {},
+    }
+
+
 class ProgressiveInvestigationLoop:
     """Bounded multi-turn progressive tool-calling loop for specialist agents.
 
@@ -64,10 +194,14 @@ class ProgressiveInvestigationLoop:
         self.store: EvidenceStore = (
             evidence_store if evidence_store is not None else EvidenceStore()
         )
-        if hasattr(self.tools, "store") and self.tools.store is None and self.store is not None:
-            self.tools.store = self.store
+        self._link_store_if_needed()
         self.max_turns: int = max(1, int(max_turns))
         self.turn_history: List[Dict[str, Any]] = []
+
+    def _link_store_if_needed(self) -> None:
+        """Link store to tools registry if unassigned."""
+        if hasattr(self.tools, "store") and self.tools.store is None:
+            self.tools.store = self.store
 
     async def run_agent_loop(
         self,
@@ -88,8 +222,9 @@ class ProgressiveInvestigationLoop:
             parsed = self._parse_decision(decision)
             if parsed["action"] == "final_answer":
                 return parsed["report"]
-            if parsed["action"] == "call":
-                await self._execute_and_record(agent, parsed["tool"], parsed["args"], history)
+            await self._execute_and_record(
+                agent, parsed["tool"], parsed["args"], history
+            )
 
         return await self._force_synthesis(agent, bundle, history)
 
@@ -120,98 +255,12 @@ class ProgressiveInvestigationLoop:
         :param decision: Raw output from agent evaluate_next_step.
         :return: Standardized decision dictionary.
         """
-        native_calls = self._extract_native_tool_calls(decision)
+        native_calls = _extract_native_tool_calls(decision)
         if native_calls:
-            return self._format_native_call(native_calls[0])
+            return _format_native_call(native_calls[0])
         if isinstance(decision, dict):
-            return self._format_dict_decision(decision)
+            return _format_dict_decision(decision)
         return {"action": "final_answer", "tool": "", "args": {}, "report": {}}
-
-    def _format_native_call(self, tool_call: Any) -> Dict[str, Any]:
-        """Format an Ollama native function call object.
-
-        :param tool_call: Native tool call object or dict.
-        :return: Standardized action dictionary.
-        """
-        func = (
-            tool_call.get("function", {})
-            if isinstance(tool_call, dict)
-            else getattr(tool_call, "function", {})
-        )
-        name = func.get("name", "") if isinstance(func, dict) else getattr(func, "name", "")
-        raw_args = (
-            func.get("arguments", {})
-            if isinstance(func, dict)
-            else getattr(func, "arguments", {})
-        )
-        return {
-            "action": "call",
-            "tool": str(name),
-            "args": self._ensure_dict_args(raw_args),
-            "report": {},
-        }
-
-    def _format_dict_decision(self, decision: Dict[str, Any]) -> Dict[str, Any]:
-        """Format structured dictionary decision.
-
-        :param decision: Decision dictionary from agent.
-        :return: Standardized action dictionary.
-        """
-        action = str(decision.get("action", "")).lower()
-        if action in ("call", "call_tool"):
-            tool_name = str(decision.get("tool") or decision.get("name") or "")
-            raw_args = decision.get("args") or decision.get("arguments") or {}
-            return {
-                "action": "call",
-                "tool": tool_name,
-                "args": self._ensure_dict_args(raw_args),
-                "report": {},
-            }
-        if action == "final_answer":
-            report = decision.get("report") if "report" in decision else decision
-            return {
-                "action": "final_answer",
-                "tool": "",
-                "args": {},
-                "report": report if isinstance(report, dict) else {},
-            }
-        return {"action": "final_answer", "tool": "", "args": {}, "report": decision}
-
-    @staticmethod
-    def _ensure_dict_args(raw_args: Any) -> Dict[str, Any]:
-        """Normalize raw tool arguments into a dictionary.
-
-        :param raw_args: Raw arguments (dict or JSON string).
-        :return: Dictionary of parsed arguments.
-        """
-        if isinstance(raw_args, dict):
-            return dict(raw_args)
-        if isinstance(raw_args, str):
-            try:
-                parsed = json.loads(raw_args)
-                return parsed if isinstance(parsed, dict) else {}
-            except (json.JSONDecodeError, ValueError):
-                return {}
-        return {}
-
-    @staticmethod
-    def _extract_native_tool_calls(decision: Any) -> List[Any]:
-        """Extract native tool calls from Ollama chat response objects.
-
-        :param decision: Agent decision object or dictionary.
-        :return: List of native tool calls if present.
-        """
-        if isinstance(decision, dict):
-            if decision.get("tool_calls"):
-                return list(decision["tool_calls"])
-            msg = decision.get("message")
-            if isinstance(msg, dict) and msg.get("tool_calls"):
-                return list(msg["tool_calls"])
-        if hasattr(decision, "message") and hasattr(decision.message, "tool_calls"):
-            return list(decision.message.tool_calls or [])
-        if hasattr(decision, "tool_calls"):
-            return list(decision.tool_calls or [])
-        return []
 
     async def _execute_and_record(
         self,
@@ -292,6 +341,22 @@ class ProgressiveInvestigationLoop:
             call_kwargs["store"] = self.store
         return await self.tools.execute(tool_name, **call_kwargs)
 
+    def _is_duplicate_call(self, record: ToolCallRecord) -> bool:
+        """Check if tool call was already recorded during execution.
+
+        :param record: ToolCallRecord to check.
+        :return: True if duplicate record exists.
+        """
+        if not hasattr(self.store, "get_tool_calls"):
+            return False
+        calls = self.store.get_tool_calls()
+        if not calls:
+            return False
+        last = calls[-1]
+        is_same = last.tool_name == record.tool_name
+        is_current = last.started_at >= record.started_at
+        return is_same and is_current
+
     def _audit_tool_record(self, record: ToolCallRecord) -> None:
         """Record tool execution audit trail if not already stored.
 
@@ -299,8 +364,7 @@ class ProgressiveInvestigationLoop:
         """
         if not hasattr(self.store, "record_tool_call"):
             return
-        calls = self.store.get_tool_calls() if hasattr(self.store, "get_tool_calls") else []
-        if calls and calls[-1].tool_name == record.tool_name and calls[-1].started_at >= record.started_at:
+        if self._is_duplicate_call(record):
             return
         self.store.record_tool_call(record)
 
@@ -332,7 +396,9 @@ class ProgressiveInvestigationLoop:
         return res
 
     async def _fallback_report(
-        self, agent: Any, bundle: Optional[EvidenceBundle]
+        self,
+        agent: Any,
+        bundle: Optional[EvidenceBundle],
     ) -> Dict[str, Any]:
         """Generate fallback diagnosis if agent lacks synthesis handler.
 
