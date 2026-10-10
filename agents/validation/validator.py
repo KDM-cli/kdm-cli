@@ -25,6 +25,36 @@ except ImportError:
     from core.evidence import CollectionStatus, EvidenceBundle, EvidenceItem  # type: ignore[no-redef]
     from synthesis.hypotheses import Hypothesis  # type: ignore[no-redef]
 
+_NODE_CHECKS: Tuple[Tuple[Tuple[str, ...], str, str, str], ...] = (
+    (
+        ("memorypressure", "memory pressure"),
+        "MemoryPressure",
+        "False",
+        (
+            "Hypothesis claims Node MemoryPressure, but node conditions "
+            "explicitly report MemoryPressure=False."
+        ),
+    ),
+    (
+        ("diskpressure", "disk pressure"),
+        "DiskPressure",
+        "False",
+        (
+            "Hypothesis claims Node DiskPressure, but node conditions "
+            "explicitly report DiskPressure=False."
+        ),
+    ),
+    (
+        ("node not ready", "node is not ready"),
+        "Ready",
+        "True",
+        (
+            "Hypothesis claims Node is not ready, but node conditions "
+            "explicitly report Ready=True."
+        ),
+    ),
+)
+
 
 @dataclass
 class ValidationResult:
@@ -236,14 +266,13 @@ def _build_oom_contradiction_reason(exit_code: int) -> str:
 
 
 def _check_oom_contradiction(
-    hyp: Hypothesis, bundle: EvidenceBundle, downgrade_score: float
-) -> Optional[ValidationResult]:
+    hyp: Hypothesis, bundle: EvidenceBundle
+) -> Optional[str]:
     """Detect contradiction when hypothesis claims OOMKilled but exit code != 137.
 
     :param hyp: Candidate hypothesis to cross-check.
     :param bundle: EvidenceBundle containing cluster facts.
-    :param downgrade_score: Calibrated score to assign upon contradiction.
-    :return: Contradicted ValidationResult if refuted, None otherwise.
+    :return: Contradiction reason if refuted, None otherwise.
     """
     desc = hyp.description
     is_oom = "OOMKilled" in desc or any(
@@ -265,11 +294,7 @@ def _check_oom_contradiction(
     if exit_code is None or exit_code == 137:
         return None
 
-    return ValidationResult(
-        approved=False,
-        confidence_score=downgrade_score,
-        reason=_build_oom_contradiction_reason(exit_code),
-    )
+    return _build_oom_contradiction_reason(exit_code)
 
 
 def _is_dns_replicas_ready(data: Dict[str, Any]) -> bool:
@@ -316,14 +341,13 @@ def _is_dns_service_healthy(data: Any) -> bool:
 
 
 def _check_dns_contradiction(
-    hyp: Hypothesis, bundle: EvidenceBundle, downgrade_score: float
-) -> Optional[ValidationResult]:
+    hyp: Hypothesis, bundle: EvidenceBundle
+) -> Optional[str]:
     """Detect contradiction when hypothesis claims DNS failure but CoreDNS is healthy.
 
     :param hyp: Candidate hypothesis to cross-check.
     :param bundle: EvidenceBundle containing cluster facts.
-    :param downgrade_score: Calibrated score to assign upon contradiction.
-    :return: Contradicted ValidationResult if refuted, None otherwise.
+    :return: Contradiction reason if refuted, None otherwise.
     """
     desc_lower = hyp.description.lower()
     if "dns" not in desc_lower and "coredns" not in desc_lower:
@@ -339,23 +363,21 @@ def _check_dns_contradiction(
         return None
 
     if _is_dns_service_healthy(dns_item.data):
-        return ValidationResult(
-            approved=False,
-            confidence_score=downgrade_score,
-            reason="Hypothesis claims DNS failure, but CoreDNS is 100% healthy with no resolution errors.",
+        return (
+            "Hypothesis claims DNS failure, but CoreDNS is 100% healthy "
+            "with no resolution errors."
         )
     return None
 
 
 def _check_crash_contradiction(
-    hyp: Hypothesis, bundle: EvidenceBundle, downgrade_score: float
-) -> Optional[ValidationResult]:
+    hyp: Hypothesis, bundle: EvidenceBundle
+) -> Optional[str]:
     """Detect contradiction when hypothesis claims process crash but exit code was 0.
 
     :param hyp: Candidate hypothesis to cross-check.
     :param bundle: EvidenceBundle containing cluster facts.
-    :param downgrade_score: Calibrated score to assign upon contradiction.
-    :return: Contradicted ValidationResult if refuted, None otherwise.
+    :return: Contradiction reason if refuted, None otherwise.
     """
     desc_lower = hyp.description.lower()
     is_crash = any(k in desc_lower for k in ("crash", "panic", "crashloop"))
@@ -374,16 +396,14 @@ def _check_crash_contradiction(
     exit_code = _extract_exit_code(c_dict)
     restarts = _extract_restart_count(c_dict)
     if exit_code == 0 and (restarts is None or restarts == 0):
-        return ValidationResult(
-            approved=False,
-            confidence_score=downgrade_score,
-            reason="Hypothesis claims process crash, but container exited cleanly with exit code 0.",
+        return (
+            "Hypothesis claims process crash, but container exited cleanly "
+            "with exit code 0."
         )
     if "repeated" in desc_lower and restarts == 0:
-        return ValidationResult(
-            approved=False,
-            confidence_score=downgrade_score,
-            reason="Hypothesis claims repeated crash restarts, but container restart count is 0.",
+        return (
+            "Hypothesis claims repeated crash restarts, but container "
+            "restart count is 0."
         )
     return None
 
@@ -452,64 +472,39 @@ def _is_probe_passing(
     return not _events_have_probe_failure(events_item)
 
 
-def _check_probe_spec_contradiction(
-    bundle: EvidenceBundle, downgrade_score: float
-) -> Optional[ValidationResult]:
+def _spec_contradicts_probe(bundle: EvidenceBundle) -> bool:
     """Check if pod specification contradicts probe failure claim by lacking probes.
 
     :param bundle: EvidenceBundle containing cluster facts.
-    :param downgrade_score: Likelihood score to assign upon contradiction.
-    :return: Contradiction result if probes absent, None otherwise.
+    :return: True if specification lacks health probes.
     """
     spec_item = bundle.get("ev.pod.spec") or bundle.get("ev.pod.manifest")
     if not spec_item or spec_item.status != CollectionStatus.AVAILABLE:
-        return None
+        return False
     if not isinstance(spec_item.data, dict):
-        return None
-    if not _spec_has_no_probes(spec_item.data):
-        return None
-    return ValidationResult(
-        approved=False,
-        confidence_score=downgrade_score,
-        reason=(
-            "Hypothesis claims probe failure, but container specification "
-            "has no health probes configured."
-        ),
-    )
+        return False
+    return _spec_has_no_probes(spec_item.data)
 
 
-def _check_probe_status_contradiction(
-    bundle: EvidenceBundle, downgrade_score: float
-) -> Optional[ValidationResult]:
+def _status_contradicts_probe(bundle: EvidenceBundle) -> bool:
     """Check if container status and events contradict probe failure claim.
 
     :param bundle: EvidenceBundle containing cluster facts.
-    :param downgrade_score: Likelihood score to assign upon contradiction.
-    :return: Contradiction result if probes passing, None otherwise.
+    :return: True if probes are confirmed passing.
     """
     events_item = bundle.get("ev.pod.events")
     status_item = bundle.get("ev.pod.container.status")
-    if not _is_probe_passing(events_item, status_item):
-        return None
-    return ValidationResult(
-        approved=False,
-        confidence_score=downgrade_score,
-        reason=(
-            "Hypothesis claims probe failure, but container health probes "
-            "are passing and container is ready."
-        ),
-    )
+    return _is_probe_passing(events_item, status_item)
 
 
 def _check_probe_contradiction(
-    hyp: Hypothesis, bundle: EvidenceBundle, downgrade_score: float
-) -> Optional[ValidationResult]:
+    hyp: Hypothesis, bundle: EvidenceBundle
+) -> Optional[str]:
     """Detect contradiction when hypothesis claims probe failure without failing probes.
 
     :param hyp: Candidate hypothesis to cross-check.
     :param bundle: EvidenceBundle containing cluster facts.
-    :param downgrade_score: Calibrated score to assign upon contradiction.
-    :return: Contradicted ValidationResult if refuted, None otherwise.
+    :return: Contradiction reason if refuted, None otherwise.
     """
     desc = hyp.description.lower()
     is_probe = "probe" in desc and any(
@@ -518,11 +513,19 @@ def _check_probe_contradiction(
     if not is_probe:
         return None
 
-    spec_res = _check_probe_spec_contradiction(bundle, downgrade_score)
-    if spec_res is not None:
-        return spec_res
+    if _spec_contradicts_probe(bundle):
+        return (
+            "Hypothesis claims probe failure, but container specification "
+            "has no health probes configured."
+        )
 
-    return _check_probe_status_contradiction(bundle, downgrade_score)
+    if _status_contradicts_probe(bundle):
+        return (
+            "Hypothesis claims probe failure, but container health probes "
+            "are passing and container is ready."
+        )
+
+    return None
 
 
 def _parse_single_condition(c: Any) -> Optional[Tuple[str, str]]:
@@ -553,87 +556,14 @@ def _extract_node_conditions_map(data: Any) -> Dict[str, str]:
     return {k: v for pair in parsed if pair is not None for k, v in [pair]}
 
 
-def _check_node_memory_pressure(
-    desc: str, cond_map: Dict[str, str], downgrade_score: float
-) -> Optional[ValidationResult]:
-    """Check for Node MemoryPressure contradiction.
-
-    :param desc: Lowercased hypothesis description.
-    :param cond_map: Node conditions map.
-    :param downgrade_score: Penalty score upon contradiction.
-    :return: ValidationResult if contradicted, None otherwise.
-    """
-    if "memorypressure" not in desc and "memory pressure" not in desc:
-        return None
-    if cond_map.get("MemoryPressure") != "False":
-        return None
-    return ValidationResult(
-        approved=False,
-        confidence_score=downgrade_score,
-        reason=(
-            "Hypothesis claims Node MemoryPressure, but node conditions "
-            "explicitly report MemoryPressure=False."
-        ),
-    )
-
-
-def _check_node_disk_pressure(
-    desc: str, cond_map: Dict[str, str], downgrade_score: float
-) -> Optional[ValidationResult]:
-    """Check for Node DiskPressure contradiction.
-
-    :param desc: Lowercased hypothesis description.
-    :param cond_map: Node conditions map.
-    :param downgrade_score: Penalty score upon contradiction.
-    :return: ValidationResult if contradicted, None otherwise.
-    """
-    if "diskpressure" not in desc and "disk pressure" not in desc:
-        return None
-    if cond_map.get("DiskPressure") != "False":
-        return None
-    return ValidationResult(
-        approved=False,
-        confidence_score=downgrade_score,
-        reason=(
-            "Hypothesis claims Node DiskPressure, but node conditions "
-            "explicitly report DiskPressure=False."
-        ),
-    )
-
-
-def _check_node_not_ready(
-    desc: str, cond_map: Dict[str, str], downgrade_score: float
-) -> Optional[ValidationResult]:
-    """Check for Node Not Ready contradiction.
-
-    :param desc: Lowercased hypothesis description.
-    :param cond_map: Node conditions map.
-    :param downgrade_score: Penalty score upon contradiction.
-    :return: ValidationResult if contradicted, None otherwise.
-    """
-    if "node not ready" not in desc and "node is not ready" not in desc:
-        return None
-    if cond_map.get("Ready") != "True":
-        return None
-    return ValidationResult(
-        approved=False,
-        confidence_score=downgrade_score,
-        reason=(
-            "Hypothesis claims Node is not ready, but node conditions "
-            "explicitly report Ready=True."
-        ),
-    )
-
-
 def _check_node_contradiction(
-    hyp: Hypothesis, bundle: EvidenceBundle, downgrade_score: float
-) -> Optional[ValidationResult]:
+    hyp: Hypothesis, bundle: EvidenceBundle
+) -> Optional[str]:
     """Detect contradiction when hypothesis claims node pressure refuted by node conditions.
 
     :param hyp: Candidate hypothesis to cross-check.
     :param bundle: EvidenceBundle containing cluster facts.
-    :param downgrade_score: Calibrated score to assign upon contradiction.
-    :return: Contradicted ValidationResult if refuted, None otherwise.
+    :return: Contradiction reason if refuted, None otherwise.
     """
     desc = hyp.description.lower()
     node_item = bundle.get("ev.node.conditions") or bundle.get("ev.node.status")
@@ -641,29 +571,21 @@ def _check_node_contradiction(
         return None
 
     cond_map = _extract_node_conditions_map(node_item.data)
-    if not cond_map:
-        return None
+    for keywords, cond_type, expected_status, reason in _NODE_CHECKS:
+        if any(k in desc for k in keywords) and cond_map.get(cond_type) == expected_status:
+            return reason
 
-    mem_res = _check_node_memory_pressure(desc, cond_map, downgrade_score)
-    if mem_res is not None:
-        return mem_res
-
-    disk_res = _check_node_disk_pressure(desc, cond_map, downgrade_score)
-    if disk_res is not None:
-        return disk_res
-
-    return _check_node_not_ready(desc, cond_map, downgrade_score)
+    return None
 
 
 def _check_image_pull_contradiction(
-    hyp: Hypothesis, bundle: EvidenceBundle, downgrade_score: float
-) -> Optional[ValidationResult]:
+    hyp: Hypothesis, bundle: EvidenceBundle
+) -> Optional[str]:
     """Detect contradiction when hypothesis claims image pull failure but container is running.
 
     :param hyp: Candidate hypothesis to cross-check.
     :param bundle: EvidenceBundle containing cluster facts.
-    :param downgrade_score: Calibrated score to assign upon contradiction.
-    :return: Contradicted ValidationResult if refuted, None otherwise.
+    :return: Contradiction reason if refuted, None otherwise.
     """
     desc = hyp.description.lower()
     if "imagepull" not in desc and "errimagepull" not in desc:
@@ -678,13 +600,9 @@ def _check_image_pull_contradiction(
     if not c_dict or not _is_container_running(c_dict):
         return None
 
-    return ValidationResult(
-        approved=False,
-        confidence_score=downgrade_score,
-        reason=(
-            "Hypothesis claims image pull failure, but container image "
-            "was pulled successfully and container is running."
-        ),
+    return (
+        "Hypothesis claims image pull failure, but container image "
+        "was pulled successfully and container is running."
     )
 
 
@@ -750,9 +668,13 @@ class CrossAgentValidator:
             _check_image_pull_contradiction,
         )
         for check_fn in checks:
-            result = check_fn(top_hypothesis, bundle, self.default_downgrade_score)
-            if result is not None:
-                return result
+            reason = check_fn(top_hypothesis, bundle)
+            if reason is not None:
+                return ValidationResult(
+                    approved=False,
+                    confidence_score=self.default_downgrade_score,
+                    reason=reason,
+                )
 
         return ValidationResult(
             approved=True,
