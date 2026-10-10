@@ -61,6 +61,244 @@ Output format: Return ONLY a valid JSON array of hypothesis objects:
 ]
 """
 
+_OOM_KEYWORDS: tuple[str, ...] = ("137", "oomkilled", "oom")
+_CRASH_KEYWORDS: tuple[str, ...] = ("crashloopbackoff", "exit code 1", "panic")
+_CONFIG_KEYWORDS: tuple[str, ...] = ("configmap", "secret", "mount", "404")
+_PROBE_KEYWORDS: tuple[str, ...] = ("probe", "unhealthy")
+
+
+def _has_keyword(text: str, keywords: tuple[str, ...]) -> bool:
+    """Check if any keyword appears in the given text.
+
+    :param text: Lowercased string to search.
+    :param keywords: Tuple of keywords to check.
+    :return: True if at least one keyword matches.
+    """
+    return any(k in text for k in keywords)
+
+
+def _filter_evidence(evidence: List[str], keywords: tuple[str, ...]) -> List[str]:
+    """Filter evidence lines matching any specified keyword.
+
+    :param evidence: List of evidence string statements.
+    :param keywords: Tuple of matching keywords.
+    :return: Filtered list of matching evidence lines.
+    """
+    return [e for e in evidence if _has_keyword(e.lower(), keywords)]
+
+
+def _append_evidence_item(target: List[str], ev_list: Any) -> None:
+    """Append string representations from evidence field to target list.
+
+    :param target: Destination list of strings.
+    :param ev_list: Evidence data from specialist finding.
+    """
+    if not isinstance(ev_list, list):
+        return
+    for item in ev_list:
+        target.append(str(item))
+
+
+def _collect_all_evidence(findings: List[Dict[str, Any]]) -> List[str]:
+    """Collect all evidence strings across specialist findings.
+
+    :param findings: List of normalized specialist reports.
+    :return: Flattened list of evidence strings.
+    """
+    collected: List[str] = []
+    for f in findings:
+        _append_evidence_item(collected, f.get("evidence"))
+    return collected
+
+
+def _build_oom_fallback(all_evidence: List[str], joined_text: str) -> List[Hypothesis]:
+    """Build ranked hypotheses for OOMKill incidents with cascade detection.
+
+    :param all_evidence: Combined list of evidence strings.
+    :param joined_text: Lowercased concatenated evidence text.
+    :return: Ranked hypothesis list.
+    """
+    oom_ev = _filter_evidence(all_evidence, _OOM_KEYWORDS)
+    has_probe = _has_keyword(joined_text, _PROBE_KEYWORDS)
+    contra = ["Probe failure is a secondary cascade symptom."] if has_probe else []
+
+    h1 = Hypothesis(
+        id="hyp-01",
+        description="Application container was OOMKilled after exceeding memory limits under load.",
+        likelihood=0.92,
+        supporting_evidence=oom_ev if oom_ev else ["Container terminated with exit code 137"],
+        contradicting_evidence=contra,
+    )
+    h2 = Hypothesis(
+        id="hyp-02",
+        description="Gradual memory leak in application process caused container termination.",
+        likelihood=0.45,
+        supporting_evidence=["Container restarted repeatedly"],
+        contradicting_evidence=["Node MemoryPressure is False"],
+    )
+    return [h1, h2]
+
+
+def _build_crash_fallback(all_evidence: List[str]) -> List[Hypothesis]:
+    """Build hypotheses for application process crashes.
+
+    :param all_evidence: Combined list of evidence strings.
+    :return: Ranked hypothesis list.
+    """
+    crash_ev = _filter_evidence(all_evidence, _CRASH_KEYWORDS)
+    return [
+        Hypothesis(
+            id="hyp-01",
+            description="Application process exited with fatal error during execution.",
+            likelihood=0.85,
+            supporting_evidence=crash_ev if crash_ev else ["Container in CrashLoopBackOff"],
+            contradicting_evidence=[],
+        ),
+        Hypothesis(
+            id="hyp-02",
+            description="Transient configuration or dependency connection timeout.",
+            likelihood=0.40,
+            supporting_evidence=["Repeated container restarts observed"],
+            contradicting_evidence=["Process terminates before readiness probe executes"],
+        ),
+    ]
+
+
+def _build_config_fallback(all_evidence: List[str]) -> List[Hypothesis]:
+    """Build hypotheses for missing configuration or secret dependencies.
+
+    :param all_evidence: Combined list of evidence strings.
+    :return: Ranked hypothesis list.
+    """
+    cfg_ev = _filter_evidence(all_evidence, _CONFIG_KEYWORDS)
+    return [
+        Hypothesis(
+            id="hyp-01",
+            description="Required ConfigMap or Secret dependency missing from namespace.",
+            likelihood=0.88,
+            supporting_evidence=cfg_ev if cfg_ev else ["Volume mount setup failed"],
+            contradicting_evidence=[],
+        ),
+        Hypothesis(
+            id="hyp-02",
+            description="RBAC permission denial accessing namespace resources.",
+            likelihood=0.35,
+            supporting_evidence=["Volume mount error in pod events"],
+            contradicting_evidence=["API returned 404 Not Found rather than 403 Forbidden"],
+        ),
+    ]
+
+
+def _build_inconclusive_fallback(reason: str) -> List[Hypothesis]:
+    """Build low-confidence hypotheses for ambiguous or conflicting evidence.
+
+    :param reason: Summary reason explaining ambiguity.
+    :return: Ranked low-confidence hypothesis list.
+    """
+    return [
+        Hypothesis(
+            id="hyp-01",
+            description=f"Inconclusive workload failure: {reason}",
+            likelihood=0.40,
+            supporting_evidence=["Specialist diagnostic evidence is ambiguous or incomplete"],
+            contradicting_evidence=["No deterministic root-cause signature detected"],
+        ),
+        Hypothesis(
+            id="hyp-02",
+            description="Potential transient network or node infrastructure anomaly.",
+            likelihood=0.25,
+            supporting_evidence=["Workload status degraded"],
+            contradicting_evidence=["Node conditions report Ready"],
+        ),
+    ]
+
+
+def _unwrap_fenced_lines(lines: List[str]) -> str:
+    """Unwrap lines contained within markdown code fences.
+
+    :param lines: Lines of fenced markdown block.
+    :return: Unwrapped content string.
+    """
+    if not lines:
+        return ""
+    if lines[-1].strip() == "```":
+        return "\n".join(lines[1:-1]).strip()
+    return "\n".join(lines[1:]).strip()
+
+
+def _strip_markdown_fences(text: str) -> str:
+    """Strip markdown code fence blocks if returned by the LLM.
+
+    :param text: Raw content string.
+    :return: Unwrapped JSON text string.
+    """
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return stripped
+    return _unwrap_fenced_lines(stripped.splitlines())
+
+
+def _extract_from_message(msg: Any) -> str:
+    """Extract content string from message container.
+
+    :param msg: Message dict or object.
+    :return: Content text string.
+    """
+    if isinstance(msg, dict):
+        return str(msg.get("content", ""))
+    return str(getattr(msg, "content", ""))
+
+
+def _extract_item_content(response: Any) -> str:
+    """Fallback extraction for subscriptable response objects.
+
+    :param response: Raw response object.
+    :return: Extracted text content string.
+    """
+    try:
+        return str(response["message"]["content"])
+    except Exception:
+        return str(response)
+
+
+def _extract_content(response: Any) -> str:
+    """Extract message text content from dict or ChatResponse objects.
+
+    :param response: Raw response from Ollama client.
+    :return: Extracted text content string.
+    """
+    if isinstance(response, dict):
+        return str(response.get("message", {}).get("content", ""))
+    if hasattr(response, "message"):
+        return _extract_from_message(response.message)
+    return _extract_item_content(response)
+
+
+def _find_hypotheses_in_dict(parsed_data: Dict[str, Any]) -> List[Any]:
+    """Find hypothesis list within a dictionary container.
+
+    :param parsed_data: Dictionary parsed from JSON.
+    :return: List of items if found.
+    """
+    for key in ("hypotheses", "Hypotheses", "items", "results"):
+        val = parsed_data.get(key)
+        if isinstance(val, list):
+            return val
+    return []
+
+
+def _extract_hypothesis_list(parsed_data: Any) -> List[Any]:
+    """Extract list of hypothesis items from parsed JSON object or array.
+
+    :param parsed_data: Parsed JSON structure.
+    :return: List of item dictionaries.
+    """
+    if isinstance(parsed_data, list):
+        return parsed_data
+    if isinstance(parsed_data, dict):
+        return _find_hypotheses_in_dict(parsed_data)
+    return []
+
 
 class LeadInvestigatorAgent:
     """Incident commander agent synthesizing specialist findings into competing hypotheses.
@@ -72,6 +310,9 @@ class LeadInvestigatorAgent:
     role: str = "lead_investigator"
     display_name: str = "Lead SRE Investigator"
     icon: str = "🎯"
+
+    _extract_content = staticmethod(_extract_content)
+    _strip_markdown_fences = staticmethod(_strip_markdown_fences)
 
     def __init__(self, client: ollama.Client, model: str = "llama3.1") -> None:
         """Initialize the Lead SRE Investigator Agent.
@@ -117,7 +358,7 @@ class LeadInvestigatorAgent:
         :return: List of Hypothesis objects ranked by likelihood in descending order.
         """
         if not specialist_findings:
-            return self._build_inconclusive_fallback("No specialist findings provided.")
+            return _build_inconclusive_fallback("No specialist findings provided.")
 
         prompt = self.build_prompt(specialist_findings)
         try:
@@ -178,69 +419,15 @@ class LeadInvestigatorAgent:
         :param response: Ollama chat response object or dictionary.
         :return: List of validated Hypothesis objects.
         """
-        content = cls._extract_content(response)
-        cleaned = cls._strip_markdown_fences(content)
+        content = _extract_content(response)
+        cleaned = _strip_markdown_fences(content)
         try:
             parsed = json.loads(cleaned)
         except (json.JSONDecodeError, TypeError):
             return []
 
-        items = cls._extract_hypothesis_list(parsed)
+        items = _extract_hypothesis_list(parsed)
         return [Hypothesis.from_dict(item) for item in items if isinstance(item, dict)]
-
-    @staticmethod
-    def _extract_hypothesis_list(parsed_data: Any) -> List[Any]:
-        """Extract list of hypothesis items from parsed JSON object or array.
-
-        :param parsed_data: Parsed JSON structure.
-        :return: List of item dictionaries.
-        """
-        if isinstance(parsed_data, list):
-            return parsed_data
-        if isinstance(parsed_data, dict):
-            for key in ("hypotheses", "Hypotheses", "items", "results"):
-                val = parsed_data.get(key)
-                if isinstance(val, list):
-                    return val
-        return []
-
-    @staticmethod
-    def _extract_from_message(msg: Any) -> str:
-        """Extract content string from message container."""
-        if isinstance(msg, dict):
-            return str(msg.get("content", ""))
-        return str(getattr(msg, "content", ""))
-
-    @classmethod
-    def _extract_content(cls, response: Any) -> str:
-        """Extract message text content from dict or ChatResponse objects.
-
-        :param response: Raw response from Ollama client.
-        :return: Extracted text content string.
-        """
-        if isinstance(response, dict):
-            return str(response.get("message", {}).get("content", ""))
-        if hasattr(response, "message"):
-            return cls._extract_from_message(response.message)
-        try:
-            return str(response["message"]["content"])
-        except Exception:
-            return str(response)
-
-    @staticmethod
-    def _strip_markdown_fences(text: str) -> str:
-        """Strip markdown ```json code fences if present.
-
-        :param text: Raw content string.
-        :return: Unwrapped JSON text string.
-        """
-        stripped = text.strip()
-        if not stripped.startswith("```"):
-            return stripped
-        lines = stripped.splitlines()
-        if lines[-1].strip() == "```":
-            return "\n".join(lines[1:-1]).strip()
-        return "\n".join(lines[1:]).strip()
 
     def _fallback_hypotheses(
         self, specialist_findings: List[Dict[str, Any]]
@@ -251,109 +438,14 @@ class LeadInvestigatorAgent:
         :return: Deterministically synthesized list of Hypothesis objects.
         """
         normalized = [self._normalize_finding(f) for f in specialist_findings]
-        all_evidence: List[str] = []
-        for f in normalized:
-            ev_list = f.get("evidence", [])
-            if isinstance(ev_list, list):
-                all_evidence.extend(str(e) for e in ev_list)
-
+        all_evidence = _collect_all_evidence(normalized)
         joined_evidence = " ".join(all_evidence).lower()
-        if "137" in joined_evidence or "oomkilled" in joined_evidence:
-            return self._build_oom_fallback(all_evidence, joined_evidence)
-        if "crashloopbackoff" in joined_evidence or "exit code 1" in joined_evidence:
-            return self._build_crash_fallback(all_evidence)
-        if "configmap" in joined_evidence or "secret" in joined_evidence or "mount" in joined_evidence:
-            return self._build_config_fallback(all_evidence)
 
-        return self._build_inconclusive_fallback("Inconclusive specialist reports.")
+        if _has_keyword(joined_evidence, _OOM_KEYWORDS):
+            return _build_oom_fallback(all_evidence, joined_evidence)
+        if _has_keyword(joined_evidence, _CRASH_KEYWORDS):
+            return _build_crash_fallback(all_evidence)
+        if _has_keyword(joined_evidence, _CONFIG_KEYWORDS):
+            return _build_config_fallback(all_evidence)
 
-    def _build_oom_fallback(
-        self, all_evidence: List[str], joined_text: str
-    ) -> List[Hypothesis]:
-        """Build ranked hypotheses for OOMKill incidents with cascade detection.
-
-        :param all_evidence: Combined list of evidence strings.
-        :param joined_text: Lowercased concatenated evidence text.
-        :return: Ranked hypothesis list.
-        """
-        oom_ev = [e for e in all_evidence if any(k in e.lower() for k in ("137", "oom", "memory"))]
-        has_probe = "probe" in joined_text or "unhealthy" in joined_text
-        contra = ["Probe failure is a secondary cascade symptom."] if has_probe else []
-
-        h1 = Hypothesis(
-            id="hyp-01",
-            description="Application container was OOMKilled after exceeding memory limits under load.",
-            likelihood=0.92,
-            supporting_evidence=oom_ev if oom_ev else ["Container terminated with exit code 137"],
-            contradicting_evidence=contra,
-        )
-        h2 = Hypothesis(
-            id="hyp-02",
-            description="Gradual memory leak in application process caused container termination.",
-            likelihood=0.45,
-            supporting_evidence=["Container restarted repeatedly"],
-            contradicting_evidence=["Node MemoryPressure is False"],
-        )
-        return [h1, h2]
-
-    @staticmethod
-    def _build_crash_fallback(all_evidence: List[str]) -> List[Hypothesis]:
-        """Build hypotheses for application process crashes."""
-        crash_ev = [e for e in all_evidence if any(k in e.lower() for k in ("crash", "exit code", "backoff"))]
-        return [
-            Hypothesis(
-                id="hyp-01",
-                description="Application process exited with fatal error during execution.",
-                likelihood=0.85,
-                supporting_evidence=crash_ev if crash_ev else ["Container in CrashLoopBackOff"],
-                contradicting_evidence=[],
-            ),
-            Hypothesis(
-                id="hyp-02",
-                description="Transient configuration or dependency connection timeout.",
-                likelihood=0.40,
-                supporting_evidence=["Repeated container restarts observed"],
-                contradicting_evidence=["Process terminates before readiness probe executes"],
-            ),
-        ]
-
-    @staticmethod
-    def _build_config_fallback(all_evidence: List[str]) -> List[Hypothesis]:
-        """Build hypotheses for missing configuration or secret dependencies."""
-        cfg_ev = [e for e in all_evidence if any(k in e.lower() for k in ("config", "secret", "mount", "404"))]
-        return [
-            Hypothesis(
-                id="hyp-01",
-                description="Required ConfigMap or Secret dependency missing from namespace.",
-                likelihood=0.88,
-                supporting_evidence=cfg_ev if cfg_ev else ["Volume mount setup failed"],
-                contradicting_evidence=[],
-            ),
-            Hypothesis(
-                id="hyp-02",
-                description="RBAC permission denial accessing namespace resources.",
-                likelihood=0.35,
-                supporting_evidence=["Volume mount error in pod events"],
-                contradicting_evidence=["API returned 404 Not Found rather than 403 Forbidden"],
-            ),
-        ]
-
-    @staticmethod
-    def _build_inconclusive_fallback(reason: str) -> List[Hypothesis]:
-        """Build low-confidence hypotheses for ambiguous or conflicting evidence."""
-        return [
-            Hypothesis(
-                id="hyp-01",
-                description=f"Inconclusive workload failure: {reason}",
-                likelihood=0.40,
-                supporting_evidence=["Specialist diagnostic evidence is ambiguous or incomplete"],
-                contradicting_evidence=["No deterministic root-cause signature detected"],
-            ),
-            Hypothesis(
-                id="hyp-02",
-                description="Potential transient network or node infrastructure anomaly.",
-                likelihood=0.25,
-                supporting_evidence=["Workload status degraded"],
-                contradicting_evidence=["Node conditions report Ready"],
-            ),
-        ]
+        return _build_inconclusive_fallback("Inconclusive specialist reports.")
