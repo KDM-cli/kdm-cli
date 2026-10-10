@@ -67,10 +67,8 @@ def map_confidence_score(score: Any) -> str:
     :param score: Numeric score, tier string, or None.
     :return: Standardized confidence tier ('high', 'medium', or 'low').
     """
-    if isinstance(score, str):
-        cleaned = score.strip().lower()
-        if cleaned in VALID_CONFIDENCE_LEVELS:
-            return cleaned
+    if isinstance(score, str) and score.strip().lower() in VALID_CONFIDENCE_LEVELS:
+        return score.strip().lower()
 
     val = _parse_score_float(score)
     return _score_to_tier(val) if val is not None else CONFIDENCE_LOW
@@ -82,24 +80,16 @@ def normalize_risk_level(risk: Any) -> str:
     :param risk: Raw risk level value.
     :return: Normalized risk string ('low', 'medium', or 'high').
     """
-    if isinstance(risk, str):
-        cleaned = risk.strip().lower()
-        if cleaned in VALID_RISK_LEVELS:
-            return cleaned
+    if isinstance(risk, str) and risk.strip().lower() in VALID_RISK_LEVELS:
+        return risk.strip().lower()
     return "low"
 
 
 def _sanitize_steps(raw_steps: Any) -> List[str]:
     """Sanitize steps into a non-empty list of string instructions."""
-    if isinstance(raw_steps, list):
-        cleaned = [str(s).strip() for s in raw_steps if str(s).strip()]
-        if cleaned:
-            return cleaned
-    elif raw_steps:
-        cleaned_single = str(raw_steps).strip()
-        if cleaned_single:
-            return [cleaned_single]
-    return ["Review workload status and logs."]
+    candidates = raw_steps if isinstance(raw_steps, list) else [raw_steps]
+    cleaned = [str(s).strip() for s in candidates if s and str(s).strip()]
+    return cleaned if cleaned else ["Review workload status and logs."]
 
 
 @dataclass
@@ -390,16 +380,11 @@ def _synthesize_remediation(cause_text: str, target: str = "") -> BestSolution:
 
 def _dedup_citations(sources: Any) -> List[str]:
     """De-duplicate citation string items preserving original order."""
-    if not isinstance(sources, (list, tuple, set)):
-        if sources:
-            cleaned = str(sources).strip()
-            return [cleaned] if cleaned else []
-        return []
-
+    candidates = sources if isinstance(sources, (list, tuple, set)) else [sources]
     seen: set[str] = set()
     result: List[str] = []
-    for s in sources:
-        cleaned = str(s).strip()
+    for s in candidates:
+        cleaned = str(s).strip() if s else ""
         if cleaned and cleaned not in seen:
             seen.add(cleaned)
             result.append(cleaned)
@@ -493,14 +478,21 @@ def _resolve_confidence_tier(
     :param hyp_likelihood: Likelihood extracted from top hypothesis.
     :return: Standardized confidence tier ('high', 'medium', or 'low').
     """
-    if validation_result is not None:
-        if not getattr(validation_result, "approved", True):
-            return CONFIDENCE_LOW
-        val_score = getattr(validation_result, "confidence_score", None)
-        if val_score is not None:
-            return map_confidence_score(val_score)
+    if validation_result is not None and not getattr(
+        validation_result, "approved", True
+    ):
+        return CONFIDENCE_LOW
 
-    effective_score = score if score is not None else hyp_likelihood
+    val_score = (
+        getattr(validation_result, "confidence_score", None)
+        if validation_result is not None
+        else None
+    )
+    effective_score = (
+        val_score
+        if val_score is not None
+        else (score if score is not None else hyp_likelihood)
+    )
     if effective_score is not None:
         return map_confidence_score(effective_score)
 
