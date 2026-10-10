@@ -8,6 +8,7 @@ Enforces strict Ollama JSON mode and deterministic fallback parsing.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import asyncio
 import json
 import logging
 import os
@@ -223,3 +224,135 @@ class BaseSpecialistAgent(ABC):
             "hypotheses": cls._ensure_string_list(data.get("hypotheses")),
             "confidence": cls._normalize_confidence(data.get("confidence")),
         }
+
+    @staticmethod
+    def _format_history_summary(history: List[Dict[str, Any]]) -> str:
+        """Format prior tool execution records for inclusion in prompt."""
+        if not history:
+            return "No previous tool executions."
+        lines: List[str] = []
+        for i, turn in enumerate(history, 1):
+            tool = turn.get("tool", "unknown")
+            args = turn.get("args", {})
+            res = turn.get("result", {})
+            lines.append(
+                f"Turn {i}: Invoked '{tool}' with args {json.dumps(args)} -> Result: {json.dumps(res)}"
+            )
+        return "\n".join(lines)
+
+    def _parse_json_dict(self, response: Any) -> Dict[str, Any]:
+        """Safely parse JSON dictionary from an Ollama chat response."""
+        try:
+            content = self._extract_content(response)
+            cleaned = self._strip_markdown_fences(content)
+            parsed = json.loads(cleaned)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+
+    async def evaluate_next_step(
+        self,
+        bundle: Optional[EvidenceBundle],
+        history: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Evaluate evidence and tool history to decide the next investigation action.
+
+        :param bundle: Evidence bundle containing current workload facts.
+        :param history: Prior tool call history for the active investigation.
+        :return: Action dictionary requesting a tool execution or providing final diagnosis.
+        """
+        if bundle is None:
+            return {"action": "final_answer", "report": dict(FALLBACK_REPORT)}
+
+        prompt = self.build_prompt(bundle)
+        hist_summary = self._format_history_summary(history)
+        user_content = (
+            f"{prompt}\n\n"
+            f"=== TOOL EXECUTION HISTORY ===\n{hist_summary}\n\n"
+            "Evaluate whether additional cluster evidence is needed. If you require further evidence, "
+            'return: {"action": "call", "tool": "<tool_name>", "args": {<kwargs>}}.\n'
+            "If you have sufficient facts to form a diagnosis, return:\n"
+            '{"action": "final_answer", "report": {"summary": "...", "evidence": [...], "hypotheses": [...], "confidence": "high|medium|low"}}.'
+        )
+
+        loop = asyncio.get_running_loop()
+        try:
+            response = await loop.run_in_executor(
+                None,
+                lambda: self.client.chat(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": self.get_system_prompt()},
+                        {"role": "user", "content": user_content},
+                    ],
+                    format="json",
+                    options={"temperature": 0.1},
+                ),
+            )
+            parsed = self._parse_json_dict(response)
+            if parsed.get("action") == "call" and parsed.get("tool"):
+                return {
+                    "action": "call",
+                    "tool": str(parsed["tool"]),
+                    "args": parsed.get("args", {}),
+                }
+            if parsed.get("action") == "final_answer":
+                rep = parsed.get("report") if isinstance(parsed.get("report"), dict) else parsed
+                return {"action": "final_answer", "report": self._normalize_report(rep)}
+            return {"action": "final_answer", "report": self._normalize_report(parsed)}
+        except Exception as exc:
+            logger.warning(
+                "Specialist %s evaluate_next_step failed: %s",
+                getattr(self, "role", "unknown"),
+                exc,
+            )
+            return {"action": "final_answer", "report": dict(FALLBACK_REPORT)}
+
+    async def force_synthesis(
+        self,
+        bundle: Optional[EvidenceBundle],
+        history: List[Dict[str, Any]],
+        instruction: str = "Max investigation depth reached. Provide your best diagnosis based on current facts.",
+    ) -> Dict[str, Any]:
+        """Synthesize final diagnosis incorporating all evidence and tool results.
+
+        :param bundle: Evidence bundle containing workload facts.
+        :param history: Prior tool call history.
+        :param instruction: Synthesis instruction prompt.
+        :return: Normalized specialist report dictionary.
+        """
+        if bundle is None:
+            return dict(FALLBACK_REPORT)
+
+        prompt = self.build_prompt(bundle)
+        hist_summary = self._format_history_summary(history)
+        user_content = (
+            f"{prompt}\n\n"
+            f"=== TOOL EXECUTION HISTORY ===\n{hist_summary}\n\n"
+            f"=== INSTRUCTION ===\n{instruction}\n\n"
+            "Provide your final diagnosis adhering to the SpecialistReport schema."
+        )
+
+        loop = asyncio.get_running_loop()
+        try:
+            response = await loop.run_in_executor(
+                None,
+                lambda: self.client.chat(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": self.get_system_prompt()},
+                        {"role": "user", "content": user_content},
+                    ],
+                    format="json",
+                    options={"temperature": 0.1},
+                ),
+            )
+            return self._parse_chat_response(response)
+        except Exception as exc:
+            logger.warning(
+                "Specialist %s force_synthesis failed: %s",
+                getattr(self, "role", "unknown"),
+                exc,
+            )
+            return dict(FALLBACK_REPORT)
+
