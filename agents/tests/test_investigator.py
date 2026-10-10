@@ -69,8 +69,8 @@ class TestHypothesisModel(unittest.TestCase):
         cases = [
             (1.5, 1.0),
             (-0.3, 0.0),
-            (float("inf"), 0.5),
-            (float("nan"), 0.5),
+            (float("inf"), 0.4),
+            (float("nan"), 0.4),
         ]
         for raw_val, expected in cases:
             with self.subTest(raw_val=raw_val):
@@ -102,8 +102,8 @@ class TestHypothesisModel(unittest.TestCase):
         cases = [
             ({"id": "h1", "description": "d1", "likelihood": 1.5, "supporting_evidence": ["e1"]}, 1.0),
             ({"id": "h2", "description": "d2", "likelihood": -0.2, "supporting_evidence": "e2"}, 0.0),
-            ({"id": "h3", "description": "d3", "likelihood": "invalid", "supporting_evidence": []}, 0.5),
-            ({"id": "h4", "description": "d4", "likelihood": float("inf"), "supporting_evidence": []}, 0.5),
+            ({"id": "h3", "description": "d3", "likelihood": "invalid", "supporting_evidence": []}, 0.4),
+            ({"id": "h4", "description": "d4", "likelihood": float("inf"), "supporting_evidence": []}, 0.4),
         ]
         for payload, expected_likelihood in cases:
             with self.subTest(payload=payload):

@@ -31,9 +31,9 @@ class Hypothesis:
         try:
             val = float(self.likelihood)
             is_valid = math.isfinite(val)
-            self.likelihood = round(max(0.0, min(1.0, val)) if is_valid else 0.5, 4)
+            self.likelihood = round(max(0.0, min(1.0, val)) if is_valid else 0.4, 4)
         except (ValueError, TypeError):
-            self.likelihood = 0.5
+            self.likelihood = 0.4
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert Hypothesis to a dictionary suitable for JSON serialization.
@@ -61,9 +61,9 @@ class Hypothesis:
         try:
             val = float(raw_prob)
             is_valid = math.isfinite(val)
-            prob = max(0.0, min(1.0, val)) if is_valid else 0.5
+            prob = max(0.0, min(1.0, val)) if is_valid else 0.4
         except (ValueError, TypeError):
-            prob = 0.5
+            prob = 0.4
 
         supp = cls._sanitize_evidence_list(data.get("supporting_evidence"))
         contra = cls._sanitize_evidence_list(data.get("contradicting_evidence"))
