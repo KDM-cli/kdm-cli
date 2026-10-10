@@ -15,10 +15,32 @@ if _AGENTS_DIR not in sys.path:
     sys.path.insert(0, _AGENTS_DIR)
 
 try:
+    from agents.synthesis.consensus import (
+        BestSolution,
+        ConsensusDiagnosis,
+        ConsensusGenerator,
+        generate_consensus_diagnosis,
+        map_confidence_score,
+    )
     from agents.synthesis.hypotheses import Hypothesis
     from agents.synthesis.investigator import LeadInvestigatorAgent
 except ImportError:
+    from synthesis.consensus import (  # type: ignore[no-redef]
+        BestSolution,
+        ConsensusDiagnosis,
+        ConsensusGenerator,
+        generate_consensus_diagnosis,
+        map_confidence_score,
+    )
     from synthesis.hypotheses import Hypothesis  # type: ignore[no-redef]
     from synthesis.investigator import LeadInvestigatorAgent  # type: ignore[no-redef]
 
-__all__ = ["Hypothesis", "LeadInvestigatorAgent"]
+__all__ = [
+    "BestSolution",
+    "ConsensusDiagnosis",
+    "ConsensusGenerator",
+    "Hypothesis",
+    "LeadInvestigatorAgent",
+    "generate_consensus_diagnosis",
+    "map_confidence_score",
+]
