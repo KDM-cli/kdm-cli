@@ -90,6 +90,20 @@ def _safe_int(val: Any) -> Optional[int]:
         return None
 
 
+def _match_container(c: Any, target_name: Optional[str]) -> bool:
+    """Check if candidate dictionary matches target name.
+
+    :param c: Candidate container item.
+    :param target_name: Optional target container name.
+    :return: True if item matches target container.
+    """
+    if not isinstance(c, dict):
+        return False
+    if not target_name:
+        return True
+    return c.get("name") == target_name
+
+
 def _find_container_in_list(
     containers: List[Any], target_name: Optional[str]
 ) -> Optional[Dict[str, Any]]:
@@ -101,12 +115,11 @@ def _find_container_in_list(
     """
     if not containers:
         return None
-    valid_dicts = [c for c in containers if isinstance(c, dict)]
-    if target_name:
-        for c in valid_dicts:
-            if c.get("name") == target_name:
-                return c
-    return valid_dicts[0] if valid_dicts else None
+    for c in containers:
+        if _match_container(c, target_name):
+            return c
+    valid = [c for c in containers if isinstance(c, dict)]
+    return valid[0] if valid else None
 
 
 def _extract_container_dict(
@@ -128,24 +141,50 @@ def _extract_container_dict(
     return None
 
 
+def _extract_terminated_block(c_dict: Dict[str, Any], key: str) -> Optional[Dict[str, Any]]:
+    """Extract terminated dictionary from a state key.
+
+    :param c_dict: Container status dictionary.
+    :param key: State attribute name ('lastState' or 'state').
+    :return: Terminated dictionary if present.
+    """
+    sub = c_dict.get(key)
+    if not isinstance(sub, dict):
+        return None
+    term = sub.get("terminated")
+    return term if isinstance(term, dict) else None
+
+
+def _get_exit_from_dict(d: Optional[Dict[str, Any]]) -> Optional[int]:
+    """Extract integer exitCode from a dictionary.
+
+    :param d: Candidate dictionary containing exitCode.
+    :return: Integer exitCode or None.
+    """
+    if not isinstance(d, dict):
+        return None
+    return _safe_int(d.get("exitCode"))
+
+
 def _extract_exit_code(c_dict: Dict[str, Any]) -> Optional[int]:
     """Extract container termination exit code from container status dictionary.
 
     :param c_dict: Container status dictionary.
     :return: Container termination exit code integer or None.
     """
-    for state_key in ("lastState", "state"):
-        state_obj = c_dict.get(state_key)
-        if isinstance(state_obj, dict):
-            terminated = state_obj.get("terminated")
-            if isinstance(terminated, dict) and "exitCode" in terminated:
-                return _safe_int(terminated.get("exitCode"))
-    terminated = c_dict.get("terminated")
-    if isinstance(terminated, dict) and "exitCode" in terminated:
-        return _safe_int(terminated.get("exitCode"))
-    if "exitCode" in c_dict:
-        return _safe_int(c_dict.get("exitCode"))
-    return None
+    exit_last = _get_exit_from_dict(_extract_terminated_block(c_dict, "lastState"))
+    if exit_last is not None:
+        return exit_last
+
+    exit_curr = _get_exit_from_dict(_extract_terminated_block(c_dict, "state"))
+    if exit_curr is not None:
+        return exit_curr
+
+    term_direct = c_dict.get("terminated")
+    if isinstance(term_direct, dict):
+        return _get_exit_from_dict(term_direct)
+
+    return _safe_int(c_dict.get("exitCode"))
 
 
 def _extract_restart_count(c_dict: Dict[str, Any]) -> Optional[int]:
@@ -182,6 +221,20 @@ def _is_container_running(c_dict: Dict[str, Any]) -> bool:
     return c_dict.get("running") is True
 
 
+def _build_oom_contradiction_reason(exit_code: int) -> str:
+    """Build standardized contradiction rationale for OOMKilled mismatches.
+
+    :param exit_code: Detected non-137 container exit code.
+    :return: Explanation of the exit code discrepancy.
+    """
+    if exit_code == 1:
+        return (
+            "Hypothesis claims OOMKilled, but container exit code was 1 "
+            "(application panic), not 137."
+        )
+    return f"Hypothesis claims OOMKilled but container exit code was {exit_code}, not 137."
+
+
 def _check_oom_contradiction(
     hyp: Hypothesis, bundle: EvidenceBundle, downgrade_score: float
 ) -> Optional[ValidationResult]:
@@ -193,7 +246,9 @@ def _check_oom_contradiction(
     :return: Contradicted ValidationResult if refuted, None otherwise.
     """
     desc = hyp.description
-    is_oom = "OOMKilled" in desc or "oomkilled" in desc.lower() or "out of memory" in desc.lower()
+    is_oom = "OOMKilled" in desc or any(
+        k in desc.lower() for k in ("oomkilled", "out of memory")
+    )
     if not is_oom:
         return None
 
@@ -207,20 +262,41 @@ def _check_oom_contradiction(
         return None
 
     exit_code = _extract_exit_code(c_dict)
-    if exit_code is not None and exit_code != 137:
-        if exit_code == 1:
-            reason = (
-                "Hypothesis claims OOMKilled, but container exit code was 1 "
-                "(application panic), not 137."
-            )
-        else:
-            reason = f"Hypothesis claims OOMKilled but container exit code was {exit_code}, not 137."
-        return ValidationResult(
-            approved=False,
-            confidence_score=downgrade_score,
-            reason=reason,
-        )
-    return None
+    if exit_code is None or exit_code == 137:
+        return None
+
+    return ValidationResult(
+        approved=False,
+        confidence_score=downgrade_score,
+        reason=_build_oom_contradiction_reason(exit_code),
+    )
+
+
+def _is_dns_replicas_ready(data: Dict[str, Any]) -> bool:
+    """Check if DNS replicas match readyReplicas.
+
+    :param data: DNS status dictionary.
+    :return: True if replica counts are non-zero and match.
+    """
+    replicas = data.get("replicas")
+    ready = data.get("readyReplicas", data.get("ready_replicas"))
+    if replicas is None or ready is None:
+        return False
+    return replicas > 0 and replicas == ready
+
+
+def _is_dns_status_healthy(data: Dict[str, Any]) -> bool:
+    """Check if DNS status flags indicate healthy operation.
+
+    :param data: DNS status dictionary.
+    :return: True if status indicates healthy state.
+    """
+    if data.get("healthy") is True:
+        return True
+    status = str(data.get("status", "")).lower()
+    if status in ("running", "healthy", "100% healthy"):
+        return True
+    return data.get("healthy_percent") == 100
 
 
 def _is_dns_service_healthy(data: Any) -> bool:
@@ -230,20 +306,12 @@ def _is_dns_service_healthy(data: Any) -> bool:
     :return: True if DNS service is confirmed healthy.
     """
     if isinstance(data, dict):
-        if data.get("healthy") is True or data.get("status") in (
-            "Running",
-            "Healthy",
-            "100% healthy",
-        ):
+        if _is_dns_status_healthy(data):
             return True
-        if data.get("healthy_percent") == 100 or str(data.get("health", "")).lower() == "healthy":
-            return True
-        replicas = data.get("replicas")
-        ready = data.get("readyReplicas", data.get("ready_replicas"))
-        if replicas and ready and replicas == ready:
-            return True
-    if isinstance(data, str) and ("100% healthy" in data.lower() or "healthy" in data.lower()):
-        return True
+        return _is_dns_replicas_ready(data)
+    if isinstance(data, str):
+        lowered = data.lower()
+        return "100% healthy" in lowered or "healthy" in lowered
     return False
 
 
@@ -290,7 +358,7 @@ def _check_crash_contradiction(
     :return: Contradicted ValidationResult if refuted, None otherwise.
     """
     desc_lower = hyp.description.lower()
-    is_crash = "crash" in desc_lower or "panic" in desc_lower or "crashloop" in desc_lower
+    is_crash = any(k in desc_lower for k in ("crash", "panic", "crashloop"))
     if not is_crash:
         return None
 
@@ -320,18 +388,51 @@ def _check_crash_contradiction(
     return None
 
 
-def _has_no_probes_configured(spec_data: Dict[str, Any]) -> bool:
-    """Check whether pod specification lacks liveness and readiness probes.
+def _container_has_no_probes(c_spec: Any) -> bool:
+    """Check if container dictionary lacks probe definitions.
+
+    :param c_spec: Container specification item.
+    :return: True if both livenessProbe and readinessProbe are absent.
+    """
+    if not isinstance(c_spec, dict):
+        return False
+    return "livenessProbe" not in c_spec and "readinessProbe" not in c_spec
+
+
+def _spec_has_no_probes(spec_data: Dict[str, Any]) -> bool:
+    """Check whether pod specification lacks all health probes.
 
     :param spec_data: Pod specification dictionary.
     :return: True if neither liveness nor readiness probes are configured.
     """
     containers = spec_data.get("containers")
     if isinstance(containers, list) and containers:
-        first = containers[0]
-        if isinstance(first, dict):
-            return "livenessProbe" not in first and "readinessProbe" not in first
+        return _container_has_no_probes(containers[0])
     return "livenessProbe" not in spec_data and "readinessProbe" not in spec_data
+
+
+def _event_has_probe_failure(ev: Any) -> bool:
+    """Check if a single event reports probe failure.
+
+    :param ev: Event dictionary.
+    :return: True if message mentions probe failure or unhealthy condition.
+    """
+    if not isinstance(ev, dict):
+        return False
+    msg = str(ev.get("message", "")).lower()
+    return "probe failed" in msg or "unhealthy" in msg
+
+
+def _events_have_probe_failure(events_item: Optional[EvidenceItem]) -> bool:
+    """Check if any event reports probe failures.
+
+    :param events_item: Events evidence item.
+    :return: True if any recorded warning indicates probe failures.
+    """
+    if not events_item or not events_item.data:
+        return False
+    ev_list = events_item.data if isinstance(events_item.data, list) else []
+    return any(_event_has_probe_failure(ev) for ev in ev_list)
 
 
 def _is_probe_passing(
@@ -348,15 +449,56 @@ def _is_probe_passing(
     c_dict = _extract_container_dict(status_item.data)
     if not c_dict or not _is_container_ready(c_dict):
         return False
+    return not _events_have_probe_failure(events_item)
 
-    if events_item and events_item.data:
-        ev_list = events_item.data if isinstance(events_item.data, list) else []
-        for ev in ev_list:
-            if isinstance(ev, dict):
-                msg = str(ev.get("message", "")).lower()
-                if "probe failed" in msg or "unhealthy" in msg:
-                    return False
-    return True
+
+def _check_probe_spec_contradiction(
+    bundle: EvidenceBundle, downgrade_score: float
+) -> Optional[ValidationResult]:
+    """Check if pod specification contradicts probe failure claim by lacking probes.
+
+    :param bundle: EvidenceBundle containing cluster facts.
+    :param downgrade_score: Likelihood score to assign upon contradiction.
+    :return: Contradiction result if probes absent, None otherwise.
+    """
+    spec_item = bundle.get("ev.pod.spec") or bundle.get("ev.pod.manifest")
+    if not spec_item or spec_item.status != CollectionStatus.AVAILABLE:
+        return None
+    if not isinstance(spec_item.data, dict):
+        return None
+    if not _spec_has_no_probes(spec_item.data):
+        return None
+    return ValidationResult(
+        approved=False,
+        confidence_score=downgrade_score,
+        reason=(
+            "Hypothesis claims probe failure, but container specification "
+            "has no health probes configured."
+        ),
+    )
+
+
+def _check_probe_status_contradiction(
+    bundle: EvidenceBundle, downgrade_score: float
+) -> Optional[ValidationResult]:
+    """Check if container status and events contradict probe failure claim.
+
+    :param bundle: EvidenceBundle containing cluster facts.
+    :param downgrade_score: Likelihood score to assign upon contradiction.
+    :return: Contradiction result if probes passing, None otherwise.
+    """
+    events_item = bundle.get("ev.pod.events")
+    status_item = bundle.get("ev.pod.container.status")
+    if not _is_probe_passing(events_item, status_item):
+        return None
+    return ValidationResult(
+        approved=False,
+        confidence_score=downgrade_score,
+        reason=(
+            "Hypothesis claims probe failure, but container health probes "
+            "are passing and container is ready."
+        ),
+    )
 
 
 def _check_probe_contradiction(
@@ -369,44 +511,33 @@ def _check_probe_contradiction(
     :param downgrade_score: Calibrated score to assign upon contradiction.
     :return: Contradicted ValidationResult if refuted, None otherwise.
     """
-    desc_lower = hyp.description.lower()
-    is_probe = "probe" in desc_lower and (
-        "fail" in desc_lower
-        or "timeout" in desc_lower
-        or "liveness" in desc_lower
-        or "readiness" in desc_lower
+    desc = hyp.description.lower()
+    is_probe = "probe" in desc and any(
+        k in desc for k in ("fail", "timeout", "liveness", "readiness")
     )
     if not is_probe:
         return None
 
-    spec_item = bundle.get("ev.pod.spec") or bundle.get("ev.pod.manifest")
-    if (
-        spec_item
-        and spec_item.status == CollectionStatus.AVAILABLE
-        and isinstance(spec_item.data, dict)
-    ):
-        if _has_no_probes_configured(spec_item.data):
-            return ValidationResult(
-                approved=False,
-                confidence_score=downgrade_score,
-                reason=(
-                    "Hypothesis claims probe failure, but container specification "
-                    "has no health probes configured."
-                ),
-            )
+    spec_res = _check_probe_spec_contradiction(bundle, downgrade_score)
+    if spec_res is not None:
+        return spec_res
 
-    events_item = bundle.get("ev.pod.events")
-    status_item = bundle.get("ev.pod.container.status")
-    if _is_probe_passing(events_item, status_item):
-        return ValidationResult(
-            approved=False,
-            confidence_score=downgrade_score,
-            reason=(
-                "Hypothesis claims probe failure, but container health probes "
-                "are passing and container is ready."
-            ),
-        )
-    return None
+    return _check_probe_status_contradiction(bundle, downgrade_score)
+
+
+def _parse_single_condition(c: Any) -> Optional[Tuple[str, str]]:
+    """Extract condition type and status tuple from candidate dictionary.
+
+    :param c: Candidate condition item.
+    :return: Condition type and status tuple or None.
+    """
+    if not isinstance(c, dict):
+        return None
+    c_type = c.get("type")
+    c_status = c.get("status")
+    if c_type is None or c_status is None:
+        return None
+    return (str(c_type), str(c_status))
 
 
 def _extract_node_conditions_map(data: Any) -> Dict[str, str]:
@@ -418,11 +549,80 @@ def _extract_node_conditions_map(data: Any) -> Dict[str, str]:
     conditions = data.get("conditions", data) if isinstance(data, dict) else data
     if not isinstance(conditions, list):
         return {}
-    res: Dict[str, str] = {}
-    for c in conditions:
-        if isinstance(c, dict) and "type" in c and "status" in c:
-            res[str(c["type"])] = str(c["status"])
-    return res
+    parsed = (_parse_single_condition(c) for c in conditions)
+    return {k: v for pair in parsed if pair is not None for k, v in [pair]}
+
+
+def _check_node_memory_pressure(
+    desc: str, cond_map: Dict[str, str], downgrade_score: float
+) -> Optional[ValidationResult]:
+    """Check for Node MemoryPressure contradiction.
+
+    :param desc: Lowercased hypothesis description.
+    :param cond_map: Node conditions map.
+    :param downgrade_score: Penalty score upon contradiction.
+    :return: ValidationResult if contradicted, None otherwise.
+    """
+    if "memorypressure" not in desc and "memory pressure" not in desc:
+        return None
+    if cond_map.get("MemoryPressure") != "False":
+        return None
+    return ValidationResult(
+        approved=False,
+        confidence_score=downgrade_score,
+        reason=(
+            "Hypothesis claims Node MemoryPressure, but node conditions "
+            "explicitly report MemoryPressure=False."
+        ),
+    )
+
+
+def _check_node_disk_pressure(
+    desc: str, cond_map: Dict[str, str], downgrade_score: float
+) -> Optional[ValidationResult]:
+    """Check for Node DiskPressure contradiction.
+
+    :param desc: Lowercased hypothesis description.
+    :param cond_map: Node conditions map.
+    :param downgrade_score: Penalty score upon contradiction.
+    :return: ValidationResult if contradicted, None otherwise.
+    """
+    if "diskpressure" not in desc and "disk pressure" not in desc:
+        return None
+    if cond_map.get("DiskPressure") != "False":
+        return None
+    return ValidationResult(
+        approved=False,
+        confidence_score=downgrade_score,
+        reason=(
+            "Hypothesis claims Node DiskPressure, but node conditions "
+            "explicitly report DiskPressure=False."
+        ),
+    )
+
+
+def _check_node_not_ready(
+    desc: str, cond_map: Dict[str, str], downgrade_score: float
+) -> Optional[ValidationResult]:
+    """Check for Node Not Ready contradiction.
+
+    :param desc: Lowercased hypothesis description.
+    :param cond_map: Node conditions map.
+    :param downgrade_score: Penalty score upon contradiction.
+    :return: ValidationResult if contradicted, None otherwise.
+    """
+    if "node not ready" not in desc and "node is not ready" not in desc:
+        return None
+    if cond_map.get("Ready") != "True":
+        return None
+    return ValidationResult(
+        approved=False,
+        confidence_score=downgrade_score,
+        reason=(
+            "Hypothesis claims Node is not ready, but node conditions "
+            "explicitly report Ready=True."
+        ),
+    )
 
 
 def _check_node_contradiction(
@@ -435,7 +635,7 @@ def _check_node_contradiction(
     :param downgrade_score: Calibrated score to assign upon contradiction.
     :return: Contradicted ValidationResult if refuted, None otherwise.
     """
-    desc_lower = hyp.description.lower()
+    desc = hyp.description.lower()
     node_item = bundle.get("ev.node.conditions") or bundle.get("ev.node.status")
     if not node_item or node_item.status != CollectionStatus.AVAILABLE or not node_item.data:
         return None
@@ -444,40 +644,15 @@ def _check_node_contradiction(
     if not cond_map:
         return None
 
-    if ("memorypressure" in desc_lower or "memory pressure" in desc_lower) and cond_map.get(
-        "MemoryPressure"
-    ) == "False":
-        return ValidationResult(
-            approved=False,
-            confidence_score=downgrade_score,
-            reason=(
-                "Hypothesis claims Node MemoryPressure, but node conditions "
-                "explicitly report MemoryPressure=False."
-            ),
-        )
-    if ("diskpressure" in desc_lower or "disk pressure" in desc_lower) and cond_map.get(
-        "DiskPressure"
-    ) == "False":
-        return ValidationResult(
-            approved=False,
-            confidence_score=downgrade_score,
-            reason=(
-                "Hypothesis claims Node DiskPressure, but node conditions "
-                "explicitly report DiskPressure=False."
-            ),
-        )
-    if (
-        "node not ready" in desc_lower or "node is not ready" in desc_lower
-    ) and cond_map.get("Ready") == "True":
-        return ValidationResult(
-            approved=False,
-            confidence_score=downgrade_score,
-            reason=(
-                "Hypothesis claims Node is not ready, but node conditions "
-                "explicitly report Ready=True."
-            ),
-        )
-    return None
+    mem_res = _check_node_memory_pressure(desc, cond_map, downgrade_score)
+    if mem_res is not None:
+        return mem_res
+
+    disk_res = _check_node_disk_pressure(desc, cond_map, downgrade_score)
+    if disk_res is not None:
+        return disk_res
+
+    return _check_node_not_ready(desc, cond_map, downgrade_score)
 
 
 def _check_image_pull_contradiction(
@@ -490,8 +665,8 @@ def _check_image_pull_contradiction(
     :param downgrade_score: Calibrated score to assign upon contradiction.
     :return: Contradicted ValidationResult if refuted, None otherwise.
     """
-    desc_lower = hyp.description.lower()
-    if "imagepull" not in desc_lower and "errimagepull" not in desc_lower:
+    desc = hyp.description.lower()
+    if "imagepull" not in desc and "errimagepull" not in desc:
         return None
 
     status_item = bundle.get("ev.pod.container.status")
@@ -500,16 +675,38 @@ def _check_image_pull_contradiction(
 
     target_name = bundle.target.container_name if bundle.target else None
     c_dict = _extract_container_dict(status_item.data, target_name)
-    if c_dict and _is_container_running(c_dict):
-        return ValidationResult(
-            approved=False,
-            confidence_score=downgrade_score,
-            reason=(
-                "Hypothesis claims image pull failure, but container image "
-                "was pulled successfully and container is running."
-            ),
-        )
-    return None
+    if not c_dict or not _is_container_running(c_dict):
+        return None
+
+    return ValidationResult(
+        approved=False,
+        confidence_score=downgrade_score,
+        reason=(
+            "Hypothesis claims image pull failure, but container image "
+            "was pulled successfully and container is running."
+        ),
+    )
+
+
+def _penalize_hypothesis(
+    hyp: Hypothesis, val_result: ValidationResult
+) -> Hypothesis:
+    """Return an updated hypothesis copy penalized with contradiction evidence.
+
+    :param hyp: Original hypothesis dataclass instance.
+    :param val_result: Disproving validation outcome.
+    :return: Updated Hypothesis with penalized likelihood and contradiction reason.
+    """
+    contra = list(hyp.contradicting_evidence)
+    if val_result.reason and val_result.reason not in contra:
+        contra.append(val_result.reason)
+    return Hypothesis(
+        id=hyp.id,
+        description=hyp.description,
+        likelihood=val_result.confidence_score,
+        supporting_evidence=list(hyp.supporting_evidence),
+        contradicting_evidence=contra,
+    )
 
 
 class CrossAgentValidator:
@@ -544,7 +741,7 @@ class CrossAgentValidator:
                 reason="No evidence bundle provided; hypothesis accepted with unverified confidence.",
             )
 
-        contradiction_checks = (
+        checks = (
             _check_oom_contradiction,
             _check_dns_contradiction,
             _check_crash_contradiction,
@@ -552,7 +749,7 @@ class CrossAgentValidator:
             _check_node_contradiction,
             _check_image_pull_contradiction,
         )
-        for check_fn in contradiction_checks:
+        for check_fn in checks:
             result = check_fn(top_hypothesis, bundle, self.default_downgrade_score)
             if result is not None:
                 return result
@@ -587,17 +784,7 @@ class CrossAgentValidator:
         for hyp in hypotheses:
             val_result = self.validate(hyp, bundle)
             if not val_result.approved:
-                contra = list(hyp.contradicting_evidence)
-                if val_result.reason and val_result.reason not in contra:
-                    contra.append(val_result.reason)
-                updated_hyp = Hypothesis(
-                    id=hyp.id,
-                    description=hyp.description,
-                    likelihood=val_result.confidence_score,
-                    supporting_evidence=list(hyp.supporting_evidence),
-                    contradicting_evidence=contra,
-                )
-                resolved.append(updated_hyp)
+                resolved.append(_penalize_hypothesis(hyp, val_result))
             else:
                 resolved.append(hyp)
 

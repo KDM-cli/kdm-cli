@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Any
+from typing import Any, Dict
 import unittest
 
 _AGENTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -69,6 +69,42 @@ def _add_evidence(
             data=data,
         )
     )
+
+
+def _make_status_dict(code: int, reason: str = "Error") -> Dict[str, Any]:
+    """Helper to construct a container terminated state status dictionary."""
+    return {
+        "name": "api",
+        "lastState": {
+            "terminated": {
+                "exitCode": code,
+                "reason": reason,
+            }
+        },
+    }
+
+
+def _make_dns_dict(healthy: bool = True) -> Dict[str, Any]:
+    """Helper to construct a CoreDNS status dictionary."""
+    return {
+        "status": "100% healthy" if healthy else "Degraded",
+        "healthy": healthy,
+        "replicas": 2,
+        "readyReplicas": 2 if healthy else 0,
+    }
+
+
+def _make_node_conditions(
+    mem: str = "False", disk: str = "False", ready: str = "True"
+) -> Dict[str, Any]:
+    """Helper to construct node condition records."""
+    return {
+        "conditions": [
+            {"type": "MemoryPressure", "status": mem},
+            {"type": "DiskPressure", "status": disk},
+            {"type": "Ready", "status": ready},
+        ]
+    }
 
 
 class TestValidationResultModel(unittest.TestCase):
@@ -145,16 +181,7 @@ class TestCrossAgentValidatorContradictions(unittest.TestCase):
             likelihood=0.95,
             supporting_evidence=["Memory limit set to 256Mi"],
         )
-        status_data = {
-            "name": "api",
-            "lastState": {
-                "terminated": {
-                    "exitCode": 1,
-                    "reason": "Error",
-                }
-            },
-        }
-        _add_evidence(self.bundle, "ev.pod.container.status", status_data)
+        _add_evidence(self.bundle, "ev.pod.container.status", _make_status_dict(1))
 
         result = self.validator.validate(hyp, self.bundle)
         self.assertFalse(result.approved)
@@ -170,16 +197,7 @@ class TestCrossAgentValidatorContradictions(unittest.TestCase):
             likelihood=0.9,
             supporting_evidence=[],
         )
-        status_data = {
-            "name": "api",
-            "lastState": {
-                "terminated": {
-                    "exitCode": 143,
-                    "reason": "Terminated",
-                }
-            },
-        }
-        _add_evidence(self.bundle, "ev.pod.container.status", status_data)
+        _add_evidence(self.bundle, "ev.pod.container.status", _make_status_dict(143, "Terminated"))
 
         result = self.validator.validate(hyp, self.bundle)
         self.assertFalse(result.approved)
@@ -194,16 +212,7 @@ class TestCrossAgentValidatorContradictions(unittest.TestCase):
             likelihood=0.92,
             supporting_evidence=["Exit code 137"],
         )
-        status_data = {
-            "name": "api",
-            "lastState": {
-                "terminated": {
-                    "exitCode": 137,
-                    "reason": "OOMKilled",
-                }
-            },
-        }
-        _add_evidence(self.bundle, "ev.pod.container.status", status_data)
+        _add_evidence(self.bundle, "ev.pod.container.status", _make_status_dict(137, "OOMKilled"))
 
         result = self.validator.validate(hyp, self.bundle)
         self.assertTrue(result.approved)
@@ -218,13 +227,7 @@ class TestCrossAgentValidatorContradictions(unittest.TestCase):
             likelihood=0.85,
             supporting_evidence=["Database connection timeout"],
         )
-        dns_data = {
-            "status": "100% healthy",
-            "healthy": True,
-            "replicas": 2,
-            "readyReplicas": 2,
-        }
-        _add_evidence(self.bundle, "ev.cluster.dns.status", dns_data)
+        _add_evidence(self.bundle, "ev.cluster.dns.status", _make_dns_dict(True))
 
         result = self.validator.validate(hyp, self.bundle)
         self.assertFalse(result.approved)
@@ -240,16 +243,8 @@ class TestCrossAgentValidatorContradictions(unittest.TestCase):
             likelihood=0.8,
             supporting_evidence=[],
         )
-        status_data = {
-            "name": "api",
-            "lastState": {
-                "terminated": {
-                    "exitCode": 0,
-                    "reason": "Completed",
-                }
-            },
-            "restartCount": 0,
-        }
+        status_data = _make_status_dict(0, "Completed")
+        status_data["restartCount"] = 0
         _add_evidence(self.bundle, "ev.pod.container.status", status_data)
 
         result = self.validator.validate(hyp, self.bundle)
@@ -264,14 +259,7 @@ class TestCrossAgentValidatorContradictions(unittest.TestCase):
             likelihood=0.75,
             supporting_evidence=[],
         )
-        spec_data = {
-            "containers": [
-                {
-                    "name": "api",
-                    "image": "my-app:v1.0.0",
-                }
-            ]
-        }
+        spec_data = {"containers": [{"name": "api", "image": "my-app:v1.0.0"}]}
         _add_evidence(self.bundle, "ev.pod.spec", spec_data)
 
         result = self.validator.validate(hyp, self.bundle)
@@ -286,14 +274,7 @@ class TestCrossAgentValidatorContradictions(unittest.TestCase):
             likelihood=0.82,
             supporting_evidence=[],
         )
-        node_data = {
-            "conditions": [
-                {"type": "MemoryPressure", "status": "False"},
-                {"type": "DiskPressure", "status": "False"},
-                {"type": "Ready", "status": "True"},
-            ]
-        }
-        _add_evidence(self.bundle, "ev.node.conditions", node_data)
+        _add_evidence(self.bundle, "ev.node.conditions", _make_node_conditions(mem="False"))
 
         result = self.validator.validate(hyp, self.bundle)
         self.assertFalse(result.approved)
@@ -333,14 +314,8 @@ class TestTargetContainerResolution(unittest.TestCase):
         )
         status_data = {
             "containerStatuses": [
-                {
-                    "name": "api",
-                    "lastState": {"terminated": {"exitCode": 137}},
-                },
-                {
-                    "name": "sidecar",
-                    "lastState": {"terminated": {"exitCode": 1}},
-                },
+                {"name": "api", "lastState": {"terminated": {"exitCode": 137}}},
+                {"name": "sidecar", "lastState": {"terminated": {"exitCode": 1}}},
             ]
         }
         _add_evidence(bundle, "ev.pod.container.status", status_data)
@@ -365,34 +340,19 @@ class TestDisagreementResolution(unittest.TestCase):
             description="Application OOMKilled due to memory limit under peak load.",
             likelihood=0.92,
             supporting_evidence=["Memory limit set to 256Mi"],
-            contradicting_evidence=[],
         )
         hyp_panic = Hypothesis(
             id="hyp-02",
             description="Process panic triggered by database schema migration mismatch.",
             likelihood=0.65,
             supporting_evidence=["Panic log in stderr"],
-            contradicting_evidence=[],
         )
-        # Cluster reality: exit code was 1, not 137
-        status_data = {
-            "name": "api",
-            "lastState": {
-                "terminated": {
-                    "exitCode": 1,
-                    "reason": "Error",
-                }
-            },
-        }
-        _add_evidence(self.bundle, "ev.pod.container.status", status_data)
+        _add_evidence(self.bundle, "ev.pod.container.status", _make_status_dict(1))
 
         resolved = self.validator.resolve_disagreements([hyp_oom, hyp_panic], self.bundle)
 
-        # hyp_panic should now be promoted to rank 1 (likelihood 0.65)
         self.assertEqual(resolved[0].id, "hyp-02")
         self.assertEqual(resolved[0].likelihood, 0.65)
-
-        # hyp_oom should be demoted to rank 2 with calibrated likelihood 0.2
         self.assertEqual(resolved[1].id, "hyp-01")
         self.assertEqual(resolved[1].likelihood, 0.2)
         self.assertTrue(len(resolved[1].contradicting_evidence) > 0)
@@ -403,8 +363,7 @@ class TestDisagreementResolution(unittest.TestCase):
         hyp1 = Hypothesis(id="hyp-01", description="General network latency", likelihood=0.8, supporting_evidence=[])
         hyp2 = Hypothesis(id="hyp-02", description="Container OOMKilled", likelihood=0.7, supporting_evidence=[])
 
-        status_data = {"name": "api", "lastState": {"terminated": {"exitCode": 1}}}
-        _add_evidence(self.bundle, "ev.pod.container.status", status_data)
+        _add_evidence(self.bundle, "ev.pod.container.status", _make_status_dict(1))
 
         results = self.validator.validate_hypotheses([hyp1, hyp2], self.bundle)
         self.assertEqual(len(results), 2)
