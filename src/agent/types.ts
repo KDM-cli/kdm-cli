@@ -77,3 +77,23 @@ export interface AgentProgressEvent {
   /** Optional icon badge. */
   icon?: string;
 }
+
+// ─── NDJSON Streaming Event Protocol (Phase 11) ─────────────────────────────
+
+/**
+ * Discriminated union of all NDJSON streaming events exchanged between
+ * the Python multi-agent engine (stdout) and the Node.js consumer.
+ * Each variant is keyed by its `event` field.
+ */
+export type NDJSONEvent =
+  | { event: 'analysis_start'; analysisId: string; timestamp: string }
+  | { event: 'evidence_collected'; count: number; ids: string[]; timestamp: string }
+  | { event: 'rule_matched'; ruleId: string; title: string; timestamp: string }
+  | { event: 'agent_start'; role: AgentRole; message: string; timestamp: string }
+  | { event: 'agent_tool_call'; role: string; tool: string; args: Record<string, unknown>; timestamp: string }
+  | { event: 'agent_tool_result'; role: string; tool: string; durationMs: number; timestamp: string }
+  | { event: 'agent_progress'; role: string; message: string; timestamp: string }
+  | { event: 'agent_complete'; role: string; summary: string; timestamp: string }
+  | { event: 'agent_failed'; role: string; error: string; timestamp: string }
+  | { event: 'diagnosis_ready'; consensus: ConsensusDiagnosis; timestamp: string }
+  | { event: 'error'; message: string; fatal: boolean; timestamp: string };
