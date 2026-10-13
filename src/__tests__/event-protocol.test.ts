@@ -11,7 +11,7 @@ import type { NDJSONEvent } from '../agent/types';
 // ─── Valid Event Fixtures ────────────────────────────────────────────────────
 
 /** Sample NDJSON lines representing each valid event variant. */
-const validEvents: { name: string; line: string; expected: Partial<NDJSONEvent> }[] = [
+const validEvents: { name: string; line: string; expected: NDJSONEvent }[] = [
   {
     name: 'analysis_start',
     line: '{"event":"analysis_start","analysisId":"an-123","timestamp":"2026-09-11T12:00:00Z"}',
@@ -20,52 +20,65 @@ const validEvents: { name: string; line: string; expected: Partial<NDJSONEvent> 
   {
     name: 'evidence_collected',
     line: '{"event":"evidence_collected","count":12,"ids":["ev.pod.status","ev.logs"],"timestamp":"2026-09-11T12:00:01Z"}',
-    expected: { event: 'evidence_collected', count: 12, ids: ['ev.pod.status', 'ev.logs'] },
+    expected: { event: 'evidence_collected', count: 12, ids: ['ev.pod.status', 'ev.logs'], timestamp: '2026-09-11T12:00:01Z' },
   },
   {
     name: 'rule_matched',
     line: '{"event":"rule_matched","ruleId":"r-oom-001","title":"OOM Kill Detected","timestamp":"2026-09-11T12:00:02Z"}',
-    expected: { event: 'rule_matched', ruleId: 'r-oom-001', title: 'OOM Kill Detected' },
+    expected: { event: 'rule_matched', ruleId: 'r-oom-001', title: 'OOM Kill Detected', timestamp: '2026-09-11T12:00:02Z' },
   },
   {
     name: 'agent_start',
     line: '{"event":"agent_start","role":"runtime","message":"Inspecting container exit code and logs...","timestamp":"2026-09-11T12:00:03Z"}',
-    expected: { event: 'agent_start', role: 'runtime', message: 'Inspecting container exit code and logs...' },
+    expected: { event: 'agent_start', role: 'runtime', message: 'Inspecting container exit code and logs...', timestamp: '2026-09-11T12:00:03Z' },
   },
   {
     name: 'agent_tool_call',
     line: '{"event":"agent_tool_call","role":"runtime","tool":"get_container_logs","args":{"previous":true},"timestamp":"2026-09-11T12:00:04Z"}',
-    expected: { event: 'agent_tool_call', role: 'runtime', tool: 'get_container_logs' },
+    expected: { event: 'agent_tool_call', role: 'runtime', tool: 'get_container_logs', args: { previous: true }, timestamp: '2026-09-11T12:00:04Z' },
   },
   {
     name: 'agent_tool_result',
     line: '{"event":"agent_tool_result","role":"runtime","tool":"get_container_logs","durationMs":120,"timestamp":"2026-09-11T12:00:05Z"}',
-    expected: { event: 'agent_tool_result', role: 'runtime', tool: 'get_container_logs', durationMs: 120 },
+    expected: { event: 'agent_tool_result', role: 'runtime', tool: 'get_container_logs', durationMs: 120, timestamp: '2026-09-11T12:00:05Z' },
   },
   {
     name: 'agent_progress',
     line: '{"event":"agent_progress","role":"config","message":"Checking resource limits...","timestamp":"2026-09-11T12:00:06Z"}',
-    expected: { event: 'agent_progress', role: 'config', message: 'Checking resource limits...' },
+    expected: { event: 'agent_progress', role: 'config', message: 'Checking resource limits...', timestamp: '2026-09-11T12:00:06Z' },
   },
   {
     name: 'agent_complete',
     line: '{"event":"agent_complete","role":"runtime","summary":"OOMKilled detected","timestamp":"2026-09-11T12:00:07Z"}',
-    expected: { event: 'agent_complete', role: 'runtime', summary: 'OOMKilled detected' },
+    expected: { event: 'agent_complete', role: 'runtime', summary: 'OOMKilled detected', timestamp: '2026-09-11T12:00:07Z' },
   },
   {
     name: 'agent_failed',
     line: '{"event":"agent_failed","role":"resource","error":"Timeout querying node metrics","timestamp":"2026-09-11T12:00:08Z"}',
-    expected: { event: 'agent_failed', role: 'resource', error: 'Timeout querying node metrics' },
+    expected: { event: 'agent_failed', role: 'resource', error: 'Timeout querying node metrics', timestamp: '2026-09-11T12:00:08Z' },
   },
   {
     name: 'diagnosis_ready',
     line: '{"event":"diagnosis_ready","consensus":{"rootCause":"OOM","confidence":"high","findings":[],"bestSolution":{"actionTitle":"Increase memory","steps":["Set limits"],"riskLevel":"low"}},"timestamp":"2026-09-11T12:00:09Z"}',
-    expected: { event: 'diagnosis_ready' },
+    expected: {
+      event: 'diagnosis_ready',
+      consensus: {
+        rootCause: 'OOM',
+        confidence: 'high',
+        findings: [],
+        bestSolution: {
+          actionTitle: 'Increase memory',
+          steps: ['Set limits'],
+          riskLevel: 'low',
+        },
+      },
+      timestamp: '2026-09-11T12:00:09Z',
+    },
   },
   {
     name: 'error',
     line: '{"event":"error","message":"Python agent crashed","fatal":true,"timestamp":"2026-09-11T12:00:10Z"}',
-    expected: { event: 'error', message: 'Python agent crashed', fatal: true },
+    expected: { event: 'error', message: 'Python agent crashed', fatal: true, timestamp: '2026-09-11T12:00:10Z' },
   },
 ];
 
@@ -77,11 +90,17 @@ const invalidInputs: { label: string; line: string }[] = [
   { label: 'whitespace only', line: '   ' },
   { label: 'non-JSON text', line: 'WARNING: something happened' },
   { label: 'JSON array', line: '[1,2,3]' },
-  { label: 'JSON without event key', line: '{"type":"progress","role":"runtime"}' },
+  { label: 'JSON without event key', line: '{"type":"progress","role":"runtime","timestamp":"2026-09-11T12:00:00Z"}' },
   { label: 'missing required field (analysisId)', line: '{"event":"analysis_start","timestamp":"2026-09-11T12:00:00Z"}' },
-  { label: 'wrong type for count', line: '{"event":"evidence_collected","count":"twelve","ids":[]}' },
-  { label: 'wrong type for fatal', line: '{"event":"error","message":"fail","fatal":"yes"}' },
-  { label: 'unknown event name', line: '{"event":"unknown_event","data":123}' },
+  { label: 'missing required timestamp', line: '{"event":"analysis_start","analysisId":"an-123"}' },
+  { label: 'wrong type for timestamp', line: '{"event":"analysis_start","analysisId":"an-123","timestamp":12345}' },
+  { label: 'wrong type for count', line: '{"event":"evidence_collected","count":"twelve","ids":[],"timestamp":"2026-09-11T12:00:00Z"}' },
+  { label: 'wrong type for fatal', line: '{"event":"error","message":"fail","fatal":"yes","timestamp":"2026-09-11T12:00:00Z"}' },
+  { label: 'invalid role in agent_start', line: '{"event":"agent_start","role":"network","message":"hi","timestamp":"2026-09-11T12:00:00Z"}' },
+  { label: 'unknown event name', line: '{"event":"unknown_event","data":123,"timestamp":"2026-09-11T12:00:00Z"}' },
+  { label: 'prototype constructor property', line: '{"event":"constructor","timestamp":"2026-09-11T12:00:00Z"}' },
+  { label: 'prototype __proto__ property', line: '{"event":"__proto__","timestamp":"2026-09-11T12:00:00Z"}' },
+  { label: 'incomplete consensus in diagnosis_ready', line: '{"event":"diagnosis_ready","consensus":{"rootCause":"OOM"},"timestamp":"2026-09-11T12:00:00Z"}' },
 ];
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -91,7 +110,7 @@ describe('NDJSON Event Protocol Parser', () => {
     it.each(validEvents)('parses $name event correctly', ({ line, expected }) => {
       const result = parseNDJSONLine(line);
       expect(result).not.toBeNull();
-      expect(result).toMatchObject(expected);
+      expect(result).toEqual(expected);
     });
   });
 
@@ -111,19 +130,19 @@ describe('NDJSON Event Protocol Parser', () => {
     });
 
     it('handles lines with leading/trailing whitespace', () => {
-      const line = '  {"event":"agent_complete","role":"config","summary":"All good"}  ';
+      const line = '  {"event":"agent_complete","role":"config","summary":"All good","timestamp":"2026-09-11T12:00:00Z"}  ';
       const result = parseNDJSONLine(line);
       expect(result).not.toBeNull();
       expect(result!.event).toBe('agent_complete');
     });
 
     it('validates agent_tool_call args must be an object', () => {
-      const line = '{"event":"agent_tool_call","role":"runtime","tool":"t","args":"not-object"}';
+      const line = '{"event":"agent_tool_call","role":"runtime","tool":"t","args":"not-object","timestamp":"2026-09-11T12:00:00Z"}';
       expect(parseNDJSONLine(line)).toBeNull();
     });
 
     it('validates diagnosis_ready consensus must be an object', () => {
-      const line = '{"event":"diagnosis_ready","consensus":"not-an-object"}';
+      const line = '{"event":"diagnosis_ready","consensus":"not-an-object","timestamp":"2026-09-11T12:00:00Z"}';
       expect(parseNDJSONLine(line)).toBeNull();
     });
 

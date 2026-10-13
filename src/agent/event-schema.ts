@@ -29,6 +29,23 @@ const isBool = (v: unknown): v is boolean => typeof v === 'boolean';
 const isStringArray = (v: unknown): v is string[] =>
   Array.isArray(v) && v.every(isString);
 
+/** Valid agent roles per the four-role contract. */
+const VALID_ROLES = new Set(['runtime', 'config', 'resource', 'synthesizer']);
+
+/** Guard that checks a value is a valid agent role. */
+const isAgentRole = (v: unknown): boolean =>
+  typeof v === 'string' && VALID_ROLES.has(v);
+
+/** Guard that validates the consensus diagnosis structure. */
+const isValidConsensus = (c: unknown): boolean => {
+  if (!isObject(c)) return false;
+  if (!isString(c.rootCause) || !isString(c.confidence)) return false;
+  if (!Array.isArray(c.findings)) return false;
+  if (!isObject(c.bestSolution)) return false;
+  const bs = c.bestSolution;
+  return isString(bs.actionTitle) && isStringArray(bs.steps) && isString(bs.riskLevel);
+};
+
 // ─── Per-Event Validators ───────────────────────────────────────────────────
 
 /**
@@ -37,7 +54,7 @@ const isStringArray = (v: unknown): v is string[] =>
  * @returns The typed event or null if invalid.
  */
 const validateAnalysisStart = (d: Record<string, unknown>): NDJSONEvent | null =>
-  isString(d.analysisId) && isString(d.timestamp)
+  isString(d.analysisId)
     ? d as unknown as NDJSONEvent
     : null;
 
@@ -67,7 +84,7 @@ const validateRuleMatched = (d: Record<string, unknown>): NDJSONEvent | null =>
  * @returns The typed event or null if invalid.
  */
 const validateAgentStart = (d: Record<string, unknown>): NDJSONEvent | null =>
-  isString(d.role) && isString(d.message)
+  isAgentRole(d.role) && isString(d.message)
     ? d as unknown as NDJSONEvent
     : null;
 
@@ -127,7 +144,7 @@ const validateAgentFailed = (d: Record<string, unknown>): NDJSONEvent | null =>
  * @returns The typed event or null if invalid.
  */
 const validateDiagnosisReady = (d: Record<string, unknown>): NDJSONEvent | null =>
-  isObject(d.consensus)
+  isValidConsensus(d.consensus)
     ? d as unknown as NDJSONEvent
     : null;
 
@@ -180,7 +197,9 @@ export function parseNDJSONLine(line: string): NDJSONEvent | null {
   if (!isObject(data)) return null;
 
   const eventName = data.event;
-  if (!isString(eventName)) return null;
+  if (!isString(eventName) || !isString(data.timestamp)) return null;
+
+  if (!Object.prototype.hasOwnProperty.call(validators, eventName)) return null;
 
   const validator = validators[eventName];
   return validator ? validator(data) : null;

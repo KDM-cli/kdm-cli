@@ -18,6 +18,15 @@ from datetime import datetime, timezone
 from typing import Any
 
 
+VALID_AGENT_ROLES: frozenset[str] = frozenset(
+    {"runtime", "config", "resource", "synthesizer"}
+)
+
+REQUIRED_CONSENSUS_KEYS: frozenset[str] = frozenset(
+    {"rootCause", "confidence", "findings", "bestSolution"}
+)
+
+
 def _utc_iso() -> str:
     """Return the current UTC time as an ISO-8601 string with 'Z' suffix."""
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -27,17 +36,17 @@ def emit_event(event_name: str, **kwargs: Any) -> None:
     """Emit a single NDJSON event line to ``sys.stdout`` and flush.
 
     The output is a single-line JSON object with at minimum an ``event``
-    key and a ``timestamp`` key.  Additional keyword arguments are merged
-    into the payload verbatim.
+    key and a ``timestamp`` key. Additional keyword arguments are merged
+    into the payload, but cannot overwrite the protocol fields.
 
     Args:
         event_name: The event discriminator (e.g. ``"analysis_start"``).
         **kwargs: Arbitrary key/value pairs to include in the payload.
     """
     payload: dict[str, Any] = {
+        **kwargs,
         "event": event_name,
         "timestamp": _utc_iso(),
-        **kwargs,
     }
     line = json.dumps(payload, separators=(",", ":"))
     sys.stdout.write(line + "\n")
@@ -67,9 +76,17 @@ def emit_agent_start(role: str, message: str) -> None:
     """Emit an ``agent_start`` event.
 
     Args:
-        role: Agent role (e.g. ``"runtime"``, ``"config"``).
+        role: Agent role (must be one of ``"runtime"``, ``"config"``,
+            ``"resource"``, or ``"synthesizer"``).
         message: Human-readable startup message.
+
+    Raises:
+        ValueError: If *role* is not one of the valid agent roles.
     """
+    if role not in VALID_AGENT_ROLES:
+        raise ValueError(
+            f"Invalid agent role: {role!r}. Must be one of {sorted(VALID_AGENT_ROLES)}"
+        )
     emit_event("agent_start", role=role, message=message)
 
 
@@ -130,8 +147,22 @@ def emit_diagnosis_ready(consensus: Any) -> None:
 
     Args:
         consensus: The full consensus diagnosis payload or object with ``to_dict()``.
+
+    Raises:
+        TypeError: If *consensus* is not a dict and lacks a ``to_dict()`` method.
+        ValueError: If required keys (rootCause, confidence, findings, bestSolution)
+            are missing from the consensus payload.
     """
     payload = consensus.to_dict() if hasattr(consensus, "to_dict") else consensus
+    if not isinstance(payload, dict):
+        raise TypeError(
+            f"consensus must be a dict or provide to_dict(), got {type(payload).__name__}"
+        )
+    missing = REQUIRED_CONSENSUS_KEYS - payload.keys()
+    if missing:
+        raise ValueError(
+            f"consensus payload is missing required keys: {sorted(missing)}"
+        )
     emit_event("diagnosis_ready", consensus=payload)
 
 

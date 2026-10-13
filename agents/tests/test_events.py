@@ -31,14 +31,27 @@ from core.events import (
 )
 
 
+class _FlushRecordingStringIO(io.StringIO):
+    """Custom StringIO stream that counts calls to flush()."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.flush_count = 0
+
+    def flush(self):
+        self.flush_count += 1
+        super().flush()
+
+
 class TestEmitEvent(unittest.TestCase):
     """Verify ``emit_event`` writes a single flushed NDJSON line."""
 
     def _capture(self, fn, *args, **kwargs):
-        """Run *fn* and return the captured stdout as a string."""
-        buf = io.StringIO()
+        """Run *fn* and return the captured stdout as a string, asserting flush was called."""
+        buf = _FlushRecordingStringIO()
         with patch.object(sys, "stdout", buf):
             fn(*args, **kwargs)
+        self.assertEqual(buf.flush_count, 1, "Must flush stdout exactly once per emission")
         return buf.getvalue()
 
     def _parse_line(self, raw: str) -> dict:
@@ -56,6 +69,13 @@ class TestEmitEvent(unittest.TestCase):
         self.assertIn("timestamp", data)
         self.assertEqual(data["foo"], "bar")
         self.assertEqual(data["count"], 42)
+
+    def test_emit_event_cannot_overwrite_reserved_fields(self):
+        """emit_event ignores attempts to overwrite event name or timestamp via kwargs."""
+        raw = self._capture(emit_event, "legit_event", event="spoofed", timestamp="1970-01-01T00:00:00Z")
+        data = self._parse_line(raw)
+        self.assertEqual(data["event"], "legit_event")
+        self.assertNotEqual(data["timestamp"], "1970-01-01T00:00:00Z")
 
     def test_analysis_start(self):
         """emit_analysis_start emits correct shape."""
@@ -81,6 +101,12 @@ class TestEmitEvent(unittest.TestCase):
         self.assertEqual(data["event"], "agent_start")
         self.assertEqual(data["role"], "runtime")
         self.assertEqual(data["message"], "Starting...")
+
+    def test_agent_start_invalid_role_raises(self):
+        """emit_agent_start raises ValueError when given an unrecognized role."""
+        with self.assertRaises(ValueError) as ctx:
+            emit_agent_start("network", "Analyzing network...")
+        self.assertIn("Invalid agent role", str(ctx.exception))
 
     def test_agent_tool_call(self):
         """emit_agent_tool_call emits role, tool, and args."""
@@ -121,23 +147,56 @@ class TestEmitEvent(unittest.TestCase):
         self.assertEqual(data["error"], "Timeout")
 
     def test_diagnosis_ready(self):
-        """emit_diagnosis_ready emits the consensus object."""
-        consensus = {"rootCause": "OOM", "confidence": "high"}
+        """emit_diagnosis_ready emits the complete consensus object."""
+        consensus = {
+            "rootCause": "OOM",
+            "confidence": "high",
+            "findings": [],
+            "bestSolution": {
+                "actionTitle": "Increase memory",
+                "steps": ["Set limits"],
+                "riskLevel": "low",
+            },
+        }
         raw = self._capture(emit_diagnosis_ready, consensus)
         data = self._parse_line(raw)
         self.assertEqual(data["event"], "diagnosis_ready")
         self.assertEqual(data["consensus"]["rootCause"], "OOM")
+        self.assertEqual(data["consensus"]["confidence"], "high")
+        self.assertEqual(data["consensus"]["findings"], [])
+        self.assertEqual(data["consensus"]["bestSolution"]["actionTitle"], "Increase memory")
 
     def test_diagnosis_ready_with_to_dict(self):
         """emit_diagnosis_ready handles objects with to_dict() method."""
         class MockConsensus:
             def to_dict(self):
-                return {"rootCause": "CrashLoopBackOff", "confidence": "high"}
+                return {
+                    "rootCause": "CrashLoopBackOff",
+                    "confidence": "high",
+                    "findings": [],
+                    "bestSolution": {
+                        "actionTitle": "Fix config",
+                        "steps": ["Check command"],
+                        "riskLevel": "medium",
+                    },
+                }
 
         raw = self._capture(emit_diagnosis_ready, MockConsensus())
         data = self._parse_line(raw)
         self.assertEqual(data["event"], "diagnosis_ready")
         self.assertEqual(data["consensus"]["rootCause"], "CrashLoopBackOff")
+
+    def test_diagnosis_ready_missing_keys_raises(self):
+        """emit_diagnosis_ready raises ValueError when consensus dict misses required keys."""
+        with self.assertRaises(ValueError) as ctx:
+            emit_diagnosis_ready({"rootCause": "OOM"})
+        self.assertIn("missing required keys", str(ctx.exception))
+
+    def test_diagnosis_ready_invalid_type_raises(self):
+        """emit_diagnosis_ready raises TypeError when given non-dict without to_dict."""
+        with self.assertRaises(TypeError) as ctx:
+            emit_diagnosis_ready("string is not consensus")
+        self.assertIn("consensus must be a dict", str(ctx.exception))
 
     def test_error_event(self):
         """emit_error emits message and fatal flag."""

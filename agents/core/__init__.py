@@ -10,6 +10,8 @@ Core Architectural Rule: KDM collects facts; agents reason over facts.
 from .context import AnalysisContext, AnalysisMetadata
 from .evidence import CollectionStatus, EvidenceBundle, EvidenceItem, Target
 from .events import (
+    REQUIRED_CONSENSUS_KEYS,
+    VALID_AGENT_ROLES,
     emit_agent_complete,
     emit_agent_failed,
     emit_agent_progress,
@@ -34,8 +36,10 @@ __all__ = [
     "EvidenceItem",
     "EvidenceStore",
     "FindingRecord",
+    "REQUIRED_CONSENSUS_KEYS",
     "Target",
     "ToolCallRecord",
+    "VALID_AGENT_ROLES",
     "emit_agent_complete",
     "emit_agent_failed",
     "emit_agent_progress",
