@@ -24,6 +24,11 @@ try:
         extract_workload_info,
         generate_rollback_command,
     )
+    from agents.remediation.policy import (
+        ALLOWED_COMMAND_PREFIXES,
+        BLOCKED_PATTERNS,
+        PolicyEngine,
+    )
     from agents.remediation.types import (
         RemediationPlan,
         RemediationStep,
@@ -38,6 +43,11 @@ except ImportError:
         extract_workload_info,
         generate_rollback_command,
     )
+    from .policy import (  # type: ignore[no-redef]
+        ALLOWED_COMMAND_PREFIXES,
+        BLOCKED_PATTERNS,
+        PolicyEngine,
+    )
     from .types import (  # type: ignore[no-redef]
         RemediationPlan,
         RemediationStep,
@@ -45,7 +55,10 @@ except ImportError:
     )
 
 __all__ = [
+    "ALLOWED_COMMAND_PREFIXES",
+    "BLOCKED_PATTERNS",
     "PlanContext",
+    "PolicyEngine",
     "RemediationPlan",
     "RemediationPlanner",
     "RemediationStep",
@@ -55,3 +68,4 @@ __all__ = [
     "generate_rollback_command",
     "normalize_risk_level",
 ]
+
