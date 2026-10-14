@@ -9,6 +9,7 @@ import {
   getRiskColor,
   parseDiffLines,
   type RemediationProposal,
+  type SafetyPromptProps,
 } from '../remediation/safety-prompt';
 
 if (!(console as any).Console) {
@@ -61,6 +62,47 @@ const waitForFrame = async (mockStdout: MockStdout, substring: string, timeout =
   }
   throw new Error(`Timed out waiting for frame containing "${substring}". Last output:\n${mockStdout.output}`);
 };
+
+interface TestHarness {
+  onConfirm: ReturnType<typeof vi.fn>;
+  onAbort: ReturnType<typeof vi.fn>;
+  onDecision: ReturnType<typeof vi.fn>;
+  sendAndWait: (char: string) => Promise<void>;
+  unmount: () => void;
+}
+
+async function setupPromptHarness(
+  stdout: MockStdout,
+  stdin: MockStdin,
+  customProps: Partial<SafetyPromptProps> = {}
+): Promise<TestHarness> {
+  const onConfirm = vi.fn();
+  const onAbort = vi.fn();
+  const onDecision = vi.fn();
+
+  const { unmount } = render(
+    React.createElement(SafetyPrompt, {
+      proposal: SAMPLE_PROPOSAL,
+      onConfirm,
+      onAbort,
+      onDecision,
+      ...customProps,
+    }),
+    {
+      stdout: stdout as any,
+      stdin: stdin as any,
+    }
+  );
+
+  await waitForFrame(stdout, 'Apply this remediation to the cluster?');
+
+  const sendAndWait = async (char: string) => {
+    stdin.sendChar(char);
+    await sleep(40);
+  };
+
+  return { onConfirm, onAbort, onDecision, sendAndWait, unmount };
+}
 
 describe('SafetyPrompt Component & Interactive Safety Gate', () => {
   let mockStdout: MockStdout;
@@ -126,196 +168,73 @@ describe('SafetyPrompt Component & Interactive Safety Gate', () => {
   });
 
   it('confirms execution on lowercase "y" keypress', async () => {
-    const onConfirm = vi.fn();
-    const onAbort = vi.fn();
-    const onDecision = vi.fn();
+    const harness = await setupPromptHarness(mockStdout, mockStdin);
+    await harness.sendAndWait('y');
 
-    const { unmount } = render(
-      React.createElement(SafetyPrompt, {
-        proposal: SAMPLE_PROPOSAL,
-        onConfirm,
-        onAbort,
-        onDecision,
-      }),
-      {
-        stdout: mockStdout as any,
-        stdin: mockStdin as any,
-      }
-    );
-
-    await waitForFrame(mockStdout, 'Apply this remediation to the cluster?');
-    mockStdin.sendChar('y');
-    await sleep(50);
-
-    expect(onConfirm).toHaveBeenCalledTimes(1);
-    expect(onDecision).toHaveBeenCalledWith(true);
-    expect(onAbort).not.toHaveBeenCalled();
-
-    unmount();
+    expect(harness.onConfirm).toHaveBeenCalledTimes(1);
+    expect(harness.onDecision).toHaveBeenCalledWith(true);
+    expect(harness.onAbort).not.toHaveBeenCalled();
+    harness.unmount();
   });
 
   it('confirms execution on uppercase "Y" keypress', async () => {
-    const onConfirm = vi.fn();
-    const onDecision = vi.fn();
+    const harness = await setupPromptHarness(mockStdout, mockStdin);
+    await harness.sendAndWait('Y');
 
-    const { unmount } = render(
-      React.createElement(SafetyPrompt, {
-        proposal: SAMPLE_PROPOSAL,
-        onConfirm,
-        onDecision,
-      }),
-      {
-        stdout: mockStdout as any,
-        stdin: mockStdin as any,
-      }
-    );
-
-    await waitForFrame(mockStdout, 'Apply this remediation to the cluster?');
-    mockStdin.sendChar('Y');
-    await sleep(50);
-
-    expect(onConfirm).toHaveBeenCalledTimes(1);
-    expect(onDecision).toHaveBeenCalledWith(true);
-
-    unmount();
+    expect(harness.onConfirm).toHaveBeenCalledTimes(1);
+    expect(harness.onDecision).toHaveBeenCalledWith(true);
+    harness.unmount();
   });
 
   it('defaults to abort on Enter keypress', async () => {
-    const onConfirm = vi.fn();
-    const onAbort = vi.fn();
-    const onDecision = vi.fn();
+    const harness = await setupPromptHarness(mockStdout, mockStdin);
+    await harness.sendAndWait('\r');
 
-    const { unmount } = render(
-      React.createElement(SafetyPrompt, {
-        proposal: SAMPLE_PROPOSAL,
-        onConfirm,
-        onAbort,
-        onDecision,
-      }),
-      {
-        stdout: mockStdout as any,
-        stdin: mockStdin as any,
-      }
-    );
-
-    await waitForFrame(mockStdout, 'Apply this remediation to the cluster?');
-    // Enter key sends carriage return
-    mockStdin.sendChar('\r');
-    await sleep(50);
-
-    expect(onAbort).toHaveBeenCalledTimes(1);
-    expect(onDecision).toHaveBeenCalledWith(false);
-    expect(onConfirm).not.toHaveBeenCalled();
-
-    unmount();
+    expect(harness.onAbort).toHaveBeenCalledTimes(1);
+    expect(harness.onDecision).toHaveBeenCalledWith(false);
+    expect(harness.onConfirm).not.toHaveBeenCalled();
+    harness.unmount();
   });
 
   it('aborts execution on explicit "n" keypress', async () => {
-    const onConfirm = vi.fn();
-    const onAbort = vi.fn();
-    const onDecision = vi.fn();
+    const harness = await setupPromptHarness(mockStdout, mockStdin);
+    await harness.sendAndWait('n');
 
-    const { unmount } = render(
-      React.createElement(SafetyPrompt, {
-        proposal: SAMPLE_PROPOSAL,
-        onConfirm,
-        onAbort,
-        onDecision,
-      }),
-      {
-        stdout: mockStdout as any,
-        stdin: mockStdin as any,
-      }
-    );
-
-    await waitForFrame(mockStdout, 'Apply this remediation to the cluster?');
-    mockStdin.sendChar('n');
-    await sleep(50);
-
-    expect(onAbort).toHaveBeenCalledTimes(1);
-    expect(onDecision).toHaveBeenCalledWith(false);
-    expect(onConfirm).not.toHaveBeenCalled();
-
-    unmount();
+    expect(harness.onAbort).toHaveBeenCalledTimes(1);
+    expect(harness.onDecision).toHaveBeenCalledWith(false);
+    expect(harness.onConfirm).not.toHaveBeenCalled();
+    harness.unmount();
   });
 
   it('aborts execution on explicit "N" keypress', async () => {
-    const onAbort = vi.fn();
-    const onDecision = vi.fn();
+    const harness = await setupPromptHarness(mockStdout, mockStdin);
+    await harness.sendAndWait('N');
 
-    const { unmount } = render(
-      React.createElement(SafetyPrompt, {
-        proposal: SAMPLE_PROPOSAL,
-        onAbort,
-        onDecision,
-      }),
-      {
-        stdout: mockStdout as any,
-        stdin: mockStdin as any,
-      }
-    );
-
-    await waitForFrame(mockStdout, 'Apply this remediation to the cluster?');
-    mockStdin.sendChar('N');
-    await sleep(50);
-
-    expect(onAbort).toHaveBeenCalledTimes(1);
-    expect(onDecision).toHaveBeenCalledWith(false);
-
-    unmount();
+    expect(harness.onAbort).toHaveBeenCalledTimes(1);
+    expect(harness.onDecision).toHaveBeenCalledWith(false);
+    harness.unmount();
   });
 
   it('aborts execution on any unexpected single keypress', async () => {
-    const onAbort = vi.fn();
-    const onDecision = vi.fn();
+    const harness = await setupPromptHarness(mockStdout, mockStdin);
+    await harness.sendAndWait('x');
 
-    const { unmount } = render(
-      React.createElement(SafetyPrompt, {
-        proposal: SAMPLE_PROPOSAL,
-        onAbort,
-        onDecision,
-      }),
-      {
-        stdout: mockStdout as any,
-        stdin: mockStdin as any,
-      }
-    );
-
-    await waitForFrame(mockStdout, 'Apply this remediation to the cluster?');
-    mockStdin.sendChar('x');
-    await sleep(50);
-
-    expect(onAbort).toHaveBeenCalledTimes(1);
-    expect(onDecision).toHaveBeenCalledWith(false);
-
-    unmount();
+    expect(harness.onAbort).toHaveBeenCalledTimes(1);
+    expect(harness.onDecision).toHaveBeenCalledWith(false);
+    harness.unmount();
   });
 
   it('ignores subsequent keypresses after the single initial decision', async () => {
-    const onDecision = vi.fn();
+    const harness = await setupPromptHarness(mockStdout, mockStdin);
+    await harness.sendAndWait('y');
 
-    const { unmount } = render(
-      React.createElement(SafetyPrompt, {
-        proposal: SAMPLE_PROPOSAL,
-        onDecision,
-      }),
-      {
-        stdout: mockStdout as any,
-        stdin: mockStdin as any,
-      }
-    );
-
-    await waitForFrame(mockStdout, 'Apply this remediation to the cluster?');
-    mockStdin.sendChar('y');
-    await sleep(25);
     mockStdin.sendChar('n');
     mockStdin.sendChar('\r');
-    await sleep(50);
+    await sleep(40);
 
-    expect(onDecision).toHaveBeenCalledTimes(1);
-    expect(onDecision).toHaveBeenCalledWith(true);
-
-    unmount();
+    expect(harness.onDecision).toHaveBeenCalledTimes(1);
+    expect(harness.onDecision).toHaveBeenCalledWith(true);
+    harness.unmount();
   });
 
   it('promptSafetyConfirmation helper resolves true on "y"', async () => {

@@ -70,41 +70,109 @@ export function parseDiffLines(diffPreview?: string | string[]): string[] {
 }
 
 /**
- * Renders diff lines with syntax coloring.
+ * Internal header banner component.
  */
-function renderDiffLines(diffLines: string[]): React.ReactNode {
-  return diffLines.map((line, idx) => {
-    let color: 'green' | 'red' | undefined;
-    if (line.startsWith('+')) {
-      color = 'green';
-    } else if (line.startsWith('-')) {
-      color = 'red';
-    }
-    return React.createElement(
-      Text,
-      { key: idx, color },
-      `  ${line}`
-    );
-  });
-}
+const RemediationHeader: React.FC = () => {
+  return React.createElement(
+    Box,
+    { marginBottom: 1 },
+    React.createElement(Text, { bold: true, color: 'cyan' }, 'Remediation Proposal')
+  );
+};
 
 /**
- * Interactive Safety Confirmation Prompt Component.
+ * Action row display component.
  */
-export const SafetyPrompt: React.FC<SafetyPromptProps> = (props) => {
-  const {
-    proposal,
-    action = proposal?.action || 'Remediation Action',
-    risk = proposal?.risk || 'LOW',
-    riskDetails = proposal?.riskDetails || (risk.toLowerCase() === 'low' ? 'Safe rollback available' : undefined),
-    command = proposal?.command || '',
-    diffPreview = proposal?.diffPreview,
-    promptMessage = 'Apply this remediation to the cluster? [y/N]:',
-    onConfirm,
-    onAbort,
-    onDecision,
-  } = props;
+const ActionRow: React.FC<{ action: string }> = ({ action }) => {
+  return React.createElement(
+    Box,
+    { flexDirection: 'row' },
+    React.createElement(Text, { bold: true }, 'Action: '),
+    React.createElement(Text, null, action)
+  );
+};
 
+/**
+ * Risk badge row display component.
+ */
+const RiskRow: React.FC<{ risk: string; riskDetails?: string }> = ({ risk, riskDetails }) => {
+  const badge = `${risk.toUpperCase()}${riskDetails ? ` · ${riskDetails}` : ''}`;
+  const color = getRiskColor(risk);
+  return React.createElement(
+    Box,
+    { flexDirection: 'row' },
+    React.createElement(Text, { bold: true }, 'Risk:   '),
+    React.createElement(Text, { bold: true, color }, badge)
+  );
+};
+
+/**
+ * Proposed command display component.
+ */
+const CommandBlock: React.FC<{ command: string }> = ({ command }) => {
+  return React.createElement(
+    Box,
+    { flexDirection: 'column', marginTop: 1 },
+    React.createElement(Text, { bold: true }, 'Command:'),
+    React.createElement(Text, { color: 'yellow' }, `  $ ${command}`)
+  );
+};
+
+/**
+ * Unified diff preview display component.
+ */
+const DiffBlock: React.FC<{ diffPreview?: string | string[] }> = ({ diffPreview }) => {
+  const lines = parseDiffLines(diffPreview);
+  if (lines.length === 0) {
+    return null;
+  }
+  return React.createElement(
+    Box,
+    { flexDirection: 'column', marginTop: 1 },
+    React.createElement(Text, { bold: true }, 'Diff Preview:'),
+    lines.map((line, idx) => {
+      const color = line.startsWith('+') ? 'green' : line.startsWith('-') ? 'red' : undefined;
+      return React.createElement(Text, { key: idx, color }, `  ${line}`);
+    })
+  );
+};
+
+/**
+ * Confirmation status / prompt message row.
+ */
+const PromptStatus: React.FC<{ decided: boolean | null; promptMessage: string }> = ({
+  decided,
+  promptMessage,
+}) => {
+  if (decided === true) {
+    return React.createElement(
+      Box,
+      { marginTop: 1 },
+      React.createElement(Text, { color: 'green', bold: true }, '✔ Remediation confirmed by user.')
+    );
+  }
+  if (decided === false) {
+    return React.createElement(
+      Box,
+      { marginTop: 1 },
+      React.createElement(Text, { color: 'red', bold: true }, '✖ Remediation aborted.')
+    );
+  }
+  return React.createElement(
+    Box,
+    { marginTop: 1 },
+    React.createElement(Text, { bold: true, color: 'cyan' }, `${promptMessage} `)
+  );
+};
+
+/**
+ * Custom hook to manage single keypress interactive confirmation logic.
+ */
+function useSafetyKeypress(
+  onConfirm?: () => void,
+  onAbort?: () => void,
+  onDecision?: (confirmed: boolean) => void
+): boolean | null {
   const [decided, setDecided] = useState<boolean | null>(null);
   const handledRef = useRef(false);
 
@@ -122,42 +190,36 @@ export const SafetyPrompt: React.FC<SafetyPromptProps> = (props) => {
     }
     handledRef.current = true;
 
-    if (input === 'y' || input === 'Y') {
-      setDecided(true);
+    const isAffirmative = input === 'y' || input === 'Y';
+    setDecided(isAffirmative);
+    if (isAffirmative) {
       onConfirm?.();
       onDecision?.(true);
-      exitFn?.();
-      return;
+    } else {
+      onAbort?.();
+      onDecision?.(false);
     }
-
-    // Default Enter, 'n', 'N', Escape, or any other single keypress aborts
-    setDecided(false);
-    onAbort?.();
-    onDecision?.(false);
     exitFn?.();
   });
 
-  const riskBadgeText = `${risk.toUpperCase()}${riskDetails ? ` · ${riskDetails}` : ''}`;
-  const riskColor = getRiskColor(risk);
-  const diffLines = parseDiffLines(diffPreview);
+  return decided;
+}
 
-  const statusFeedback = decided === true
-    ? React.createElement(
-        Box,
-        { marginTop: 1 },
-        React.createElement(Text, { color: 'green', bold: true }, '✔ Remediation confirmed by user.')
-      )
-    : decided === false
-    ? React.createElement(
-        Box,
-        { marginTop: 1 },
-        React.createElement(Text, { color: 'red', bold: true }, '✖ Remediation aborted.')
-      )
-    : React.createElement(
-        Box,
-        { marginTop: 1 },
-        React.createElement(Text, { bold: true, color: 'cyan' }, `${promptMessage} `)
-      );
+/**
+ * Interactive Safety Confirmation Prompt Component.
+ */
+export const SafetyPrompt: React.FC<SafetyPromptProps> = (props) => {
+  const action = props.action || props.proposal?.action || 'Remediation Action';
+  const risk = props.risk || props.proposal?.risk || 'LOW';
+  const riskDetails =
+    props.riskDetails ||
+    props.proposal?.riskDetails ||
+    (risk.toLowerCase() === 'low' ? 'Safe rollback available' : undefined);
+  const command = props.command || props.proposal?.command || '';
+  const diffPreview = props.diffPreview ?? props.proposal?.diffPreview;
+  const promptMessage = props.promptMessage || 'Apply this remediation to the cluster? [y/N]:';
+
+  const decided = useSafetyKeypress(props.onConfirm, props.onAbort, props.onDecision);
 
   return React.createElement(
     Box,
@@ -168,43 +230,12 @@ export const SafetyPrompt: React.FC<SafetyPromptProps> = (props) => {
       paddingX: 1,
       minWidth: 60,
     },
-    // Header
-    React.createElement(
-      Box,
-      { marginBottom: 1 },
-      React.createElement(Text, { bold: true, color: 'cyan' }, 'Remediation Proposal')
-    ),
-    // Action line
-    React.createElement(
-      Box,
-      { flexDirection: 'row' },
-      React.createElement(Text, { bold: true }, 'Action: '),
-      React.createElement(Text, null, action)
-    ),
-    // Risk line
-    React.createElement(
-      Box,
-      { flexDirection: 'row' },
-      React.createElement(Text, { bold: true }, 'Risk:   '),
-      React.createElement(Text, { bold: true, color: riskColor }, riskBadgeText)
-    ),
-    // Command section
-    React.createElement(
-      Box,
-      { flexDirection: 'column', marginTop: 1 },
-      React.createElement(Text, { bold: true }, 'Command:'),
-      React.createElement(Text, { color: 'yellow' }, `  $ ${command}`)
-    ),
-    // Diff Preview section
-    diffLines.length > 0 &&
-      React.createElement(
-        Box,
-        { flexDirection: 'column', marginTop: 1 },
-        React.createElement(Text, { bold: true }, 'Diff Preview:'),
-        renderDiffLines(diffLines)
-      ),
-    // Prompt or Decision status
-    statusFeedback
+    React.createElement(RemediationHeader, null),
+    React.createElement(ActionRow, { action }),
+    React.createElement(RiskRow, { risk, riskDetails }),
+    React.createElement(CommandBlock, { command }),
+    React.createElement(DiffBlock, { diffPreview }),
+    React.createElement(PromptStatus, { decided, promptMessage })
   );
 };
 
