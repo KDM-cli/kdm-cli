@@ -17,7 +17,7 @@ import {
 } from '../ui/council-state';
 import * as analysisModule from '../analysis/analysis';
 import type { AnalysisOutput } from '../analysis/types';
-import type { ConsensusDiagnosis, NDJSONEvent } from '../agent/types';
+import type { ConsensusDiagnosis } from '../agent/types';
 
 if (!(console as any).Console) {
   (console as any).Console = Console;
