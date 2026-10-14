@@ -307,6 +307,28 @@ export const SafetyPrompt: React.FC<SafetyPromptProps> = (props) => {
 };
 
 /**
+ * Converts proposal or props input into SafetyPromptProps.
+ */
+function createPromptProps(
+  input: RemediationProposal | SafetyPromptProps,
+  onDecision: (confirmed: boolean) => void
+): SafetyPromptProps {
+  if ('action' in input || 'command' in input) {
+    return { ...input, onDecision };
+  }
+  return { proposal: input as RemediationProposal, onDecision };
+}
+
+/**
+ * Resolves standard or mocked stdin/stdout streams.
+ */
+function resolveIOOptions(options?: PromptSafetyOptions): { stdin: any; stdout: any } {
+  const stdin = options && options.stdin ? options.stdin : process.stdin;
+  const stdout = options && options.stdout ? options.stdout : process.stdout;
+  return { stdin, stdout };
+}
+
+/**
  * Helper function to mount and prompt for user confirmation interactively.
  *
  * @param proposal - The remediation proposal details or prompt props.
@@ -318,25 +340,19 @@ export function promptSafetyConfirmation(
   options?: PromptSafetyOptions
 ): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
-    let resolved = false;
-    const settle = (confirmed: boolean) => {
-      if (!resolved) {
-        resolved = true;
-        resolve(confirmed);
+    let settled = false;
+    const onDecision = (confirmed: boolean) => {
+      if (settled) {
+        return;
       }
+      settled = true;
+      resolve(confirmed);
     };
 
-    const hasDirectFields = 'action' in proposal || 'command' in proposal;
-    const props: SafetyPromptProps = hasDirectFields
-      ? { ...proposal, onDecision: settle }
-      : { proposal: proposal as RemediationProposal, onDecision: settle };
+    const props = createPromptProps(proposal, onDecision);
+    const io = resolveIOOptions(options);
 
-    const ioOptions = {
-      stdin: options && options.stdin ? options.stdin : process.stdin,
-      stdout: options && options.stdout ? options.stdout : process.stdout,
-    };
-
-    const instance = render(React.createElement(SafetyPrompt, props), ioOptions as any);
-    instance.waitUntilExit().then(() => settle(false)).catch(() => settle(false));
+    const instance = render(React.createElement(SafetyPrompt, props), io);
+    instance.waitUntilExit().finally(() => onDecision(false));
   });
 }
