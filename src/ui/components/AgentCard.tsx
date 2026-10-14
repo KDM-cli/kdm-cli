@@ -15,6 +15,36 @@ export interface AgentCardProps {
   message?: string;
 }
 
+interface AgentVisualMeta {
+  badge: React.ReactNode;
+  color?: string;
+  msgColor?: string;
+}
+
+const STATUS_VISUALS: Record<AgentStatus, AgentVisualMeta> = {
+  completed: {
+    badge: <Text bold color="green">✔</Text>,
+    color: 'green',
+  },
+  running: {
+    badge: (
+      <Text bold color="yellow">
+        <InkSpinner />
+      </Text>
+    ),
+    color: 'yellow',
+    msgColor: 'yellow',
+  },
+  failed: {
+    badge: <Text bold color="red">✖</Text>,
+    color: 'red',
+    msgColor: 'red',
+  },
+  pending: {
+    badge: <Text dimColor>⏳</Text>,
+  },
+};
+
 /**
  * Renders status icon, agent icon badge, display name, and active task message
  * for an individual specialist agent in the multi-agent council.
@@ -28,49 +58,19 @@ export const AgentCard: React.FC<AgentCardProps> = ({
 }) => {
   const agentIcon = icon || getAgentIcon(role);
   const displayName = name || getAgentDisplayName(role);
-
-  let statusElement: React.ReactNode;
-  let nameColor: string | undefined;
-
-  switch (status) {
-    case 'completed':
-      statusElement = <Text bold color="green">✔</Text>;
-      nameColor = 'green';
-      break;
-    case 'running':
-      statusElement = (
-        <Text bold color="yellow">
-          <InkSpinner />
-        </Text>
-      );
-      nameColor = 'yellow';
-      break;
-    case 'failed':
-      statusElement = <Text bold color="red">✖</Text>;
-      nameColor = 'red';
-      break;
-    case 'pending':
-    default:
-      statusElement = <Text dimColor>⏳</Text>;
-      nameColor = undefined;
-      break;
-  }
+  const visual = STATUS_VISUALS[status] || STATUS_VISUALS.pending;
 
   return (
     <Box flexDirection="row">
       <Text>  </Text>
-      {statusElement}
+      {visual.badge}
       <Text> </Text>
       <Text>{agentIcon} </Text>
-      <Text bold color={nameColor}>
+      <Text bold color={visual.color}>
         {displayName}:{' '}
       </Text>
       {message ? (
-        <Text
-          color={status === 'failed' ? 'red' : status === 'running' ? 'yellow' : undefined}
-          dimColor={status === 'pending'}
-          wrap="wrap"
-        >
+        <Text color={visual.msgColor} dimColor={status === 'pending'} wrap="wrap">
           {message}
         </Text>
       ) : null}

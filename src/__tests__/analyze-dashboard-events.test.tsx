@@ -133,81 +133,69 @@ describe('Phase 13: Live NDJSON Streaming UI Components', () => {
   });
 
   describe('Task 13.1: AgentCard Component', () => {
-    it('renders working status with spinner icon and task message', () => {
-      const { unmount } = render(
-        <AgentCard
-          role="config"
-          name="Config Agent"
-          status="running"
-          message="Checking pod memory limits and container spec..."
-        />,
-        { stdout: mockStdout as any }
-      );
+    const cardCases: Array<{
+      role: 'runtime' | 'config' | 'resource' | 'synthesizer';
+      name: string;
+      status: 'pending' | 'running' | 'completed' | 'failed';
+      message: string;
+      expectedIcon: string;
+      expectedRoleIcon: string;
+      desc: string;
+    }> = [
+      {
+        role: 'config',
+        name: 'Config Agent',
+        status: 'running',
+        message: 'Checking pod memory limits and container spec...',
+        expectedIcon: '⠋',
+        expectedRoleIcon: '⚙️',
+        desc: 'working status with spinner icon and task message',
+      },
+      {
+        role: 'runtime',
+        name: 'Runtime Agent',
+        status: 'completed',
+        message: 'Detected Exit Code 137 (OOMKilled)',
+        expectedIcon: '✔',
+        expectedRoleIcon: '🔍',
+        desc: 'completed status with green checkmark and summary',
+      },
+      {
+        role: 'resource',
+        name: 'Resource Agent',
+        status: 'failed',
+        message: 'Node metrics API unreachable',
+        expectedIcon: '✖',
+        expectedRoleIcon: '🛡️',
+        desc: 'failed status with red cross and error message',
+      },
+      {
+        role: 'synthesizer',
+        name: 'Lead SRE',
+        status: 'pending',
+        message: 'Waiting to synthesize findings...',
+        expectedIcon: '⏳',
+        expectedRoleIcon: '🎯',
+        desc: 'pending status with hourglass and waiting message',
+      },
+    ];
 
-      const output = mockStdout.frames.join('\n');
-      expect(output).toContain('⠋');
-      expect(output).toContain('⚙️');
-      expect(output).toContain('Config Agent:');
-      expect(output).toContain('Checking pod memory limits and container spec...');
-      unmount();
-    });
+    it.each(cardCases)(
+      'renders $desc',
+      ({ role, name, status, message, expectedIcon, expectedRoleIcon }) => {
+        const { unmount } = render(
+          <AgentCard role={role} name={name} status={status} message={message} />,
+          { stdout: mockStdout as any }
+        );
 
-    it('renders completed status with green checkmark and summary', () => {
-      const { unmount } = render(
-        <AgentCard
-          role="runtime"
-          name="Runtime Agent"
-          status="completed"
-          message="Detected Exit Code 137 (OOMKilled)"
-        />,
-        { stdout: mockStdout as any }
-      );
-
-      const output = mockStdout.frames.join('\n');
-      expect(output).toContain('✔');
-      expect(output).toContain('🔍');
-      expect(output).toContain('Runtime Agent:');
-      expect(output).toContain('Detected Exit Code 137 (OOMKilled)');
-      unmount();
-    });
-
-    it('renders failed status with red cross and error message', () => {
-      const { unmount } = render(
-        <AgentCard
-          role="resource"
-          name="Resource Agent"
-          status="failed"
-          message="Node metrics API unreachable"
-        />,
-        { stdout: mockStdout as any }
-      );
-
-      const output = mockStdout.frames.join('\n');
-      expect(output).toContain('✖');
-      expect(output).toContain('🛡️');
-      expect(output).toContain('Resource Agent:');
-      expect(output).toContain('Node metrics API unreachable');
-      unmount();
-    });
-
-    it('renders pending status with hourglass and waiting message', () => {
-      const { unmount } = render(
-        <AgentCard
-          role="synthesizer"
-          name="Lead SRE"
-          status="pending"
-          message="Waiting to synthesize findings..."
-        />,
-        { stdout: mockStdout as any }
-      );
-
-      const output = mockStdout.frames.join('\n');
-      expect(output).toContain('⏳');
-      expect(output).toContain('🎯');
-      expect(output).toContain('Lead SRE:');
-      expect(output).toContain('Waiting to synthesize findings...');
-      unmount();
-    });
+        const output = mockStdout.frames.join('\n');
+        expect(output).toContain(expectedIcon);
+        expect(output).toContain(expectedRoleIcon);
+        expect(output).toContain(`${name}:`);
+        expect(output).toContain(message);
+        unmount();
+      }
+    );
   });
 
   describe('Task 13.2: ActiveToolPanel Component', () => {

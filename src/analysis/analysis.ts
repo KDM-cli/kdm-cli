@@ -1,8 +1,8 @@
-import { AnalysisOptions, AnalysisOutput, AnalysisStats, SuggestedFix } from './types';
+import type { AnalysisOptions, AnalysisOutput, AnalysisStats, SuggestedFix } from './types';
 import { registry } from '../analyzers';
 import { measureDuration } from './stats';
 import { getActiveFilters, getAIConfig, getCacheConfig } from '../config/store';
-import { Analyzer, AnalyzerResult } from '../analyzers/types';
+import type { Analyzer, AnalyzerResult } from '../analyzers/types';
 import { createAIClient } from '../ai/factory';
 import { buildPrompt } from '../ai/prompts';
 import { anonymize, deanonymize } from '../utils/text';

@@ -77,25 +77,20 @@ export const AGENT_ROLE_MAP: Record<
   },
 };
 
+const ROLE_PATTERNS: Array<[RegExp, AgentRole]> = [
+  [/runtime|log/i, 'runtime'],
+  [/config|depend/i, 'config'],
+  [/resource|cluster/i, 'resource'],
+  [/synthes|lead|sre|investigat/i, 'synthesizer'],
+];
+
 /**
  * Normalizes an arbitrary role string to a canonical AgentRole.
  */
 export function normalizeCouncilRole(role?: string): AgentRole | null {
   if (!role) return null;
-  const lower = role.toLowerCase();
-  if (lower === 'runtime' || lower.includes('runtime') || lower.includes('log')) return 'runtime';
-  if (lower === 'config' || lower.includes('config') || lower.includes('depend')) return 'config';
-  if (lower === 'resource' || lower.includes('resource') || lower.includes('cluster')) return 'resource';
-  if (
-    lower === 'synthesizer' ||
-    lower.includes('synthes') ||
-    lower.includes('lead') ||
-    lower.includes('sre') ||
-    lower.includes('investigator')
-  ) {
-    return 'synthesizer';
-  }
-  return null;
+  const match = ROLE_PATTERNS.find(([pattern]) => pattern.test(role));
+  return match ? match[1] : null;
 }
 
 /**
@@ -114,21 +109,22 @@ export function getAgentIcon(role: string): string {
   return normalized ? AGENT_ROLE_MAP[normalized].icon : '🤖';
 }
 
+function formatPrimitiveArg(val: unknown): string {
+  return typeof val === 'object' && val !== null ? JSON.stringify(val) : String(val);
+}
+
 /**
  * Formats tool call arguments into a concise terminal string.
  */
 export function formatToolArgs(args?: Record<string, unknown>): string {
   if (!args) return '';
   const entries = Object.entries(args);
-  if (entries.length === 0) return '';
+  if (!entries.length) return '';
   if (entries.length === 1) {
-    const val = entries[0][1];
-    if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
-      return String(val);
-    }
+    return formatPrimitiveArg(entries[0][1]);
   }
   return entries
-    .map(([key, val]) => `${key}=${typeof val === 'object' ? JSON.stringify(val) : String(val)}`)
+    .map(([key, val]) => `${key}=${formatPrimitiveArg(val)}`)
     .join(', ');
 }
 
@@ -183,6 +179,34 @@ export function createInitialCouncilState(): CouncilDashboardState {
 
 // ─── Pure Event Reducer Handlers ─────────────────────────────────────────────
 
+function updateAgentStatus(
+  state: CouncilDashboardState,
+  rawRole: string,
+  status: AgentStatus,
+  message: string,
+  clearTool = false
+): CouncilDashboardState {
+  const role = normalizeCouncilRole(rawRole);
+  if (!role) return state;
+
+  const current = state.agents[role];
+  const shouldClearTool = clearTool && state.activeTool?.role === rawRole;
+
+  return {
+    ...state,
+    isLive: true,
+    activeTool: shouldClearTool ? null : state.activeTool,
+    agents: {
+      ...state.agents,
+      [role]: {
+        ...current,
+        status,
+        message,
+      },
+    },
+  };
+}
+
 function handleAnalysisStart(
   state: CouncilDashboardState,
   event: Extract<NDJSONEvent, { event: 'analysis_start' }>
@@ -199,22 +223,7 @@ function handleAgentStart(
   state: CouncilDashboardState,
   event: Extract<NDJSONEvent, { event: 'agent_start' }>
 ): CouncilDashboardState {
-  const role = normalizeCouncilRole(event.role);
-  if (!role) return state;
-
-  const current = state.agents[role];
-  return {
-    ...state,
-    isLive: true,
-    agents: {
-      ...state.agents,
-      [role]: {
-        ...current,
-        status: 'running',
-        message: event.message,
-      },
-    },
-  };
+  return updateAgentStatus(state, event.role, 'running', event.message);
 }
 
 function handleAgentToolCall(
@@ -259,70 +268,21 @@ function handleAgentProgress(
   state: CouncilDashboardState,
   event: Extract<NDJSONEvent, { event: 'agent_progress' }>
 ): CouncilDashboardState {
-  const role = normalizeCouncilRole(event.role);
-  if (!role) return state;
-
-  const current = state.agents[role];
-  return {
-    ...state,
-    isLive: true,
-    agents: {
-      ...state.agents,
-      [role]: {
-        ...current,
-        status: 'running',
-        message: event.message,
-      },
-    },
-  };
+  return updateAgentStatus(state, event.role, 'running', event.message);
 }
 
 function handleAgentComplete(
   state: CouncilDashboardState,
   event: Extract<NDJSONEvent, { event: 'agent_complete' }>
 ): CouncilDashboardState {
-  const role = normalizeCouncilRole(event.role);
-  if (!role) return state;
-
-  const current = state.agents[role];
-  const shouldClearTool = state.activeTool?.role === event.role;
-
-  return {
-    ...state,
-    activeTool: shouldClearTool ? null : state.activeTool,
-    agents: {
-      ...state.agents,
-      [role]: {
-        ...current,
-        status: 'completed',
-        message: event.summary,
-      },
-    },
-  };
+  return updateAgentStatus(state, event.role, 'completed', event.summary, true);
 }
 
 function handleAgentFailed(
   state: CouncilDashboardState,
   event: Extract<NDJSONEvent, { event: 'agent_failed' }>
 ): CouncilDashboardState {
-  const role = normalizeCouncilRole(event.role);
-  if (!role) return state;
-
-  const current = state.agents[role];
-  const shouldClearTool = state.activeTool?.role === event.role;
-
-  return {
-    ...state,
-    activeTool: shouldClearTool ? null : state.activeTool,
-    agents: {
-      ...state.agents,
-      [role]: {
-        ...current,
-        status: 'failed',
-        message: event.error,
-      },
-    },
-  };
+  return updateAgentStatus(state, event.role, 'failed', event.error, true);
 }
 
 function handleDiagnosisReady(
@@ -370,6 +330,21 @@ function handleErrorEvent(
   };
 }
 
+type ReducerHandler = (state: CouncilDashboardState, event: any) => CouncilDashboardState;
+
+const EVENT_HANDLERS: Record<string, ReducerHandler> = {
+  analysis_start: handleAnalysisStart,
+  agent_start: handleAgentStart,
+  agent_tool_call: handleAgentToolCall,
+  agent_tool_result: handleAgentToolResult,
+  agent_progress: handleAgentProgress,
+  agent_complete: handleAgentComplete,
+  agent_failed: handleAgentFailed,
+  diagnosis_ready: handleDiagnosisReady,
+  rule_matched: handleRuleMatched,
+  error: handleErrorEvent,
+};
+
 /**
  * Pure state reducer applying live NDJSON streaming events to council dashboard state.
  */
@@ -377,28 +352,6 @@ export function councilEventReducer(
   state: CouncilDashboardState,
   event: NDJSONEvent
 ): CouncilDashboardState {
-  switch (event.event) {
-    case 'analysis_start':
-      return handleAnalysisStart(state, event);
-    case 'agent_start':
-      return handleAgentStart(state, event);
-    case 'agent_tool_call':
-      return handleAgentToolCall(state, event);
-    case 'agent_tool_result':
-      return handleAgentToolResult(state, event);
-    case 'agent_progress':
-      return handleAgentProgress(state, event);
-    case 'agent_complete':
-      return handleAgentComplete(state, event);
-    case 'agent_failed':
-      return handleAgentFailed(state, event);
-    case 'diagnosis_ready':
-      return handleDiagnosisReady(state, event);
-    case 'rule_matched':
-      return handleRuleMatched(state, event);
-    case 'error':
-      return handleErrorEvent(state, event);
-    default:
-      return state;
-  }
+  const handler = EVENT_HANDLERS[event.event];
+  return handler ? handler(state, event) : state;
 }

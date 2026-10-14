@@ -16,7 +16,6 @@ import {
   type ActiveToolState,
   createInitialCouncilState,
   councilEventReducer,
-  getAgentIcon,
 } from './council-state';
 
 export { InkSpinner };
