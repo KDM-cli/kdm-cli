@@ -380,7 +380,7 @@ export async function runAgentCouncilProcess(
   return new Promise<ConsensusDiagnosis>((resolve, reject) => {
     let proc: ChildProcess;
     try {
-      proc = spawnImpl('python3', ['-u', scriptPath, payload], {
+      proc = spawnImpl('python3', ['-u', scriptPath], {
         stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch (spawnErr) {
