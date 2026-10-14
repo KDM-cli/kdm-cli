@@ -45,6 +45,8 @@ interface NormalizedPromptState {
   promptMessage: string;
 }
 
+const DEFAULT_PROMPT = 'Apply this remediation to the cluster? [y/N]:';
+
 const RISK_COLORS: Record<string, 'green' | 'yellow' | 'red'> = {
   low: 'green',
   medium: 'yellow',
@@ -73,19 +75,34 @@ export function parseDiffLines(diffPreview?: string | string[]): string[] {
 }
 
 /**
+ * Resolves default rollback risk details note.
+ */
+function extractRiskDetails(risk: string, details?: string): string {
+  if (details) {
+    return details;
+  }
+  return risk.toLowerCase() === 'low' ? 'Safe rollback available' : '';
+}
+
+/**
  * Normalizes input props into clean presentation fields.
  */
 function resolvePromptProps(props: SafetyPromptProps): NormalizedPromptState {
-  const p = props.proposal;
-  const action = props.action || (p ? p.action : 'Remediation Action');
-  const risk = props.risk || (p ? p.risk : 'LOW');
-  const fallback = risk.toLowerCase() === 'low' ? 'Safe rollback available' : '';
-  const riskDetails = props.riskDetails || (p && p.riskDetails ? p.riskDetails : fallback);
-  const command = props.command || (p ? p.command : '');
-  const diffPreview = props.diffPreview !== undefined ? props.diffPreview : (p ? p.diffPreview : undefined);
-  const promptMessage = props.promptMessage || 'Apply this remediation to the cluster? [y/N]:';
+  const source = { ...props.proposal, ...props };
+  const action = source.action || 'Remediation Action';
+  const risk = source.risk || 'LOW';
+  const riskDetails = extractRiskDetails(risk, source.riskDetails);
+  const command = source.command || '';
+  const promptMessage = source.promptMessage || DEFAULT_PROMPT;
 
-  return { action, risk, riskDetails, command, diffPreview, promptMessage };
+  return {
+    action,
+    risk,
+    riskDetails,
+    command,
+    diffPreview: source.diffPreview,
+    promptMessage,
+  };
 }
 
 /**
@@ -198,6 +215,22 @@ const PromptStatus: React.FC<{ decided: boolean | null; promptMessage: string }>
 };
 
 /**
+ * Fires callbacks for decision notification.
+ */
+function notifyCallbacks(
+  actionFn?: () => void,
+  decisionFn?: (confirmed: boolean) => void,
+  decisionResult = false
+): void {
+  if (actionFn) {
+    actionFn();
+  }
+  if (decisionFn) {
+    decisionFn(decisionResult);
+  }
+}
+
+/**
  * Safely dispatches callback events on user decision.
  */
 function dispatchDecision(
@@ -205,21 +238,8 @@ function dispatchDecision(
   props: SafetyPromptProps,
   exitFn?: () => void
 ): void {
-  if (isAffirmative) {
-    if (props.onConfirm) {
-      props.onConfirm();
-    }
-    if (props.onDecision) {
-      props.onDecision(true);
-    }
-  } else {
-    if (props.onAbort) {
-      props.onAbort();
-    }
-    if (props.onDecision) {
-      props.onDecision(false);
-    }
-  }
+  const actionFn = isAffirmative ? props.onConfirm : props.onAbort;
+  notifyCallbacks(actionFn, props.onDecision, isAffirmative);
   if (exitFn) {
     exitFn();
   }
