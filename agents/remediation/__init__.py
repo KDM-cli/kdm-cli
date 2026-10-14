@@ -1,0 +1,57 @@
+"""
+Automated Remediation Package — KDM v4.0.0
+==========================================
+Provides structured remediation planning that transforms verified multi-agent
+consensus diagnoses into discrete, auditable remediation patches with
+exact kubectl rollback instructions.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+
+_AGENTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _AGENTS_DIR not in sys.path:
+    sys.path.insert(0, _AGENTS_DIR)
+
+try:
+    from agents.remediation.planner import (
+        PlanContext,
+        RemediationPlanner,
+        WorkloadTargetInfo,
+        calculate_memory_bump,
+        extract_workload_info,
+        generate_rollback_command,
+    )
+    from agents.remediation.types import (
+        RemediationPlan,
+        RemediationStep,
+        normalize_risk_level,
+    )
+except ImportError:
+    from .planner import (  # type: ignore[no-redef]
+        PlanContext,
+        RemediationPlanner,
+        WorkloadTargetInfo,
+        calculate_memory_bump,
+        extract_workload_info,
+        generate_rollback_command,
+    )
+    from .types import (  # type: ignore[no-redef]
+        RemediationPlan,
+        RemediationStep,
+        normalize_risk_level,
+    )
+
+__all__ = [
+    "PlanContext",
+    "RemediationPlan",
+    "RemediationPlanner",
+    "RemediationStep",
+    "WorkloadTargetInfo",
+    "calculate_memory_bump",
+    "extract_workload_info",
+    "generate_rollback_command",
+    "normalize_risk_level",
+]
