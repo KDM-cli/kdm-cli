@@ -320,6 +320,9 @@ class ProcessLifecycleWatcher {
  */
 function writePayloadToStdin(proc: ChildProcess, payload: string): void {
   if (proc.stdin && typeof proc.stdin.write === 'function' && !proc.stdin.destroyed) {
+    proc.stdin.on?.('error', () => {
+      // Child closed stdin early; close/exit handling reports the failure.
+    });
     try {
       proc.stdin.write(payload);
       proc.stdin.end();
