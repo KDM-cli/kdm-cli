@@ -131,7 +131,12 @@ def run_council(
 def main() -> None:
     """Reads input JSON from stdin and runs the council."""
     try:
-        raw_input = sys.stdin.read().strip()
+        if len(sys.argv) > 1 and sys.argv[1].strip():
+            raw_input = sys.argv[1].strip()
+        elif not sys.stdin.isatty():
+            raw_input = sys.stdin.read().strip()
+        else:
+            raw_input = ""
         if not raw_input:
             input_data = {}
         else:
