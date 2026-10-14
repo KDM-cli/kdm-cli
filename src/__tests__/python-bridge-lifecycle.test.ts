@@ -88,7 +88,9 @@ describe('python-bridge-lifecycle', () => {
     expect(args[0]).toBe('-u');
     expect(args[1]).toContain(path.join('agents', 'council.py'));
 
-    const payload = JSON.parse(args[2]);
+    expect(args).toHaveLength(2);
+    const writtenPayload = mockProc.stdin.write.mock.calls[0][0];
+    const payload = JSON.parse(writtenPayload);
     expect(payload.failureText).toBe('CrashLoopBackOff');
     expect(payload.context.namespace).toBe('prod');
     expect(payload.context.name).toBe('web-api');
@@ -96,7 +98,7 @@ describe('python-bridge-lifecycle', () => {
     expect(payload.baseUrl).toBe('http://ollama-internal:11434');
 
     expect(opts.stdio).toEqual(['pipe', 'pipe', 'pipe']);
-    expect(mockProc.stdin.write).toHaveBeenCalledWith(args[2]);
+    expect(mockProc.stdin.write).toHaveBeenCalledWith(writtenPayload);
     expect(mockProc.stdin.end).toHaveBeenCalledTimes(1);
   });
 
