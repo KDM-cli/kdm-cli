@@ -1,4 +1,4 @@
-import { AnalysisOptions, AnalysisOutput, AnalysisStats } from './types';
+import { AnalysisOptions, AnalysisOutput, AnalysisStats, SuggestedFix } from './types';
 import { registry } from '../analyzers';
 import { measureDuration } from './stats';
 import { getActiveFilters, getAIConfig, getCacheConfig } from '../config/store';
@@ -8,9 +8,8 @@ import { buildPrompt } from '../ai/prompts';
 import { anonymize, deanonymize } from '../utils/text';
 import { createCacheProvider } from '../cache';
 import { logger } from '../utils/logger';
-import type { SuggestedFix } from './types';
 import { runPythonAgentCouncil, isPythonAgentAvailable } from '../agent/python-bridge';
-import type { ConsensusDiagnosis, AgentProgressEvent } from '../agent/types';
+import type { ConsensusDiagnosis, AgentProgressEvent, NDJSONEvent } from '../agent/types';
 
 const DEFAULT_FILTERS = ['Pod', 'Deployment', 'Service', 'PersistentVolumeClaim', 'Node'];
 const MAX_ALLOWED_CONCURRENCY = 100;
@@ -162,6 +161,7 @@ export interface ExplainSingleParams {
   noCache: boolean;
   customHeaders?: Record<string, string>;
   onAgentProgress?: (event: AgentProgressEvent) => void;
+  onEvent?: (event: NDJSONEvent) => void;
 }
 
 /**
@@ -220,7 +220,9 @@ async function tryRunAgentCouncil(
       },
       model: model || 'gemma:2b',
       onProgress: params.onAgentProgress,
+      onEvent: params.onEvent,
     });
+    (params.result as any).consensus = consensus;
     return formatConsensusExplanation(consensus);
   } catch (err) {
     logger.warn(`Multi-agent council failed, using direct completion: ${(err as Error).message}`);
