@@ -223,10 +223,31 @@ function handleAnalysisStart(
   };
 }
 
-function handleAgentStart(
+type AgentLifecycleEvent = Extract<
+  NDJSONEvent,
+  { event: 'agent_start' | 'agent_progress' | 'agent_complete' | 'agent_failed' }
+>;
+
+function handleAgentLifecycle(
   state: CouncilDashboardState,
-  event: Extract<NDJSONEvent, { event: 'agent_start' }>
+  event: AgentLifecycleEvent
 ): CouncilDashboardState {
+  if (event.event === 'agent_complete') {
+    return updateAgentStatus(state, {
+      role: event.role,
+      status: 'completed',
+      message: event.summary,
+      clearTool: true,
+    });
+  }
+  if (event.event === 'agent_failed') {
+    return updateAgentStatus(state, {
+      role: event.role,
+      status: 'failed',
+      message: event.error,
+      clearTool: true,
+    });
+  }
   return updateAgentStatus(state, {
     role: event.role,
     status: 'running',
@@ -270,41 +291,6 @@ function handleAgentToolResult(
       status: 'completed',
     },
   };
-}
-
-function handleAgentProgress(
-  state: CouncilDashboardState,
-  event: Extract<NDJSONEvent, { event: 'agent_progress' }>
-): CouncilDashboardState {
-  return updateAgentStatus(state, {
-    role: event.role,
-    status: 'running',
-    message: event.message,
-  });
-}
-
-function handleAgentComplete(
-  state: CouncilDashboardState,
-  event: Extract<NDJSONEvent, { event: 'agent_complete' }>
-): CouncilDashboardState {
-  return updateAgentStatus(state, {
-    role: event.role,
-    status: 'completed',
-    message: event.summary,
-    clearTool: true,
-  });
-}
-
-function handleAgentFailed(
-  state: CouncilDashboardState,
-  event: Extract<NDJSONEvent, { event: 'agent_failed' }>
-): CouncilDashboardState {
-  return updateAgentStatus(state, {
-    role: event.role,
-    status: 'failed',
-    message: event.error,
-    clearTool: true,
-  });
 }
 
 function handleDiagnosisReady(
@@ -356,12 +342,12 @@ type ReducerHandler = (state: CouncilDashboardState, event: any) => CouncilDashb
 
 const EVENT_HANDLERS: Record<string, ReducerHandler> = {
   analysis_start: handleAnalysisStart,
-  agent_start: handleAgentStart,
+  agent_start: handleAgentLifecycle,
+  agent_progress: handleAgentLifecycle,
+  agent_complete: handleAgentLifecycle,
+  agent_failed: handleAgentLifecycle,
   agent_tool_call: handleAgentToolCall,
   agent_tool_result: handleAgentToolResult,
-  agent_progress: handleAgentProgress,
-  agent_complete: handleAgentComplete,
-  agent_failed: handleAgentFailed,
   diagnosis_ready: handleDiagnosisReady,
   rule_matched: handleRuleMatched,
   error: handleErrorEvent,

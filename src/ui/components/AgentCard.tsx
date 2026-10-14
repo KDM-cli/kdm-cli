@@ -1,4 +1,4 @@
-import { type FC } from 'react';
+import type { FC, ReactNode } from 'react';
 import { Box, Text } from 'ink';
 import type { AgentRole, AgentStatus } from '../../agent/types';
 import { getAgentIcon, getAgentDisplayName } from '../council-state';
@@ -16,7 +16,7 @@ export interface AgentCardProps {
 }
 
 interface AgentVisualMeta {
-  badge: React.ReactNode;
+  badge: ReactNode;
   color?: string;
   msgColor?: string;
 }
