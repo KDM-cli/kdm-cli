@@ -58,6 +58,40 @@ class PlanContext:
     bundle: Optional[Any] = None
 
 
+def _target_from_bundle_object(bundle: Any) -> Optional[WorkloadTargetInfo]:
+    """Extract coordinates from an EvidenceBundle object if target is valid."""
+    if not hasattr(bundle, "target") or bundle.target is None:
+        return None
+    target = bundle.target
+    kind = getattr(target, "workload_kind", None) or "deployment"
+    name = getattr(target, "workload_name", None) or "workload"
+    ns = getattr(target, "namespace", None) or "default"
+    c_name = getattr(target, "container_name", None)
+    return WorkloadTargetInfo(
+        workload_kind=str(kind).strip().lower(),
+        workload_name=str(name).strip(),
+        namespace=str(ns).strip(),
+        container_name=str(c_name).strip() if c_name else None,
+    )
+
+
+def _target_from_bundle_dict(bundle: Dict[str, Any]) -> Optional[WorkloadTargetInfo]:
+    """Extract coordinates from a dictionary representation of a bundle."""
+    td = bundle.get("target")
+    if not isinstance(td, dict):
+        return None
+    kind = td.get("workload_kind", td.get("workloadKind", "deployment"))
+    name = td.get("workload_name", td.get("workloadName", "workload"))
+    ns = td.get("namespace", "default")
+    c_name = td.get("container_name", td.get("containerName"))
+    return WorkloadTargetInfo(
+        workload_kind=str(kind).strip().lower(),
+        workload_name=str(name).strip(),
+        namespace=str(ns).strip(),
+        container_name=str(c_name).strip() if c_name else None,
+    )
+
+
 def extract_workload_info(bundle: Optional[Any] = None, consensus: Optional[Any] = None) -> WorkloadTargetInfo:
     """Extract workload identity, kind, and namespace from evidence bundle or consensus.
 
@@ -65,32 +99,14 @@ def extract_workload_info(bundle: Optional[Any] = None, consensus: Optional[Any]
     :param consensus: ConsensusDiagnosis or dict for fallback discovery.
     :return: WorkloadTargetInfo with verified or sensible defaults.
     """
-    if bundle is not None and hasattr(bundle, "target") and bundle.target is not None:
-        target = bundle.target
-        kind = getattr(target, "workload_kind", None) or "deployment"
-        name = getattr(target, "workload_name", None) or "workload"
-        ns = getattr(target, "namespace", None) or "default"
-        c_name = getattr(target, "container_name", None)
-        return WorkloadTargetInfo(
-            workload_kind=str(kind).strip().lower(),
-            workload_name=str(name).strip(),
-            namespace=str(ns).strip(),
-            container_name=str(c_name).strip() if c_name else None,
-        )
-
-    if isinstance(bundle, dict) and "target" in bundle:
-        td = bundle["target"]
-        if isinstance(td, dict):
-            kind = td.get("workload_kind", td.get("workloadKind", "deployment"))
-            name = td.get("workload_name", td.get("workloadName", "workload"))
-            ns = td.get("namespace", "default")
-            c_name = td.get("container_name", td.get("containerName"))
-            return WorkloadTargetInfo(
-                workload_kind=str(kind).strip().lower(),
-                workload_name=str(name).strip(),
-                namespace=str(ns).strip(),
-                container_name=str(c_name).strip() if c_name else None,
-            )
+    if bundle is not None:
+        info = _target_from_bundle_object(bundle)
+        if info:
+            return info
+        if isinstance(bundle, dict):
+            info = _target_from_bundle_dict(bundle)
+            if info:
+                return info
 
     return _fallback_workload_from_consensus(consensus)
 
@@ -100,14 +116,7 @@ def _fallback_workload_from_consensus(consensus: Optional[Any]) -> WorkloadTarge
     if consensus is None:
         return WorkloadTargetInfo()
 
-    raw_text = ""
-    if isinstance(consensus, dict):
-        raw_text = str(consensus.get("root_cause") or consensus.get("rootCause") or "")
-    elif hasattr(consensus, "root_cause"):
-        raw_text = str(getattr(consensus, "root_cause", "") or "")
-    elif isinstance(consensus, str):
-        raw_text = consensus
-
+    raw_text = _extract_consensus_text(consensus)
     match = re.search(r"deployment[s]?/([a-zA-Z0-9_\-]+)", raw_text, re.IGNORECASE)
     workload_name = match.group(1) if match else "workload"
     return WorkloadTargetInfo(workload_name=workload_name)
@@ -162,6 +171,122 @@ def generate_rollback_command(info: WorkloadTargetInfo) -> str:
     if ns:
         cmd += f" -n {ns}"
     return cmd
+
+
+def _extract_consensus_text(consensus: Any) -> str:
+    """Extract raw diagnostic text from consensus input."""
+    if isinstance(consensus, str):
+        return consensus
+    if isinstance(consensus, dict):
+        return str(consensus.get("root_cause") or consensus.get("rootCause") or "")
+    return str(getattr(consensus, "root_cause", "") or "")
+
+
+def _extract_bundle_text(bundle: Optional[Any]) -> str:
+    """Extract raw container status text from evidence bundle."""
+    if bundle is None or not hasattr(bundle, "get"):
+        return ""
+    status_item = bundle.get("ev.pod.container.status")
+    return str(status_item.data) if status_item and status_item.data else ""
+
+
+def _extract_bundle_memory(bundle: Optional[Any]) -> Optional[str]:
+    """Retrieve memory limit data from evidence bundle if present."""
+    if bundle is None or not hasattr(bundle, "get"):
+        return None
+    item = bundle.get("ev.resources.limits")
+    if not item or not isinstance(item.data, dict):
+        return None
+    mem = item.data.get("memory")
+    return str(mem) if mem else None
+
+
+def _match_failure_category(text: str) -> str:
+    """Identify failure category from diagnostic text signatures."""
+    if any(k in text for k in ("oomkilled", "137", "out-of-memory", "memory limit", "oom_killed")):
+        return "oom"
+    if any(k in text for k in ("crashloopbackoff", "crashloop", "exit code 1", "crashloop_backoff")):
+        return "crashloop"
+    if any(k in text for k in ("imagepullbackoff", "errimagepull", "image_pull", "image pull")):
+        return "imagepull"
+    return "generic"
+
+
+def _build_crashloop_steps(info: WorkloadTargetInfo) -> List[RemediationStep]:
+    """Generate ordered steps for CrashLoopBackOff remediation."""
+    ns_arg = f" -n {info.namespace}" if info.namespace else ""
+    return [
+        RemediationStep(
+            order=1,
+            title="Inspect previous container crash logs",
+            command=f"kubectl logs {info.workload_kind}/{info.workload_name} --previous{ns_arg}",
+            diff_preview=None,
+            is_destructive=False,
+        ),
+        RemediationStep(
+            order=2,
+            title="Update workload environment configuration",
+            command=f"kubectl set env {info.workload_kind}/{info.workload_name} --list{ns_arg}",
+            diff_preview="- CONFIG_VAR=invalid_value\n+ CONFIG_VAR=corrected_value",
+            is_destructive=False,
+        ),
+        RemediationStep(
+            order=3,
+            title="Restart workload pods",
+            command=f"kubectl rollout restart {info.workload_kind}/{info.workload_name}{ns_arg}",
+            diff_preview=None,
+            is_destructive=True,
+        ),
+    ]
+
+
+def _build_image_pull_steps(info: WorkloadTargetInfo) -> List[RemediationStep]:
+    """Generate ordered steps for ImagePullBackOff remediation."""
+    ns_arg = f" -n {info.namespace}" if info.namespace else ""
+    c_name = info.container_name or info.workload_name
+    old_img = f"{info.workload_name}:invalid-tag"
+    new_img = f"{info.workload_name}:latest"
+    return [
+        RemediationStep(
+            order=1,
+            title="Update container image reference",
+            command=f"kubectl set image {info.workload_kind}/{info.workload_name} {c_name}={new_img}{ns_arg}",
+            diff_preview=f"- image: {old_img}\n+ image: {new_img}",
+            is_destructive=False,
+        ),
+        RemediationStep(
+            order=2,
+            title="Create container registry pull secret",
+            command=(
+                f"kubectl create secret docker-registry regcred "
+                f"--docker-server=https://index.docker.io/v1/ "
+                f"--docker-username=<user> --docker-password=<token>{ns_arg}"
+            ),
+            diff_preview=None,
+            is_destructive=False,
+        ),
+    ]
+
+
+def _build_step_command(idx: int, command: Optional[str], info: WorkloadTargetInfo) -> str:
+    """Format command for a generic solution step."""
+    if idx == 1 and command:
+        return str(command)
+    ns_arg = f" -n {info.namespace}" if info.namespace else ""
+    return f"kubectl describe {info.workload_kind}/{info.workload_name}{ns_arg}"
+
+
+def _extract_solution_meta(solution: Any) -> Tuple[str, List[Any], Optional[str], str]:
+    """Extract action title, raw steps, command, and risk level from a solution."""
+    title = (
+        getattr(solution, "action_title", None)
+        or getattr(solution, "actionTitle", None)
+        or "Apply Recommended Fix"
+    )
+    raw_steps = getattr(solution, "steps", None) or ["Review workload status."]
+    command = getattr(solution, "command_to_run", None) or getattr(solution, "commandToRun", None)
+    risk = getattr(solution, "risk_level", None) or getattr(solution, "riskLevel", "low")
+    return str(title), list(raw_steps), command, str(risk)
 
 
 class RemediationPlanner:
@@ -219,40 +344,19 @@ class RemediationPlanner:
         :return: One of 'oom', 'crashloop', 'imagepull', or 'generic'.
         """
         text = self._gather_diagnostic_text(consensus, bundle).lower()
-
-        if any(k in text for k in ("oomkilled", "137", "out-of-memory", "memory limit", "oom_killed")):
-            return "oom"
-        if any(k in text for k in ("crashloopbackoff", "crashloop", "exit code 1", "crashloop_backoff")):
-            return "crashloop"
-        if any(k in text for k in ("imagepullbackoff", "errimagepull", "image_pull", "image pull")):
-            return "imagepull"
-        return "generic"
+        return _match_failure_category(text)
 
     def _gather_diagnostic_text(self, consensus: Any, bundle: Optional[Any]) -> str:
         """Concatenate diagnostic context strings for signature matching."""
-        parts: List[str] = []
-        if isinstance(consensus, str):
-            parts.append(consensus)
-        elif isinstance(consensus, dict):
-            parts.append(str(consensus.get("root_cause") or consensus.get("rootCause") or ""))
-        elif hasattr(consensus, "root_cause"):
-            parts.append(str(getattr(consensus, "root_cause", "") or ""))
-
-        if bundle is not None and hasattr(bundle, "get"):
-            status_item = bundle.get("ev.pod.container.status")
-            if status_item and status_item.data:
-                parts.append(str(status_item.data))
-
-        return " ".join(parts)
+        c_text = _extract_consensus_text(consensus)
+        b_text = _extract_bundle_text(bundle)
+        return f"{c_text} {b_text}".strip()
 
     def _find_memory_limit(self, bundle: Optional[Any], consensus: Any) -> Optional[str]:
         """Locate current memory limit from evidence bundle or consensus root cause."""
-        if bundle is not None and hasattr(bundle, "get"):
-            limits_item = bundle.get("ev.resources.limits")
-            if limits_item and isinstance(limits_item.data, dict):
-                mem = limits_item.data.get("memory")
-                if mem:
-                    return str(mem)
+        bundle_mem = _extract_bundle_memory(bundle)
+        if bundle_mem:
+            return bundle_mem
 
         raw_text = self._gather_diagnostic_text(consensus, bundle)
         match = re.search(r"\b(\d+(?:\.\d+)?\s*(?:[KMGT]i|[KMGT]))\b", raw_text)
@@ -291,29 +395,7 @@ class RemediationPlanner:
 
     def _plan_crashloop(self, ctx: PlanContext) -> RemediationPlan:
         """Plan diagnostic inspection and restart for CrashLoopBackOff workload."""
-        ns_arg = f" -n {ctx.info.namespace}" if ctx.info.namespace else ""
-
-        step1 = RemediationStep(
-            order=1,
-            title="Inspect previous container crash logs",
-            command=f"kubectl logs {ctx.info.workload_kind}/{ctx.info.workload_name} --previous{ns_arg}",
-            diff_preview=None,
-            is_destructive=False,
-        )
-        step2 = RemediationStep(
-            order=2,
-            title="Update workload environment configuration",
-            command=f"kubectl set env {ctx.info.workload_kind}/{ctx.info.workload_name} --list{ns_arg}",
-            diff_preview="- CONFIG_VAR=invalid_value\n+ CONFIG_VAR=corrected_value",
-            is_destructive=False,
-        )
-        step3 = RemediationStep(
-            order=3,
-            title="Restart workload pods",
-            command=f"kubectl rollout restart {ctx.info.workload_kind}/{ctx.info.workload_name}{ns_arg}",
-            diff_preview=None,
-            is_destructive=True,
-        )
+        steps = _build_crashloop_steps(ctx.info)
         summary = f"Update configuration/environment variables and restart {ctx.info.workload_name}."
         rollback = generate_rollback_command(ctx.info)
 
@@ -322,35 +404,13 @@ class RemediationPlanner:
             target_workload=ctx.info.workload_name,
             summary=summary,
             risk_level="medium",
-            steps=[step1, step2, step3],
+            steps=steps,
             rollback_command=rollback,
         )
 
     def _plan_image_pull(self, ctx: PlanContext) -> RemediationPlan:
         """Plan image tag update and secret creation for ImagePullBackOff workload."""
-        ns_arg = f" -n {ctx.info.namespace}" if ctx.info.namespace else ""
-        c_name = ctx.info.container_name or ctx.info.workload_name
-        old_image = f"{ctx.info.workload_name}:invalid-tag"
-        new_image = f"{ctx.info.workload_name}:latest"
-
-        step1 = RemediationStep(
-            order=1,
-            title="Update container image reference",
-            command=f"kubectl set image {ctx.info.workload_kind}/{ctx.info.workload_name} {c_name}={new_image}{ns_arg}",
-            diff_preview=f"- image: {old_image}\n+ image: {new_image}",
-            is_destructive=False,
-        )
-        step2 = RemediationStep(
-            order=2,
-            title="Create container registry pull secret",
-            command=(
-                f"kubectl create secret docker-registry regcred "
-                f"--docker-server=https://index.docker.io/v1/ "
-                f"--docker-username=<user> --docker-password=<token>{ns_arg}"
-            ),
-            diff_preview=None,
-            is_destructive=False,
-        )
+        steps = _build_image_pull_steps(ctx.info)
         summary = f"Fix image tag and configure registry pull secret for {ctx.info.workload_name}."
         rollback = generate_rollback_command(ctx.info)
 
@@ -359,7 +419,7 @@ class RemediationPlanner:
             target_workload=ctx.info.workload_name,
             summary=summary,
             risk_level="low",
-            steps=[step1, step2],
+            steps=steps,
             rollback_command=rollback,
         )
 
@@ -402,36 +462,20 @@ class RemediationPlanner:
 
     def _build_plan_from_solution(self, solution: Any, ctx: PlanContext) -> RemediationPlan:
         """Convert a pre-synthesized BestSolution into a RemediationPlan."""
-        title = (
-            getattr(solution, "action_title", None)
-            or getattr(solution, "actionTitle", None)
-            or "Apply Recommended Fix"
-        )
-        raw_steps = getattr(solution, "steps", None) or ["Review workload status."]
-        command = getattr(solution, "command_to_run", None) or getattr(solution, "commandToRun", None)
-        risk = getattr(solution, "risk_level", None) or getattr(solution, "riskLevel", "low")
-
-        ns_arg = f" -n {ctx.info.namespace}" if ctx.info.namespace else ""
-        steps: List[RemediationStep] = []
-        for idx, s_text in enumerate(raw_steps, start=1):
-            if idx == 1 and command:
-                step_cmd = str(command)
-            else:
-                step_cmd = f"kubectl describe {ctx.info.workload_kind}/{ctx.info.workload_name}{ns_arg}"
-
-            steps.append(
-                RemediationStep(
-                    order=idx,
-                    title=str(s_text),
-                    command=step_cmd,
-                    is_destructive=False,
-                )
+        title, raw_steps, command, risk = _extract_solution_meta(solution)
+        steps = [
+            RemediationStep(
+                order=idx,
+                title=str(s_text),
+                command=_build_step_command(idx, command, ctx.info),
+                is_destructive=False,
             )
-
+            for idx, s_text in enumerate(raw_steps, start=1)
+        ]
         return RemediationPlan(
             plan_id=ctx.plan_id,
             target_workload=ctx.info.workload_name,
-            summary=str(title),
+            summary=title,
             risk_level=normalize_risk_level(risk),
             steps=steps,
             rollback_command=generate_rollback_command(ctx.info),

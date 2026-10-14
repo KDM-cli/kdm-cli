@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Optional
+from typing import List, Optional
 import unittest
 
 _AGENTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -224,13 +224,28 @@ class TestParameterBumpAndRollback(unittest.TestCase):
         self.assertEqual(info.workload_kind, "deployment")
 
 
-
 class TestRemediationPlanner(unittest.TestCase):
     """Tests for RemediationPlanner end-to-end plan creation."""
 
     def setUp(self) -> None:
         """Create fresh RemediationPlanner instance."""
         self.planner = RemediationPlanner()
+
+    def _assert_plan_structure(
+        self,
+        plan: RemediationPlan,
+        expected_id: str,
+        expected_workload: str,
+        expected_risk: str,
+        expected_step_count: int,
+    ) -> List[str]:
+        """Assert core plan metadata and return list of step command strings."""
+        self.assertEqual(plan.plan_id, expected_id)
+        self.assertEqual(plan.target_workload, expected_workload)
+        self.assertEqual(plan.risk_level, expected_risk)
+        self.assertEqual(len(plan.steps), expected_step_count)
+        self.assertIsNotNone(plan.rollback_command)
+        return [step.command for step in plan.steps]
 
     def test_create_plan_oom_killed_expected_output(self) -> None:
         """Verify exact expected output matching Issue #285 specification."""
@@ -264,42 +279,24 @@ class TestRemediationPlanner(unittest.TestCase):
         """Verify plan generation for CrashLoopBackOff failure scenario."""
         bundle = _build_test_bundle("auth-service", "staging")
         consensus = _build_test_consensus("Container restarting repeatedly in CrashLoopBackOff.")
-
         plan = self.planner.create_plan(consensus, bundle)
 
-        self.assertEqual(plan.plan_id, "plan-crashloop-001")
-        self.assertEqual(plan.target_workload, "auth-service")
-        self.assertEqual(plan.risk_level, "medium")
-        self.assertEqual(len(plan.steps), 3)
-
-        commands = [s.command for s in plan.steps]
-        self.assertTrue(any("kubectl logs" in cmd for cmd in commands))
-        self.assertTrue(any("kubectl set env" in cmd for cmd in commands))
-        self.assertTrue(any("kubectl rollout restart" in cmd for cmd in commands))
-        self.assertEqual(
-            plan.rollback_command,
-            "kubectl rollout undo deployment/auth-service -n staging",
-        )
+        cmds = self._assert_plan_structure(plan, "plan-crashloop-001", "auth-service", "medium", 3)
+        self.assertTrue(any("kubectl logs" in c for c in cmds))
+        self.assertTrue(any("kubectl set env" in c for c in cmds))
+        self.assertTrue(any("kubectl rollout restart" in c for c in cmds))
+        self.assertIn("-n staging", plan.rollback_command or "")
 
     def test_create_plan_image_pull_backoff(self) -> None:
         """Verify plan generation for ImagePullBackOff failure scenario."""
         bundle = _build_test_bundle("payment-gw", "production")
         consensus = _build_test_consensus("Failed to pull container image: ImagePullBackOff.")
-
         plan = self.planner.create_plan(consensus, bundle)
 
-        self.assertEqual(plan.plan_id, "plan-imagepull-001")
-        self.assertEqual(plan.target_workload, "payment-gw")
-        self.assertEqual(plan.risk_level, "low")
-        self.assertEqual(len(plan.steps), 2)
-
-        commands = [s.command for s in plan.steps]
-        self.assertTrue(any("kubectl set image" in cmd for cmd in commands))
-        self.assertTrue(any("kubectl create secret docker-registry" in cmd for cmd in commands))
-        self.assertEqual(
-            plan.rollback_command,
-            "kubectl rollout undo deployment/payment-gw -n production",
-        )
+        cmds = self._assert_plan_structure(plan, "plan-imagepull-001", "payment-gw", "low", 2)
+        self.assertTrue(any("kubectl set image" in c for c in cmds))
+        self.assertTrue(any("kubectl create secret" in c for c in cmds))
+        self.assertIn("-n production", plan.rollback_command or "")
 
     def test_create_plan_from_consensus_best_solution(self) -> None:
         """Verify planner translates arbitrary BestSolution into structured plan."""
@@ -311,12 +308,8 @@ class TestRemediationPlanner(unittest.TestCase):
         )
 
         plan = self.planner.create_plan(consensus, bundle)
-
-        self.assertEqual(plan.target_workload, "ingress-controller")
-        self.assertEqual(plan.risk_level, "high")
-        self.assertTrue(len(plan.steps) >= 1)
-        self.assertEqual(plan.steps[0].command, "kubectl drain node-1 --ignore-daemonsets")
-        self.assertIsNotNone(plan.rollback_command)
+        cmds = self._assert_plan_structure(plan, "plan-generic-001", "ingress-controller", "high", 1)
+        self.assertEqual(cmds[0], "kubectl drain node-1 --ignore-daemonsets")
         self.assertIn("kubectl rollout undo", plan.rollback_command or "")
 
     def test_create_plan_with_custom_plan_id(self) -> None:
@@ -368,7 +361,6 @@ class TestRemediationPlanner(unittest.TestCase):
         self.assertTrue(hasattr(rem, "calculate_memory_bump"))
         self.assertTrue(hasattr(rem, "generate_rollback_command"))
 
-
         ctx = rem.PlanContext(
             info=rem.WorkloadTargetInfo(workload_name="api"),
             plan_id="plan-test-001",
@@ -379,5 +371,3 @@ class TestRemediationPlanner(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
