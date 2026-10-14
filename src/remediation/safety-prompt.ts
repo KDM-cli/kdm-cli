@@ -36,21 +36,27 @@ export interface PromptSafetyOptions {
   stdout?: NodeJS.WritableStream;
 }
 
+interface NormalizedPromptState {
+  action: string;
+  risk: string;
+  riskDetails: string;
+  command: string;
+  diffPreview?: string | string[];
+  promptMessage: string;
+}
+
+const RISK_COLORS: Record<string, 'green' | 'yellow' | 'red'> = {
+  low: 'green',
+  medium: 'yellow',
+  high: 'red',
+};
+
 /**
  * Resolves the display color for a given risk level string.
  */
 export function getRiskColor(risk: string): 'green' | 'yellow' | 'red' | 'cyan' {
   const normalized = risk.trim().toLowerCase();
-  if (normalized === 'low') {
-    return 'green';
-  }
-  if (normalized === 'medium') {
-    return 'yellow';
-  }
-  if (normalized === 'high') {
-    return 'red';
-  }
-  return 'cyan';
+  return RISK_COLORS[normalized] || 'cyan';
 }
 
 /**
@@ -61,16 +67,29 @@ export function parseDiffLines(diffPreview?: string | string[]): string[] {
     return [];
   }
   if (Array.isArray(diffPreview)) {
-    return diffPreview.map((line) => line.trimEnd()).filter(Boolean);
+    return diffPreview;
   }
-  return diffPreview
-    .split('\n')
-    .map((line) => line.trimEnd())
-    .filter(Boolean);
+  return diffPreview.split('\n').filter(Boolean);
 }
 
 /**
- * Internal header banner component.
+ * Normalizes input props into clean presentation fields.
+ */
+function resolvePromptProps(props: SafetyPromptProps): NormalizedPromptState {
+  const p = props.proposal;
+  const action = props.action || (p ? p.action : 'Remediation Action');
+  const risk = props.risk || (p ? p.risk : 'LOW');
+  const fallback = risk.toLowerCase() === 'low' ? 'Safe rollback available' : '';
+  const riskDetails = props.riskDetails || (p && p.riskDetails ? p.riskDetails : fallback);
+  const command = props.command || (p ? p.command : '');
+  const diffPreview = props.diffPreview !== undefined ? props.diffPreview : (p ? p.diffPreview : undefined);
+  const promptMessage = props.promptMessage || 'Apply this remediation to the cluster? [y/N]:';
+
+  return { action, risk, riskDetails, command, diffPreview, promptMessage };
+}
+
+/**
+ * Header title banner component.
  */
 const RemediationHeader: React.FC = () => {
   return React.createElement(
@@ -95,8 +114,8 @@ const ActionRow: React.FC<{ action: string }> = ({ action }) => {
 /**
  * Risk badge row display component.
  */
-const RiskRow: React.FC<{ risk: string; riskDetails?: string }> = ({ risk, riskDetails }) => {
-  const badge = `${risk.toUpperCase()}${riskDetails ? ` · ${riskDetails}` : ''}`;
+const RiskRow: React.FC<{ risk: string; riskDetails: string }> = ({ risk, riskDetails }) => {
+  const badge = riskDetails ? `${risk.toUpperCase()} · ${riskDetails}` : risk.toUpperCase();
   const color = getRiskColor(risk);
   return React.createElement(
     Box,
@@ -119,6 +138,19 @@ const CommandBlock: React.FC<{ command: string }> = ({ command }) => {
 };
 
 /**
+ * Resolves color for a diff line.
+ */
+function getDiffLineColor(line: string): 'green' | 'red' | undefined {
+  if (line.startsWith('+')) {
+    return 'green';
+  }
+  if (line.startsWith('-')) {
+    return 'red';
+  }
+  return undefined;
+}
+
+/**
  * Unified diff preview display component.
  */
 const DiffBlock: React.FC<{ diffPreview?: string | string[] }> = ({ diffPreview }) => {
@@ -131,7 +163,7 @@ const DiffBlock: React.FC<{ diffPreview?: string | string[] }> = ({ diffPreview 
     { flexDirection: 'column', marginTop: 1 },
     React.createElement(Text, { bold: true }, 'Diff Preview:'),
     lines.map((line, idx) => {
-      const color = line.startsWith('+') ? 'green' : line.startsWith('-') ? 'red' : undefined;
+      const color = getDiffLineColor(line);
       return React.createElement(Text, { key: idx, color }, `  ${line}`);
     })
   );
@@ -166,13 +198,44 @@ const PromptStatus: React.FC<{ decided: boolean | null; promptMessage: string }>
 };
 
 /**
+ * Safely dispatches callback events on user decision.
+ */
+function dispatchDecision(
+  isAffirmative: boolean,
+  props: SafetyPromptProps,
+  exitFn?: () => void
+): void {
+  if (isAffirmative) {
+    if (props.onConfirm) {
+      props.onConfirm();
+    }
+    if (props.onDecision) {
+      props.onDecision(true);
+    }
+  } else {
+    if (props.onAbort) {
+      props.onAbort();
+    }
+    if (props.onDecision) {
+      props.onDecision(false);
+    }
+  }
+  if (exitFn) {
+    exitFn();
+  }
+}
+
+/**
+ * Tests whether input is affirmative ('y' or 'Y').
+ */
+function isYesKey(input: string): boolean {
+  return input === 'y' || input === 'Y';
+}
+
+/**
  * Custom hook to manage single keypress interactive confirmation logic.
  */
-function useSafetyKeypress(
-  onConfirm?: () => void,
-  onAbort?: () => void,
-  onDecision?: (confirmed: boolean) => void
-): boolean | null {
+function useSafetyKeypress(props: SafetyPromptProps): boolean | null {
   const [decided, setDecided] = useState<boolean | null>(null);
   const handledRef = useRef(false);
 
@@ -184,22 +247,15 @@ function useSafetyKeypress(
     // Outside Ink App context
   }
 
-  useInput((input, _key) => {
+  useInput((input) => {
     if (handledRef.current) {
       return;
     }
     handledRef.current = true;
 
-    const isAffirmative = input === 'y' || input === 'Y';
-    setDecided(isAffirmative);
-    if (isAffirmative) {
-      onConfirm?.();
-      onDecision?.(true);
-    } else {
-      onAbort?.();
-      onDecision?.(false);
-    }
-    exitFn?.();
+    const affirmative = isYesKey(input);
+    setDecided(affirmative);
+    dispatchDecision(affirmative, props, exitFn);
   });
 
   return decided;
@@ -209,17 +265,8 @@ function useSafetyKeypress(
  * Interactive Safety Confirmation Prompt Component.
  */
 export const SafetyPrompt: React.FC<SafetyPromptProps> = (props) => {
-  const action = props.action || props.proposal?.action || 'Remediation Action';
-  const risk = props.risk || props.proposal?.risk || 'LOW';
-  const riskDetails =
-    props.riskDetails ||
-    props.proposal?.riskDetails ||
-    (risk.toLowerCase() === 'low' ? 'Safe rollback available' : undefined);
-  const command = props.command || props.proposal?.command || '';
-  const diffPreview = props.diffPreview ?? props.proposal?.diffPreview;
-  const promptMessage = props.promptMessage || 'Apply this remediation to the cluster? [y/N]:';
-
-  const decided = useSafetyKeypress(props.onConfirm, props.onAbort, props.onDecision);
+  const state = resolvePromptProps(props);
+  const decided = useSafetyKeypress(props);
 
   return React.createElement(
     Box,
@@ -231,11 +278,11 @@ export const SafetyPrompt: React.FC<SafetyPromptProps> = (props) => {
       minWidth: 60,
     },
     React.createElement(RemediationHeader, null),
-    React.createElement(ActionRow, { action }),
-    React.createElement(RiskRow, { risk, riskDetails }),
-    React.createElement(CommandBlock, { command }),
-    React.createElement(DiffBlock, { diffPreview }),
-    React.createElement(PromptStatus, { decided, promptMessage })
+    React.createElement(ActionRow, { action: state.action }),
+    React.createElement(RiskRow, { risk: state.risk, riskDetails: state.riskDetails }),
+    React.createElement(CommandBlock, { command: state.command }),
+    React.createElement(DiffBlock, { diffPreview: state.diffPreview }),
+    React.createElement(PromptStatus, { decided, promptMessage: state.promptMessage })
   );
 };
 
@@ -259,21 +306,17 @@ export function promptSafetyConfirmation(
       }
     };
 
-    const hasProposalField = 'proposal' in proposal;
-    const isDirectProps = 'action' in proposal || 'command' in proposal;
-    const props: SafetyPromptProps = isDirectProps && !hasProposalField
-      ? { ...(proposal as SafetyPromptProps), onDecision: settle }
+    const hasDirectFields = 'action' in proposal || 'command' in proposal;
+    const props: SafetyPromptProps = hasDirectFields
+      ? { ...proposal, onDecision: settle }
       : { proposal: proposal as RemediationProposal, onDecision: settle };
 
-    const instance = render(React.createElement(SafetyPrompt, props), {
-      stdin: (options?.stdin as any) || process.stdin,
-      stdout: (options?.stdout as any) || process.stdout,
-    });
+    const ioOptions = {
+      stdin: options && options.stdin ? options.stdin : process.stdin,
+      stdout: options && options.stdout ? options.stdout : process.stdout,
+    };
 
-    instance.waitUntilExit().then(() => {
-      settle(false);
-    }).catch(() => {
-      settle(false);
-    });
+    const instance = render(React.createElement(SafetyPrompt, props), ioOptions as any);
+    instance.waitUntilExit().then(() => settle(false)).catch(() => settle(false));
   });
 }
