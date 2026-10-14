@@ -92,6 +92,15 @@ def _target_from_bundle_dict(bundle: Dict[str, Any]) -> Optional[WorkloadTargetI
     )
 
 
+def _target_from_bundle(bundle: Optional[Any]) -> Optional[WorkloadTargetInfo]:
+    """Extract workload identity directly from bundle object or dictionary."""
+    if isinstance(bundle, dict):
+        return _target_from_bundle_dict(bundle)
+    if bundle is not None:
+        return _target_from_bundle_object(bundle)
+    return None
+
+
 def extract_workload_info(bundle: Optional[Any] = None, consensus: Optional[Any] = None) -> WorkloadTargetInfo:
     """Extract workload identity, kind, and namespace from evidence bundle or consensus.
 
@@ -99,15 +108,9 @@ def extract_workload_info(bundle: Optional[Any] = None, consensus: Optional[Any]
     :param consensus: ConsensusDiagnosis or dict for fallback discovery.
     :return: WorkloadTargetInfo with verified or sensible defaults.
     """
-    if bundle is not None:
-        info = _target_from_bundle_object(bundle)
-        if info:
-            return info
-        if isinstance(bundle, dict):
-            info = _target_from_bundle_dict(bundle)
-            if info:
-                return info
-
+    info = _target_from_bundle(bundle)
+    if info is not None:
+        return info
     return _fallback_workload_from_consensus(consensus)
 
 
@@ -122,6 +125,16 @@ def _fallback_workload_from_consensus(consensus: Optional[Any]) -> WorkloadTarge
     return WorkloadTargetInfo(workload_name=workload_name)
 
 
+def _sanitize_limit_input(raw: Optional[str], default_base: str) -> str:
+    """Normalize input memory limit string to non-empty default fallback."""
+    if not isinstance(raw, str):
+        return default_base
+    cleaned = raw.strip()
+    if not cleaned:
+        return default_base
+    return cleaned
+
+
 def calculate_memory_bump(
     current_limit: Optional[str] = None,
     factor: float = 2.0,
@@ -134,10 +147,8 @@ def calculate_memory_bump(
     :param default_base: Fallback limit string if missing or unparseable.
     :return: Tuple containing (sanitized_original_limit, bumped_limit).
     """
-    if not current_limit or not isinstance(current_limit, str) or not current_limit.strip():
-        current_limit = default_base
-
-    match = re.match(r"^(\d+(?:\.\d+)?)\s*([A-Za-z]*)$", current_limit.strip())
+    valid_limit = _sanitize_limit_input(current_limit, default_base)
+    match = re.match(r"^(\d+(?:\.\d+)?)\s*([A-Za-z]*)$", valid_limit)
     if not match:
         return default_base, "512Mi"
 
@@ -147,13 +158,13 @@ def calculate_memory_bump(
     except ValueError:
         return default_base, "512Mi"
 
-    unit = unit if unit else "Mi"
+    unit_str = unit if unit else "Mi"
     bumped = num * factor
 
     orig_val = int(num) if num.is_integer() else round(num, 1)
     bumped_val = int(bumped) if bumped.is_integer() else round(bumped, 1)
 
-    return f"{orig_val}{unit}", f"{bumped_val}{unit}"
+    return f"{orig_val}{unit_str}", f"{bumped_val}{unit_str}"
 
 
 def generate_rollback_command(info: WorkloadTargetInfo) -> str:

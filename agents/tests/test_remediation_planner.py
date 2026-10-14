@@ -231,19 +231,15 @@ class TestRemediationPlanner(unittest.TestCase):
         """Create fresh RemediationPlanner instance."""
         self.planner = RemediationPlanner()
 
-    def _assert_plan_structure(
+    def _assert_plan_meta(
         self,
         plan: RemediationPlan,
         expected_id: str,
-        expected_workload: str,
         expected_risk: str,
-        expected_step_count: int,
     ) -> List[str]:
         """Assert core plan metadata and return list of step command strings."""
         self.assertEqual(plan.plan_id, expected_id)
-        self.assertEqual(plan.target_workload, expected_workload)
         self.assertEqual(plan.risk_level, expected_risk)
-        self.assertEqual(len(plan.steps), expected_step_count)
         self.assertIsNotNone(plan.rollback_command)
         return [step.command for step in plan.steps]
 
@@ -281,7 +277,9 @@ class TestRemediationPlanner(unittest.TestCase):
         consensus = _build_test_consensus("Container restarting repeatedly in CrashLoopBackOff.")
         plan = self.planner.create_plan(consensus, bundle)
 
-        cmds = self._assert_plan_structure(plan, "plan-crashloop-001", "auth-service", "medium", 3)
+        cmds = self._assert_plan_meta(plan, "plan-crashloop-001", "medium")
+        self.assertEqual(plan.target_workload, "auth-service")
+        self.assertEqual(len(plan.steps), 3)
         self.assertTrue(any("kubectl logs" in c for c in cmds))
         self.assertTrue(any("kubectl set env" in c for c in cmds))
         self.assertTrue(any("kubectl rollout restart" in c for c in cmds))
@@ -293,7 +291,9 @@ class TestRemediationPlanner(unittest.TestCase):
         consensus = _build_test_consensus("Failed to pull container image: ImagePullBackOff.")
         plan = self.planner.create_plan(consensus, bundle)
 
-        cmds = self._assert_plan_structure(plan, "plan-imagepull-001", "payment-gw", "low", 2)
+        cmds = self._assert_plan_meta(plan, "plan-imagepull-001", "low")
+        self.assertEqual(plan.target_workload, "payment-gw")
+        self.assertEqual(len(plan.steps), 2)
         self.assertTrue(any("kubectl set image" in c for c in cmds))
         self.assertTrue(any("kubectl create secret" in c for c in cmds))
         self.assertIn("-n production", plan.rollback_command or "")
@@ -308,7 +308,9 @@ class TestRemediationPlanner(unittest.TestCase):
         )
 
         plan = self.planner.create_plan(consensus, bundle)
-        cmds = self._assert_plan_structure(plan, "plan-generic-001", "ingress-controller", "high", 1)
+        cmds = self._assert_plan_meta(plan, "plan-generic-001", "high")
+        self.assertEqual(plan.target_workload, "ingress-controller")
+        self.assertEqual(len(plan.steps), 1)
         self.assertEqual(cmds[0], "kubectl drain node-1 --ignore-daemonsets")
         self.assertIn("kubectl rollout undo", plan.rollback_command or "")
 
