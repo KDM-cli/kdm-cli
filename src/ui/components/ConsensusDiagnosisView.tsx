@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { FC, ReactNode } from 'react';
 import { Box, Text } from 'ink';
 import type { ConsensusDiagnosis, AgentFinding, BestSolution } from '../../agent/types';
 
@@ -10,33 +10,24 @@ export interface ConsensusDiagnosisViewProps {
   details?: string | null;
 }
 
-function getConfidenceColor(confidence?: string): string {
-  switch (confidence?.toLowerCase()) {
-    case 'high':
-      return 'green';
-    case 'medium':
-      return 'yellow';
-    case 'low':
-      return 'red';
-    default:
-      return 'cyan';
-  }
+const CONFIDENCE_COLORS: Record<string, string> = {
+  high: 'green',
+  medium: 'yellow',
+  low: 'red',
+};
+
+const RISK_COLORS: Record<string, string> = {
+  low: 'green',
+  medium: 'yellow',
+  high: 'red',
+};
+
+function resolveBadgeColor(map: Record<string, string>, val?: string, fallback = 'yellow'): string {
+  if (!val) return fallback;
+  return map[val.toLowerCase()] || fallback;
 }
 
-function getRiskColor(risk?: string): string {
-  switch (risk?.toLowerCase()) {
-    case 'low':
-      return 'green';
-    case 'medium':
-      return 'yellow';
-    case 'high':
-      return 'red';
-    default:
-      return 'yellow';
-  }
-}
-
-const FindingsSection: React.FC<{ findings?: AgentFinding[] }> = ({ findings }) => {
+const FindingsSection: FC<{ findings?: AgentFinding[] }> = ({ findings }) => {
   if (!findings || findings.length === 0) return null;
   return (
     <Box flexDirection="column" marginBottom={1}>
@@ -53,8 +44,8 @@ const FindingsSection: React.FC<{ findings?: AgentFinding[] }> = ({ findings }) 
   );
 };
 
-const RemediationSection: React.FC<{ solution: BestSolution }> = ({ solution }) => {
-  const riskColor = getRiskColor(solution.riskLevel);
+const RemediationSection: FC<{ solution: BestSolution }> = ({ solution }) => {
+  const riskColor = resolveBadgeColor(RISK_COLORS, solution.riskLevel);
   return (
     <Box flexDirection="column">
       <Box flexDirection="row">
@@ -84,8 +75,8 @@ const RemediationSection: React.FC<{ solution: BestSolution }> = ({ solution }) 
   );
 };
 
-const StructuredConsensusView: React.FC<{ consensus: ConsensusDiagnosis }> = ({ consensus }) => {
-  const confColor = getConfidenceColor(consensus.confidence);
+const StructuredConsensusView: FC<{ consensus: ConsensusDiagnosis }> = ({ consensus }) => {
+  const confColor = resolveBadgeColor(CONFIDENCE_COLORS, consensus.confidence, 'cyan');
   return (
     <Box flexDirection="column" marginTop={1}>
       <Box flexDirection="row" marginBottom={0}>
@@ -110,42 +101,24 @@ const StructuredConsensusView: React.FC<{ consensus: ConsensusDiagnosis }> = ({ 
   );
 };
 
-function formatDetailLine(line: string, idx: number): React.ReactNode {
+interface PrefixHandler {
+  prefix: string;
+  render: (trimmed: string, idx: number) => ReactNode;
+}
+
+const PREFIX_HANDLERS: PrefixHandler[] = [
+  { prefix: 'Root Cause', render: (t, i) => <Box key={i} marginTop={1}><Text bold color="yellow">{t}</Text></Box> },
+  { prefix: 'Recommended Remediation:', render: (t, i) => <Box key={i} marginTop={1}><Text bold color="green">{t}</Text></Box> },
+  { prefix: 'Specialist Agent Findings:', render: (t, i) => <Box key={i} marginTop={1}><Text bold color="cyan">{t}</Text></Box> },
+  { prefix: 'Command:', render: (t, i) => <Box key={i} marginY={1} borderStyle="single" borderColor="yellow" paddingX={1}><Text bold color="yellow">{t}</Text></Box> },
+  { prefix: '•', render: (t, i) => <Box key={i} paddingLeft={1}><Text color="white">{t}</Text></Box> },
+];
+
+function formatDetailLine(line: string, idx: number): ReactNode {
   const trimmed = line.trim();
-  if (trimmed.startsWith('Root Cause')) {
-    return (
-      <Box key={idx} marginTop={1} marginBottom={0}>
-        <Text bold color="yellow">{trimmed}</Text>
-      </Box>
-    );
-  }
-  if (trimmed.startsWith('Recommended Remediation:')) {
-    return (
-      <Box key={idx} marginTop={1} marginBottom={0}>
-        <Text bold color="green">{trimmed}</Text>
-      </Box>
-    );
-  }
-  if (trimmed.startsWith('Specialist Agent Findings:')) {
-    return (
-      <Box key={idx} marginTop={1} marginBottom={0}>
-        <Text bold color="cyan">{trimmed}</Text>
-      </Box>
-    );
-  }
-  if (trimmed.startsWith('Command:')) {
-    return (
-      <Box key={idx} marginY={1} borderStyle="single" borderColor="yellow" paddingX={1}>
-        <Text bold color="yellow">{trimmed}</Text>
-      </Box>
-    );
-  }
-  if (trimmed.startsWith('•')) {
-    return (
-      <Box key={idx} paddingLeft={1}>
-        <Text color="white">{trimmed}</Text>
-      </Box>
-    );
+  const handler = PREFIX_HANDLERS.find((h) => trimmed.startsWith(h.prefix));
+  if (handler) {
+    return handler.render(trimmed, idx);
   }
   return (
     <Text key={idx} wrap="wrap">
@@ -154,7 +127,7 @@ function formatDetailLine(line: string, idx: number): React.ReactNode {
   );
 }
 
-const FallbackDetailsView: React.FC<{ details: string }> = ({ details }) => {
+const FallbackDetailsView: FC<{ details: string }> = ({ details }) => {
   const lines = details.split('\n');
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -164,7 +137,7 @@ const FallbackDetailsView: React.FC<{ details: string }> = ({ details }) => {
 };
 
 /** Formats structured consensus diagnosis object or raw fallback text details. */
-export const ConsensusDiagnosisView: React.FC<ConsensusDiagnosisViewProps> = ({
+export const ConsensusDiagnosisView: FC<ConsensusDiagnosisViewProps> = ({
   consensus,
   details,
 }) => {

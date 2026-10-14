@@ -1,4 +1,4 @@
-import React from 'react';
+import { type FC } from 'react';
 import { Box, Text } from 'ink';
 import type { ActiveToolState } from '../council-state';
 import { formatToolInvocation, getAgentDisplayName } from '../council-state';
@@ -15,7 +15,7 @@ export interface ActiveToolPanelProps {
  * Renders the currently executing or recently executed diagnostic tool,
  * including active agent role badge, tool name, invoked arguments, and elapsed duration.
  */
-export const ActiveToolPanel: React.FC<ActiveToolPanelProps> = ({
+export const ActiveToolPanel: FC<ActiveToolPanelProps> = ({
   tool,
   showIdle = false,
 }) => {

@@ -1,4 +1,4 @@
-import React from 'react';
+import { type FC } from 'react';
 import { Box, Text } from 'ink';
 import type { AgentRole, AgentStatus } from '../../agent/types';
 import { getAgentIcon, getAgentDisplayName } from '../council-state';
@@ -49,7 +49,7 @@ const STATUS_VISUALS: Record<AgentStatus, AgentVisualMeta> = {
  * Renders status icon, agent icon badge, display name, and active task message
  * for an individual specialist agent in the multi-agent council.
  */
-export const AgentCard: React.FC<AgentCardProps> = ({
+export const AgentCard: FC<AgentCardProps> = ({
   role,
   name,
   icon,

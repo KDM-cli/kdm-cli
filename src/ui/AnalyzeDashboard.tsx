@@ -18,7 +18,6 @@ import {
   councilEventReducer,
 } from './council-state';
 
-export { InkSpinner };
 
 const AVAILABLE_BACKENDS = [
   'openai',

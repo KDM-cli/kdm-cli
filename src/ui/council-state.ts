@@ -179,18 +179,22 @@ export function createInitialCouncilState(): CouncilDashboardState {
 
 // ─── Pure Event Reducer Handlers ─────────────────────────────────────────────
 
+interface AgentStatusUpdate {
+  role: string;
+  status: AgentStatus;
+  message: string;
+  clearTool?: boolean;
+}
+
 function updateAgentStatus(
   state: CouncilDashboardState,
-  rawRole: string,
-  status: AgentStatus,
-  message: string,
-  clearTool = false
+  update: AgentStatusUpdate
 ): CouncilDashboardState {
-  const role = normalizeCouncilRole(rawRole);
+  const role = normalizeCouncilRole(update.role);
   if (!role) return state;
 
   const current = state.agents[role];
-  const shouldClearTool = clearTool && state.activeTool?.role === rawRole;
+  const shouldClearTool = update.clearTool && state.activeTool?.role === update.role;
 
   return {
     ...state,
@@ -200,8 +204,8 @@ function updateAgentStatus(
       ...state.agents,
       [role]: {
         ...current,
-        status,
-        message,
+        status: update.status,
+        message: update.message,
       },
     },
   };
@@ -223,7 +227,11 @@ function handleAgentStart(
   state: CouncilDashboardState,
   event: Extract<NDJSONEvent, { event: 'agent_start' }>
 ): CouncilDashboardState {
-  return updateAgentStatus(state, event.role, 'running', event.message);
+  return updateAgentStatus(state, {
+    role: event.role,
+    status: 'running',
+    message: event.message,
+  });
 }
 
 function handleAgentToolCall(
@@ -268,21 +276,35 @@ function handleAgentProgress(
   state: CouncilDashboardState,
   event: Extract<NDJSONEvent, { event: 'agent_progress' }>
 ): CouncilDashboardState {
-  return updateAgentStatus(state, event.role, 'running', event.message);
+  return updateAgentStatus(state, {
+    role: event.role,
+    status: 'running',
+    message: event.message,
+  });
 }
 
 function handleAgentComplete(
   state: CouncilDashboardState,
   event: Extract<NDJSONEvent, { event: 'agent_complete' }>
 ): CouncilDashboardState {
-  return updateAgentStatus(state, event.role, 'completed', event.summary, true);
+  return updateAgentStatus(state, {
+    role: event.role,
+    status: 'completed',
+    message: event.summary,
+    clearTool: true,
+  });
 }
 
 function handleAgentFailed(
   state: CouncilDashboardState,
   event: Extract<NDJSONEvent, { event: 'agent_failed' }>
 ): CouncilDashboardState {
-  return updateAgentStatus(state, event.role, 'failed', event.error, true);
+  return updateAgentStatus(state, {
+    role: event.role,
+    status: 'failed',
+    message: event.error,
+    clearTool: true,
+  });
 }
 
 function handleDiagnosisReady(

@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, type FC } from 'react';
 import { Text } from 'ink';
 
-export const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 /**
  * Lightweight animated spinner component compatible with ESM and Vitest.
  */
-export const InkSpinner: React.FC = () => {
+export const InkSpinner: FC = () => {
   const [frame, setFrame] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => {
