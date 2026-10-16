@@ -11,10 +11,28 @@
 
 import type { DiagnosticRule, RuleMatch, WorkloadContext } from './types';
 
-function extractContainerName(text: string, fallback?: string): string {
-  const match = text.match(/container\s+["']?([a-zA-Z0-9_.\-]+)["']?/i);
-  return match?.[1] || fallback || 'container';
+interface RuleContextOptions {
+  text: string;
+  context?: WorkloadContext;
 }
+
+interface ContainerResolveOptions {
+  text: string;
+  fallback?: string;
+}
+
+function resolveContainerName(opts: ContainerResolveOptions): string {
+  const match = opts.text.match(/container\s+["']?([a-zA-Z0-9_.\-]+)["']?/i);
+  return match?.[1] || opts.fallback || 'container';
+}
+
+function buildTarget(context?: WorkloadContext, fallbackName = 'pod'): { target: string; ns: string } {
+  const name = context?.name || fallbackName;
+  const ns = context?.namespace ? ` -n ${context.namespace}` : '';
+  return { target: name, ns };
+}
+
+// ─── OOMKilled Rule ──────────────────────────────────────────────────────────
 
 interface OomFacts {
   container: string;
@@ -24,26 +42,24 @@ interface OomFacts {
   confidence: number;
 }
 
-function detectOomFacts(text: string, context?: WorkloadContext): OomFacts | null {
-  const hasExit137 = /\b137\b/.test(text) || /exit\s*code\s*[:=]?\s*137/i.test(text);
-  const hasOomMention = /oomkilled|out[\s_-]?of[\s_-]?memory/i.test(text);
-  const memLimitMatch = text.match(/memory\s*limit[:\s]*([0-9]+[a-zA-Z]+)/i);
+const OOM_EXIT_PATTERN = /\b137\b|exit\s*code\s*[:=]?\s*137/i;
+const OOM_MENTION_PATTERN = /oomkilled|out[\s_-]?of[\s_-]?memory/i;
+const OOM_TRIGGER_PATTERN = /\b137\b|oomkilled|out[\s_-]?of[\s_-]?memory|memory\s*limit/i;
 
-  if (!hasExit137 && !hasOomMention && !memLimitMatch) {
+function detectOomFacts(opts: RuleContextOptions): OomFacts | null {
+  if (!OOM_TRIGGER_PATTERN.test(opts.text)) {
     return null;
   }
 
-  const container = extractContainerName(text, context?.container);
-  const memLimit = memLimitMatch?.[1];
-  const confidence = hasOomMention || (hasExit137 && Boolean(memLimit)) ? 1.0 : 0.8;
+  const hasExit137 = OOM_EXIT_PATTERN.test(opts.text);
+  const hasOomMention = OOM_MENTION_PATTERN.test(opts.text);
+  const memLimit = opts.text.match(/memory\s*limit[:\s]*([0-9]+[a-zA-Z]+)/i)?.[1];
 
-  return {
-    container,
-    hasExit137,
-    hasOomMention,
-    memLimit,
-    confidence,
-  };
+  const isConfirmed = hasOomMention || (hasExit137 && Boolean(memLimit));
+  const confidence = isConfirmed ? 1.0 : 0.8;
+  const container = resolveContainerName({ text: opts.text, fallback: opts.context?.container });
+
+  return { container, hasExit137, hasOomMention, memLimit, confidence };
 }
 
 function buildOomDetails(facts: OomFacts): string[] {
@@ -64,25 +80,17 @@ function buildOomDetails(facts: OomFacts): string[] {
   return details;
 }
 
-function buildWorkloadTarget(context?: WorkloadContext): { target: string; ns: string } {
-  const kind = (context?.kind || 'deployment').toLowerCase();
-  const name = context?.name || 'workload';
-  const ns = context?.namespace ? ` -n ${context.namespace}` : '';
-  return { target: `${kind}/${name}`, ns };
-}
-
-/**
- * Diagnoses container terminations caused by exceeding memory limits.
- */
 export class OOMKilledRule implements DiagnosticRule {
   readonly ruleId = 'rule.kubernetes.oom_killed';
   readonly title = 'Container Out-Of-Memory (OOMKilled)';
 
   evaluate(failureText: string, context?: WorkloadContext): RuleMatch | null {
-    const facts = detectOomFacts(failureText, context);
+    const facts = detectOomFacts({ text: failureText, context });
     if (!facts) return null;
 
-    const { target, ns } = buildWorkloadTarget(context);
+    const kind = (context?.kind || 'deployment').toLowerCase();
+    const { target, ns } = buildTarget(context, 'workload');
+
     return {
       ruleId: this.ruleId,
       title: this.title,
@@ -90,56 +98,75 @@ export class OOMKilledRule implements DiagnosticRule {
       confidence: facts.confidence,
       details: buildOomDetails(facts),
       suggestedFix: 'Increase container memory request and limit in workload specification.',
-      commandToRun: `kubectl set resources ${target} --limits=memory=512Mi --requests=memory=256Mi${ns}`,
+      commandToRun: `kubectl set resources ${kind}/${target} --limits=memory=512Mi --requests=memory=256Mi${ns}`,
     };
   }
 }
 
-/**
- * Diagnoses containers repeatedly crashing upon startup.
- */
+// ─── CrashLoop Rule ──────────────────────────────────────────────────────────
+
+interface CrashFacts {
+  container: string;
+  exitCode?: string;
+  restartCount?: string;
+  confidence: number;
+}
+
+const CRASH_TRIGGER_PATTERN = /crashloopbackoff|back-off restarting failed container/i;
+
+function detectCrashFacts(opts: RuleContextOptions): CrashFacts | null {
+  const isCrashLoop = CRASH_TRIGGER_PATTERN.test(opts.text);
+  const exitCode = opts.text.match(/exit\s*code\s*[:=]?\s*(\d+)/i)?.[1];
+  const restartCount = opts.text.match(/restart\s*count\s*[:=]?\s*(\d+)/i)?.[1];
+
+  if (!isCrashLoop) {
+    if (!restartCount && !exitCode) return null;
+    if (exitCode === '0') return null;
+  }
+
+  const container = resolveContainerName({ text: opts.text, fallback: opts.context?.container });
+  const confidence = isCrashLoop ? 1.0 : 0.9;
+
+  return { container, exitCode, restartCount, confidence };
+}
+
+function buildCrashDetails(facts: CrashFacts): string[] {
+  const details = [
+    `Container '${facts.container}' repeatedly crashing on startup (CrashLoopBackOff)`,
+  ];
+  if (facts.exitCode) {
+    details.push(`Exit code ${facts.exitCode} detected`);
+  }
+  if (facts.restartCount) {
+    details.push(`Restart count: ${facts.restartCount}`);
+  }
+  details.push(`Confidence: ${Math.round(facts.confidence * 100)}%`);
+  return details;
+}
+
 export class CrashLoopRule implements DiagnosticRule {
   readonly ruleId = 'rule.kubernetes.crashloop_backoff';
   readonly title = 'Container CrashLoopBackOff';
 
   evaluate(failureText: string, context?: WorkloadContext): RuleMatch | null {
-    const isCrashLoop = /crashloopbackoff|back-off restarting failed container/i.test(failureText);
-    const exitMatch = failureText.match(/exit\s*code\s*[:=]?\s*(\d+)/i);
-    const restartMatch = failureText.match(/restart\s*count\s*[:=]?\s*(\d+)/i);
+    const facts = detectCrashFacts({ text: failureText, context });
+    if (!facts) return null;
 
-    if (!isCrashLoop && !restartMatch && !exitMatch) return null;
-    const exitCode = exitMatch?.[1];
-    if (!isCrashLoop && exitCode === '0') return null;
-
-    const container = extractContainerName(failureText, context?.container);
-    const details: string[] = [
-      `Container '${container}' repeatedly crashing on startup (CrashLoopBackOff)`,
-    ];
-
-    if (exitCode) details.push(`Exit code ${exitCode} detected`);
-    if (restartMatch?.[1]) details.push(`Restart count: ${restartMatch[1]}`);
-
-    const confidence = isCrashLoop ? 1.0 : 0.9;
-    details.push(`Confidence: ${Math.round(confidence * 100)}%`);
-
-    const podName = context?.name || 'pod';
-    const ns = context?.namespace ? ` -n ${context.namespace}` : '';
-
+    const { target, ns } = buildTarget(context, 'pod');
     return {
       ruleId: this.ruleId,
       title: this.title,
-      rootCause: `Container '${container}' is in CrashLoopBackOff due to persistent application startup failures.`,
-      confidence,
-      details,
+      rootCause: `Container '${facts.container}' is in CrashLoopBackOff due to persistent application startup failures.`,
+      confidence: facts.confidence,
+      details: buildCrashDetails(facts),
       suggestedFix: 'Inspect previous application logs and runtime entrypoint configuration.',
-      commandToRun: `kubectl logs ${podName} -c ${container}${ns} --previous`,
+      commandToRun: `kubectl logs ${target} -c ${facts.container}${ns} --previous`,
     };
   }
 }
 
-/**
- * Diagnoses container startup stalls caused by failed image pulls.
- */
+// ─── ImagePull Rule ──────────────────────────────────────────────────────────
+
 export class ImagePullRule implements DiagnosticRule {
   readonly ruleId = 'rule.kubernetes.image_pull';
   readonly title = 'Container Image Pull Failure (ImagePullBackOff)';
@@ -148,34 +175,31 @@ export class ImagePullRule implements DiagnosticRule {
     const isImagePull = /imagepullbackoff|errimagepull|failed to pull image/i.test(failureText);
     if (!isImagePull) return null;
 
-    const container = extractContainerName(failureText, context?.container);
-    const imageMatch = failureText.match(/image\s+["']?([^\s"':]+(?::[^\s"']+)?)["']?/i);
-    const image = imageMatch?.[1];
+    const container = resolveContainerName({ text: failureText, fallback: context?.container });
+    const image = failureText.match(/image\s+["']?([^\s"':]+(?::[^\s"']+)?)["']?/i)?.[1];
+    const imageSuffix = image ? ` '${image}'` : '';
 
     const details: string[] = [
-      `Failed to pull container image${image ? ` '${image}'` : ''} for container '${container}'`,
+      `Failed to pull container image${imageSuffix} for container '${container}'`,
       'Verify image repository, tag, and imagePullSecrets',
       'Confidence: 100%',
     ];
 
-    const podName = context?.name || 'pod';
-    const ns = context?.namespace ? ` -n ${context.namespace}` : '';
-
+    const { target, ns } = buildTarget(context, 'pod');
     return {
       ruleId: this.ruleId,
       title: this.title,
-      rootCause: `Container '${container}' failed to pull container image${image ? ` '${image}'` : ''}.`,
+      rootCause: `Container '${container}' failed to pull container image${imageSuffix}.`,
       confidence: 1.0,
       details,
       suggestedFix: 'Verify the container image name, tag, and imagePullSecret permissions in the cluster.',
-      commandToRun: `kubectl describe pod ${podName}${ns}`,
+      commandToRun: `kubectl describe pod ${target}${ns}`,
     };
   }
 }
 
-/**
- * Diagnoses container health probe check failures.
- */
+// ─── ProbeFailure Rule ───────────────────────────────────────────────────────
+
 export class ProbeFailureRule implements DiagnosticRule {
   readonly ruleId = 'rule.kubernetes.probe_failure';
   readonly title = 'Container Probe Failure';
@@ -186,7 +210,7 @@ export class ProbeFailureRule implements DiagnosticRule {
 
     const rawType = probeMatch[1];
     const probeType = rawType.charAt(0).toUpperCase() + rawType.slice(1).toLowerCase();
-    const container = extractContainerName(failureText, context?.container);
+    const container = resolveContainerName({ text: failureText, fallback: context?.container });
 
     const details: string[] = [
       `${probeType} probe failed for container '${container}'`,
@@ -194,9 +218,7 @@ export class ProbeFailureRule implements DiagnosticRule {
       'Confidence: 100%',
     ];
 
-    const podName = context?.name || 'pod';
-    const ns = context?.namespace ? ` -n ${context.namespace}` : '';
-
+    const { target, ns } = buildTarget(context, 'pod');
     return {
       ruleId: this.ruleId,
       title: `Container ${probeType} Probe Failure`,
@@ -204,14 +226,13 @@ export class ProbeFailureRule implements DiagnosticRule {
       confidence: 1.0,
       details,
       suggestedFix: 'Adjust probe initialDelaySeconds, periodSeconds, or check endpoint responsiveness.',
-      commandToRun: `kubectl describe pod ${podName}${ns}`,
+      commandToRun: `kubectl describe pod ${target}${ns}`,
     };
   }
 }
 
-/**
- * Diagnoses pod scheduling failures where pods remain stuck in Pending.
- */
+// ─── Scheduling Rule ─────────────────────────────────────────────────────────
+
 export class SchedulingRule implements DiagnosticRule {
   readonly ruleId = 'rule.kubernetes.failed_scheduling';
   readonly title = 'Pod Scheduling Failure (FailedScheduling)';
@@ -229,17 +250,15 @@ export class SchedulingRule implements DiagnosticRule {
       'Confidence: 100%',
     ];
 
-    const podName = context?.name || 'pod';
-    const ns = context?.namespace ? ` -n ${context.namespace}` : '';
-
+    const { target, ns } = buildTarget(context, 'pod');
     return {
       ruleId: this.ruleId,
       title: this.title,
-      rootCause: `Pod '${podName}' cannot be scheduled due to cluster resource exhaustion or node taints.`,
+      rootCause: `Pod '${target}' cannot be scheduled due to cluster resource exhaustion or node taints.`,
       confidence: 1.0,
       details,
       suggestedFix: 'Inspect cluster node capacity, taints, and workload resource requests.',
-      commandToRun: `kubectl describe pod ${podName}${ns}`,
+      commandToRun: `kubectl describe pod ${target}${ns}`,
     };
   }
 }

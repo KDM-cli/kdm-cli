@@ -11,12 +11,9 @@ import { logger } from '../utils/logger';
 import { runPythonAgentCouncil, isPythonAgentAvailable } from '../agent/python-bridge';
 import type { ConsensusDiagnosis, AgentProgressEvent, NDJSONEvent } from '../agent/types';
 import {
-  isOllamaAvailable,
   checkCouncilDependencies,
   resolveOllamaBaseUrl,
 } from './probes';
-import { RuleEngine } from '../rules';
-import type { RuleMatch } from '../rules/types';
 import {
   applyRuleEngineFallback,
   applyLegacyAiFallback,

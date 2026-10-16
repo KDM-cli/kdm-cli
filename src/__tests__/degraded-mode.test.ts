@@ -131,27 +131,27 @@ describe('Graceful Degradation & Fallback Ladder (Phase 18)', () => {
       expect(available).toBe(false);
     });
 
-    it('checkCouncilDependencies identifies missing Python runtime', async () => {
-      const deps = await checkCouncilDependencies('http://localhost:11434', 100, {
-        pythonCheck: async () => false,
-        ollamaCheck: async () => true,
-      });
-
+    it.each([
+      {
+        scenario: 'missing Python runtime',
+        checks: { pythonCheck: async () => false, ollamaCheck: async () => true },
+        expectedPython: false,
+        expectedOllama: true,
+        reasonMatch: 'Python 3',
+      },
+      {
+        scenario: 'unreachable Ollama service',
+        checks: { pythonCheck: async () => true, ollamaCheck: async () => false },
+        expectedPython: true,
+        expectedOllama: false,
+        reasonMatch: 'Local Ollama service is unreachable',
+      },
+    ])('checkCouncilDependencies identifies $scenario', async ({ checks, expectedPython, expectedOllama, reasonMatch }) => {
+      const deps = await checkCouncilDependencies('http://localhost:11434', 100, checks);
       expect(deps.canRunCouncil).toBe(false);
-      expect(deps.pythonAvailable).toBe(false);
-      expect(deps.ollamaAvailable).toBe(true);
-      expect(deps.degradationReason).toContain('Python 3');
-    });
-
-    it('checkCouncilDependencies identifies unreachable Ollama service', async () => {
-      const deps = await checkCouncilDependencies('http://localhost:11434', 100, {
-        pythonCheck: async () => true,
-        ollamaCheck: async () => false,
-      });
-
-      expect(deps.canRunCouncil).toBe(false);
-      expect(deps.ollamaAvailable).toBe(false);
-      expect(deps.degradationReason).toContain('Local Ollama service is unreachable');
+      expect(deps.pythonAvailable).toBe(expectedPython);
+      expect(deps.ollamaAvailable).toBe(expectedOllama);
+      expect(deps.degradationReason).toContain(reasonMatch);
     });
   });
 
@@ -298,27 +298,26 @@ describe('Graceful Degradation & Fallback Ladder (Phase 18)', () => {
   // ─── Rule Engine Unit Guarantees ───────────────────────────────────────────
 
   describe('RuleEngine Evaluator Direct Contracts', () => {
-    it('evaluates ProbeFailure rule accurately', () => {
+    it.each([
+      {
+        rule: 'ProbeFailure',
+        text: 'Liveness probe failed: HTTP probe failed with statuscode: 500 for container "web"',
+        expectedRuleId: 'rule.kubernetes.probe_failure',
+        expectedTitle: 'Liveness Probe Failure',
+      },
+      {
+        rule: 'Scheduling',
+        text: '0/5 nodes are available: 5 Insufficient memory. Pod FailedScheduling.',
+        expectedRuleId: 'rule.kubernetes.failed_scheduling',
+        expectedTitle: 'Pod Scheduling Failure',
+      },
+    ])('evaluates $rule rule accurately', ({ text, expectedRuleId, expectedTitle }) => {
       const engine = new RuleEngine();
-      const match = engine.evaluate(
-        'Liveness probe failed: HTTP probe failed with statuscode: 500 for container "web"'
-      );
+      const match = engine.evaluate(text);
 
       expect(match).not.toBeNull();
-      expect(match?.ruleId).toBe('rule.kubernetes.probe_failure');
-      expect(match?.title).toContain('Liveness Probe Failure');
-      expect(match?.confidence).toBe(1.0);
-    });
-
-    it('evaluates Scheduling rule accurately', () => {
-      const engine = new RuleEngine();
-      const match = engine.evaluate(
-        '0/5 nodes are available: 5 Insufficient memory. Pod FailedScheduling.'
-      );
-
-      expect(match).not.toBeNull();
-      expect(match?.ruleId).toBe('rule.kubernetes.failed_scheduling');
-      expect(match?.title).toContain('Pod Scheduling Failure');
+      expect(match?.ruleId).toBe(expectedRuleId);
+      expect(match?.title).toContain(expectedTitle);
       expect(match?.confidence).toBe(1.0);
     });
 
