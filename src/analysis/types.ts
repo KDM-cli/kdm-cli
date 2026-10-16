@@ -21,6 +21,8 @@ export interface AnalysisOptions {
   requestedFixes?: string[];
   /** When true, route analysis through the multi-agent engine (Phases 1–24). */
   multiAgent?: boolean;
+  /** Optional file path to export sanitized incident audit trail. */
+  exportAudit?: string;
 }
 
 export interface AnalysisStats {

@@ -5,6 +5,7 @@ import { formatJsonOutput, formatTextOutput } from '../analysis/output';
 import type { AnalysisOptions } from '../analysis/types';
 import { createSpinner } from '../ui/spinner';
 import { logger } from '../utils/logger';
+import { exportIncidentAudit, type IncidentAuditSession } from '../utils/audit-exporter';
 import { AnalyzeDashboard } from '../ui/AnalyzeDashboard';
 import { render } from 'ink';
 import React from 'react';
@@ -73,6 +74,7 @@ const buildAnalysisOptions = (options: any, signal: AbortSignal): AnalysisOption
   customHeaders: options.customHeaders,
   noCache: Boolean(options.noCache),
   interactive: options.output !== 'json',
+  exportAudit: options.exportAudit,
 });
 
 /**
@@ -87,6 +89,62 @@ const printAnalysisResult = (result: any, output: AnalysisOptions['output']): vo
     console.log(formatTextOutput(result));
   }
 };
+
+/**
+ * Resolves target workload descriptor from primary analysis result or options.
+ */
+function resolveIncidentTarget(primaryResult: any, runOpts: AnalysisOptions) {
+  return {
+    kind: primaryResult?.kind || 'Workload',
+    name: primaryResult?.name || runOpts.labelSelector || runOpts.namespace || 'all',
+    namespace: primaryResult?.namespace || runOpts.namespace || 'default',
+  };
+}
+
+/**
+ * Resolves consensus diagnosis or fallback diagnostic problem summary.
+ */
+function resolveConsensus(primaryResult: any, problems: number) {
+  if (primaryResult?.consensus) return primaryResult.consensus;
+  if (problems > 0) {
+    return {
+      rootCause: primaryResult?.message || 'Workload problem detected',
+      confidence: 'high',
+    };
+  }
+  return {
+    rootCause: 'No problems detected',
+    confidence: 'high',
+  };
+}
+
+/**
+ * Exports a structured, sanitized incident audit session file if requested.
+ * @param exportPath Destination JSON file path.
+ * @param runOpts Configured analysis options.
+ * @param result Analysis output results.
+ */
+async function handleExportAudit(
+  exportPath: string,
+  runOpts: AnalysisOptions,
+  result: any,
+): Promise<void> {
+  const primaryResult = result.results?.[0];
+  const target = resolveIncidentTarget(primaryResult, runOpts);
+  const consensus = resolveConsensus(primaryResult, result.problems || 0);
+
+  const session: IncidentAuditSession = {
+    sessionId: `an-${Date.now()}`,
+    cliVersion: '4.0.0',
+    target,
+    evidence: result.results?.flatMap((r: any) => r.evidence || []) || {},
+    toolCalls: result.toolCalls || [],
+    consensus,
+  };
+
+  await exportIncidentAudit(exportPath, session);
+  logger.success(`Incident audit exported to ${exportPath}`);
+}
 
 /**
  * Handles errors occurred during the analysis run, logging them and setting process exit code.
@@ -131,6 +189,9 @@ async function handleAnalyze(options: any): Promise<void> {
 
     if (output === 'json') {
       const result = await runAnalysis(runOpts);
+      if (options.exportAudit) {
+        await handleExportAudit(options.exportAudit, runOpts, result);
+      }
       printAnalysisResult(result, 'json');
       return;
     }
@@ -138,6 +199,10 @@ async function handleAnalyze(options: any): Promise<void> {
     spinner = createSpinner('Analyzing Kubernetes resources...').start();
     const result = await runAnalysis(runOpts);
     spinner.stop('Analysis complete');
+
+    if (options.exportAudit) {
+      await handleExportAudit(options.exportAudit, runOpts, result);
+    }
 
     process.stdout.write('\x1Bc');
     const app = render(React.createElement(AnalyzeDashboard, { initialOptions: runOpts, initialResult: result }));
@@ -173,5 +238,6 @@ export const registerAnalyzeCommand = (program: Command) => {
     .option('-a, --anonymize', 'Anonymize sensitive resource names in AI prompts')
     .option('-r, --custom-headers <headers>', 'Custom HTTP headers (Key:Value,Key2:Value2)', parseCustomHeaders, {})
     .option('-c, --no-cache', 'Skip cache for AI explanations')
+    .option('--export-audit <path>', 'Export sanitized incident audit trail to a JSON file')
     .action(handleAnalyze);
 };
