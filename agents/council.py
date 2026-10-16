@@ -147,7 +147,7 @@ class AgentCouncil:
         if self.rule_engine.should_bypass_llm(primary_match):
             target_name = ""
             if bundle.target:
-                target_name = bundle.target.container_name or bundle.target.workload_name
+                target_name = bundle.target.workload_name or bundle.target.container_name
             diagnosis = ConsensusDiagnosis.from_rule_match(primary_match, target_name=target_name)
             if emit_events:
                 emit_event("complete", {"consensus": diagnosis.to_dict()})
