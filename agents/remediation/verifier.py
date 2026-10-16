@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 import inspect
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 CRASH_REGRESSION_REASONS: Tuple[str, ...] = (
     "CrashLoopBackOff",
@@ -43,6 +43,31 @@ class PodStatusFacts:
     memory_usage: Optional[str] = None
     memory_limit: Optional[str] = None
     details: Dict[str, Any] = field(default_factory=dict)
+
+
+def _extract_reason_from_dict(sub_state: Any) -> Optional[str]:
+    """Extract reason string if matches known crash regression reasons."""
+    if not isinstance(sub_state, dict):
+        return None
+    reason = sub_state.get("reason")
+    if reason in CRASH_REGRESSION_REASONS:
+        return str(reason)
+    return None
+
+
+def _extract_container_regression(container: Dict[str, Any]) -> Optional[str]:
+    """Inspect state and lastState for regression triggers without nested loops."""
+    for key in ("state", "lastState", "last_state"):
+        state_dict = container.get(key)
+        if not isinstance(state_dict, dict):
+            continue
+        waiting_reason = _extract_reason_from_dict(state_dict.get("waiting"))
+        if waiting_reason:
+            return waiting_reason
+        term_reason = _extract_reason_from_dict(state_dict.get("terminated"))
+        if term_reason:
+            return term_reason
+    return None
 
 
 class WorkloadVerifier:
@@ -78,7 +103,7 @@ class WorkloadVerifier:
     async def verify(
         self,
         initial_restart_count: int = 0,
-        timeout: int = 45,
+        timeout: Union[int, float] = 45,
         rollback_command: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Poll cluster evidence until workload is verified, failed, or timed out.
@@ -97,22 +122,32 @@ class WorkloadVerifier:
             raw_status = await self._fetch_status()
             last_facts = self._extract_facts(raw_status)
 
-            regression = self._check_regression(last_facts, initial_restart_count)
-            if regression is not None:
-                res = self._build_failed_result(regression, last_facts, effective_rollback)
-                self._notify_terminal(res)
-                return res
-
-            if self._is_verified(last_facts, initial_restart_count):
-                res = self._build_verified_result(last_facts)
-                self._notify_terminal(res)
-                return res
+            result = self._check_iteration(last_facts, initial_restart_count, effective_rollback)
+            if result is not None:
+                self._notify_terminal(result)
+                return result
 
             await self._sleep_poll_interval(loop, start, timeout)
 
-        res = self._build_timeout_result(last_facts)
-        self._notify_terminal(res)
-        return res
+        timeout_result = self._build_timeout_result(last_facts)
+        self._notify_terminal(timeout_result)
+        return timeout_result
+
+    def _check_iteration(
+        self,
+        facts: PodStatusFacts,
+        initial_restarts: int,
+        rollback_cmd: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        """Evaluate single iteration facts for regression or verified state."""
+        regression = self._check_regression(facts, initial_restarts)
+        if regression is not None:
+            return self._build_failed_result(regression, facts, rollback_cmd)
+
+        if self._is_verified(facts, initial_restarts):
+            return self._build_verified_result(facts)
+
+        return None
 
     def _notify_terminal(self, result: Dict[str, Any]) -> None:
         """Emit formatted terminal summary if a printer callback was configured."""
@@ -187,24 +222,9 @@ class WorkloadVerifier:
             return str(top_reason)
 
         for c in containers:
-            reason = self._scan_container_reasons(c)
+            reason = _extract_container_regression(c)
             if reason:
                 return reason
-
-        return None
-
-    def _scan_container_reasons(self, container: Dict[str, Any]) -> Optional[str]:
-        """Inspect waiting and terminated container states for regression triggers."""
-        for state_key in ("state", "lastState", "last_state"):
-            sub_dict = container.get(state_key)
-            if not isinstance(sub_dict, dict):
-                continue
-            for sub_key in ("waiting", "terminated"):
-                sub_state = sub_dict.get(sub_key)
-                if isinstance(sub_state, dict):
-                    reason = sub_state.get("reason")
-                    if reason in CRASH_REGRESSION_REASONS:
-                        return str(reason)
 
         return None
 
@@ -224,7 +244,10 @@ class WorkloadVerifier:
         return facts.ready and phase_ok and facts.restart_count <= initial_restart_count
 
     async def _sleep_poll_interval(
-        self, loop: asyncio.AbstractEventLoop, start_time: float, timeout: float
+        self,
+        loop: asyncio.AbstractEventLoop,
+        start_time: float,
+        timeout: Union[int, float],
     ) -> None:
         """Sleep for poll_interval, capped at remaining verification duration."""
         remaining = timeout - (loop.time() - start_time)

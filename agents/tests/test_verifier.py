@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
 import unittest
 
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
@@ -41,89 +41,108 @@ except ImportError:
     )
 
 
-def _build_status(
+def _build_container_state(reason: Optional[str]) -> Dict[str, Any]:
+    """Map regression reason to container state dict."""
+    if reason in ("CrashLoopBackOff", "ContainerCannotRun"):
+        return {"waiting": {"reason": reason}}
+    if reason in ("OOMKilled", "Error"):
+        return {"terminated": {"reason": reason, "exitCode": 137}}
+    return {"running": {"startedAt": "2026-10-16T12:00:00Z"}}
+
+
+def _build_container_status(
+    ready: bool,
+    restart_count: int = 0,
+    reason: Optional[str] = None,
+    name: str = "api",
+) -> Dict[str, Any]:
+    """Construct a container status dictionary with optional state reason."""
+    return {
+        "name": name,
+        "ready": ready,
+        "restartCount": restart_count,
+        "state": _build_container_state(reason),
+    }
+
+
+def _build_flat_status(
     ready: bool = True,
     restart_count: int = 0,
     phase: str = "Running",
     pod_name: str = "checkout-api-7d9f",
     reason: Optional[str] = None,
-    as_containers: bool = False,
     memory_usage: Optional[str] = None,
     memory_limit: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Helper factory for generating standardized workload status payloads."""
-    base: Dict[str, Any] = {
+    """Helper factory for generating flat workload status payloads."""
+    payload: Dict[str, Any] = {
         "phase": phase,
         "pod_name": pod_name,
+        "ready": ready,
+        "restart_count": restart_count,
         "memory_usage": memory_usage,
         "memory_limit": memory_limit,
     }
-
-    if as_containers:
-        container_state: Dict[str, Any] = {}
-        if reason in ("CrashLoopBackOff", "ContainerCannotRun"):
-            container_state = {"waiting": {"reason": reason}}
-        elif reason in ("OOMKilled", "Error"):
-            container_state = {"terminated": {"reason": reason, "exitCode": 137}}
-        else:
-            container_state = {"running": {"startedAt": "2026-10-16T12:00:00Z"}}
-
-        base["containerStatuses"] = [
-            {
-                "name": "api",
-                "ready": ready,
-                "restartCount": restart_count,
-                "state": container_state,
-            }
-        ]
-        return base
-
-    base["ready"] = ready
-    base["restart_count"] = restart_count
     if reason:
-        base["reason"] = reason
-    return base
+        payload["reason"] = reason
+    return payload
 
 
 class TestWorkloadVerifier(unittest.IsolatedAsyncioTestCase):
     """Test suite for closed-loop WorkloadVerifier engine."""
 
+    async def _execute_verifier(
+        self,
+        check_target: Union[Dict[str, Any], Callable[[], Any]],
+        initial_restarts: int = 0,
+        timeout: Union[int, float] = 1,
+        rollback_cmd: Optional[str] = None,
+        print_fn: Optional[Callable[[str], None]] = None,
+    ) -> Dict[str, Any]:
+        """Unified runner to eliminate setup duplication across test cases."""
+        fn = check_target if callable(check_target) else (lambda: check_target)
+        verifier = WorkloadVerifier(
+            check_fn=fn,
+            poll_interval=0.01,
+            rollback_command=rollback_cmd,
+            print_fn=print_fn,
+        )
+        return await verifier.verify(
+            initial_restart_count=initial_restarts,
+            timeout=timeout,
+        )
+
     async def test_pod_transitions_to_ready_verified(self) -> None:
         """Workload that reaches Ready with stable restart count returns verified."""
-        status = _build_status(ready=True, restart_count=0, memory_usage="180Mi", memory_limit="512Mi")
-        verifier = WorkloadVerifier(check_fn=lambda: status, poll_interval=0.01)
-
-        result = await verifier.verify(initial_restart_count=0, timeout=1)
+        status = _build_flat_status(
+            ready=True, restart_count=0, memory_usage="180Mi", memory_limit="512Mi"
+        )
+        result = await self._execute_verifier(status)
 
         self.assertEqual(result["status"], "verified")
         self.assertEqual(result["message"], "Workload is healthy and Ready.")
         self.assertTrue(result["ready"])
         self.assertEqual(result["restart_count"], 0)
-        self.assertIn("180Mi", result["details"]["memory_usage"])
+        self.assertEqual(result["details"]["memory_usage"], "180Mi")
 
     async def test_pod_restarts_again_returns_failed_with_regression(self) -> None:
         """Container restart increment post-remediation returns failed with regression."""
-        status = _build_status(ready=False, restart_count=3)
-        verifier = WorkloadVerifier(
-            check_fn=lambda: status,
-            poll_interval=0.01,
-            rollback_command="kubectl rollout undo deployment/checkout-api",
+        status = _build_flat_status(ready=False, restart_count=3)
+        rollback = "kubectl rollout undo deployment/checkout-api"
+        result = await self._execute_verifier(
+            status, initial_restarts=2, rollback_cmd=rollback
         )
-
-        result = await verifier.verify(initial_restart_count=2, timeout=1)
 
         self.assertEqual(result["status"], "failed")
         self.assertTrue(result["message"].startswith("Container crashed again post-remediation"))
         self.assertTrue(result["rollback_recommended"])
-        self.assertEqual(result["rollback_command"], "kubectl rollout undo deployment/checkout-api")
+        self.assertEqual(result["rollback_command"], rollback)
         self.assertEqual(result["restart_count"], 3)
 
     async def test_verification_timeout_condition(self) -> None:
         """Workload that never reaches Ready returns timed_out status."""
-        status = _build_status(ready=False, restart_count=0, phase="Pending")
-        verifier = WorkloadVerifier(check_fn=lambda: status, poll_interval=0.01)
-
-        result = await verifier.verify(initial_restart_count=0, timeout=0.03)
+        status = _build_flat_status(ready=False, restart_count=0, phase="Pending")
+        result = await self._execute_verifier(status, timeout=0.03)
 
         self.assertEqual(result["status"], "timed_out")
         self.assertEqual(result["message"], "Workload did not reach Ready within timeout.")
@@ -136,11 +155,9 @@ class TestWorkloadVerifier(unittest.IsolatedAsyncioTestCase):
         def check_status() -> Dict[str, Any]:
             nonlocal call_count
             call_count += 1
-            is_ready = call_count >= 3
-            return _build_status(ready=is_ready, restart_count=1)
+            return _build_flat_status(ready=(call_count >= 3), restart_count=1)
 
-        verifier = WorkloadVerifier(check_fn=check_status, poll_interval=0.01)
-        result = await verifier.verify(initial_restart_count=1, timeout=1)
+        result = await self._execute_verifier(check_status, initial_restarts=1)
 
         self.assertEqual(result["status"], "verified")
         self.assertGreaterEqual(call_count, 3)
@@ -149,89 +166,66 @@ class TestWorkloadVerifier(unittest.IsolatedAsyncioTestCase):
         """Verifier supports asynchronous coroutine check_fn callables."""
         async def async_checker() -> Dict[str, Any]:
             await asyncio.sleep(0.001)
-            return _build_status(ready=True, restart_count=0)
+            return _build_flat_status(ready=True, restart_count=0)
 
-        verifier = WorkloadVerifier(check_fn=async_checker, poll_interval=0.01)
-        result = await verifier.verify(initial_restart_count=0, timeout=1)
-
+        result = await self._execute_verifier(async_checker)
         self.assertEqual(result["status"], "verified")
 
     async def test_regression_reasons_in_container_statuses(self) -> None:
         """Verify CrashLoopBackOff and OOMKilled triggers regression failure."""
-        test_cases = [
-            ("CrashLoopBackOff", "waiting"),
-            ("OOMKilled", "terminated"),
-        ]
-
-        for reason, _ in test_cases:
+        for reason in ("CrashLoopBackOff", "OOMKilled"):
             with self.subTest(reason=reason):
-                status = _build_status(
-                    ready=False,
-                    restart_count=1,
-                    reason=reason,
-                    as_containers=True,
-                )
-                verifier = WorkloadVerifier(
-                    check_fn=lambda s=status: s,
-                    poll_interval=0.01,
-                    rollback_command="kubectl rollout undo deployment/api",
-                )
+                container = _build_container_status(ready=False, restart_count=1, reason=reason)
+                status = {"phase": "Running", "containerStatuses": [container]}
+                rollback = "kubectl rollout undo deployment/api"
 
-                result = await verifier.verify(initial_restart_count=1, timeout=1)
+                result = await self._execute_verifier(
+                    status, initial_restarts=1, rollback_cmd=rollback
+                )
 
                 self.assertEqual(result["status"], "failed")
                 self.assertIn(reason, result["message"])
                 self.assertEqual(result["regression"], reason)
                 self.assertTrue(result["rollback_recommended"])
-                self.assertEqual(result["rollback_command"], "kubectl rollout undo deployment/api")
+                self.assertEqual(result["rollback_command"], rollback)
 
     async def test_k8s_container_statuses_all_ready(self) -> None:
         """Verify k8s containerStatuses array requires all containers ready."""
         status = {
             "phase": "Running",
             "containerStatuses": [
-                {"name": "c1", "ready": True, "restartCount": 0},
-                {"name": "c2", "ready": True, "restartCount": 0},
+                _build_container_status(ready=True, name="c1"),
+                _build_container_status(ready=True, name="c2"),
             ],
         }
-        verifier = WorkloadVerifier(check_fn=lambda: status, poll_interval=0.01)
-        result = await verifier.verify(initial_restart_count=0, timeout=1)
-
+        result = await self._execute_verifier(status)
         self.assertEqual(result["status"], "verified")
 
     async def test_k8s_container_statuses_partial_ready_not_verified(self) -> None:
-        """When one of multiple containers is not ready, workload does not verify immediately."""
+        """When one of multiple containers is not ready, workload times out."""
         status = {
             "phase": "Running",
             "containerStatuses": [
-                {"name": "c1", "ready": True, "restartCount": 0},
-                {"name": "c2", "ready": False, "restartCount": 0},
+                _build_container_status(ready=True, name="c1"),
+                _build_container_status(ready=False, name="c2"),
             ],
         }
-        verifier = WorkloadVerifier(check_fn=lambda: status, poll_interval=0.01)
-        result = await verifier.verify(initial_restart_count=0, timeout=0.03)
-
+        result = await self._execute_verifier(status, timeout=0.03)
         self.assertEqual(result["status"], "timed_out")
 
     async def test_non_running_pod_phase_fails_verification(self) -> None:
         """Pods in 'Pending' or non-Running state do not verify even if ready flag is True."""
-        status = _build_status(ready=True, restart_count=0, phase="Pending")
-        verifier = WorkloadVerifier(check_fn=lambda: status, poll_interval=0.01)
-        result = await verifier.verify(initial_restart_count=0, timeout=0.03)
-
+        status = _build_flat_status(ready=True, phase="Pending")
+        result = await self._execute_verifier(status, timeout=0.03)
         self.assertEqual(result["status"], "timed_out")
 
     async def test_terminal_printer_notification(self) -> None:
         """Ensure terminal printer callback receives formatted output upon outcome."""
         printed: List[str] = []
-        status = _build_status(ready=True, restart_count=0, memory_usage="180Mi", memory_limit="512Mi")
-        verifier = WorkloadVerifier(
-            check_fn=lambda: status,
-            poll_interval=0.01,
-            print_fn=printed.append,
+        status = _build_flat_status(
+            ready=True, restart_count=0, memory_usage="180Mi", memory_limit="512Mi"
         )
-
-        await verifier.verify(initial_restart_count=0, timeout=1)
+        await self._execute_verifier(status, print_fn=printed.append)
 
         self.assertEqual(len(printed), 1)
         self.assertIn("Verification Passed", printed[0])
@@ -243,9 +237,7 @@ class TestWorkloadVerifier(unittest.IsolatedAsyncioTestCase):
         def broken_checker() -> Dict[str, Any]:
             raise ConnectionResetError("Cluster API unavailable")
 
-        verifier = WorkloadVerifier(check_fn=broken_checker, poll_interval=0.01)
-        result = await verifier.verify(initial_restart_count=0, timeout=0.03)
-
+        result = await self._execute_verifier(broken_checker, timeout=0.03)
         self.assertEqual(result["status"], "timed_out")
 
     def test_format_verification_result_variants(self) -> None:
