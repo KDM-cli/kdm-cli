@@ -34,6 +34,12 @@ try:
         RemediationStep,
         normalize_risk_level,
     )
+    from agents.remediation.verifier import (
+        CRASH_REGRESSION_REASONS,
+        PodStatusFacts,
+        WorkloadVerifier,
+        format_verification_result,
+    )
 except ImportError:
     from .planner import (  # type: ignore[no-redef]
         PlanContext,
@@ -53,18 +59,28 @@ except ImportError:
         RemediationStep,
         normalize_risk_level,
     )
+    from .verifier import (  # type: ignore[no-redef]
+        CRASH_REGRESSION_REASONS,
+        PodStatusFacts,
+        WorkloadVerifier,
+        format_verification_result,
+    )
 
 __all__ = [
     "ALLOWED_COMMAND_PREFIXES",
     "BLOCKED_PATTERNS",
+    "CRASH_REGRESSION_REASONS",
     "PlanContext",
+    "PodStatusFacts",
     "PolicyEngine",
     "RemediationPlan",
     "RemediationPlanner",
     "RemediationStep",
+    "WorkloadVerifier",
     "WorkloadTargetInfo",
     "calculate_memory_bump",
     "extract_workload_info",
+    "format_verification_result",
     "generate_rollback_command",
     "normalize_risk_level",
 ]
