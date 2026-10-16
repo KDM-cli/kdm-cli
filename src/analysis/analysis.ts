@@ -247,6 +247,105 @@ async function tryRunAgentCouncil(
   }
 }
 
+interface PrimaryExecutionResult {
+  success: boolean;
+  response?: string;
+  degradationReason?: string;
+}
+
+function preparePromptMapping(
+  failureText: string,
+  shouldAnonymize?: boolean
+): { promptText: string; mapping: { original: string; placeholder: string }[] } {
+  if (!shouldAnonymize) {
+    return { promptText: failureText, mapping: [] };
+  }
+  const anonymized = anonymize(failureText);
+  return { promptText: anonymized.text, mapping: anonymized.mapping };
+}
+
+function applyAnonymization(
+  text: string,
+  mapping: { original: string; placeholder: string }[],
+  shouldAnonymize?: boolean
+): string {
+  return shouldAnonymize ? deanonymize(text, mapping) : text;
+}
+
+async function attemptPrimaryCouncil(
+  params: ExplainSingleParams,
+  promptText: string,
+  model: string
+): Promise<PrimaryExecutionResult> {
+  const baseUrl = resolveOllamaBaseUrl();
+  const deps = await checkCouncilDependencies(baseUrl);
+  if (!deps.canRunCouncil) {
+    return { success: false, degradationReason: deps.degradationReason };
+  }
+
+  const agentResponse = await tryRunAgentCouncil(params, promptText, model, baseUrl);
+  if (agentResponse) {
+    return { success: true, response: agentResponse };
+  }
+  return { success: false, degradationReason: 'Multi-agent council execution failed' };
+}
+
+async function attemptPrimaryClient(
+  backend: string,
+  prompt: string
+): Promise<PrimaryExecutionResult> {
+  try {
+    const client = await createAIClient(backend);
+    const rawResponse = await client.getCompletion(prompt);
+    if (rawResponse) {
+      return { success: true, response: rawResponse };
+    }
+    return { success: false, degradationReason: `Primary AI backend '${backend}' empty response` };
+  } catch (err) {
+    logger.warn(`Primary AI backend '${backend}' failed: ${(err as Error).message}`);
+    return { success: false, degradationReason: `Primary AI backend '${backend}' failed` };
+  }
+}
+
+async function executePrimaryStep(
+  params: ExplainSingleParams,
+  promptText: string,
+  prompt: string,
+  model: string
+): Promise<PrimaryExecutionResult> {
+  if (params.backend.toLowerCase() === 'ollama') {
+    return attemptPrimaryCouncil(params, promptText, model);
+  }
+  return attemptPrimaryClient(params.backend, prompt);
+}
+
+async function executeFallbackSteps(
+  ctx: FallbackContext,
+  params: ExplainSingleParams,
+  cacheKey: string,
+  mapping: { original: string; placeholder: string }[]
+): Promise<void> {
+  if (applyRuleEngineFallback(ctx)) {
+    params.result.details = applyAnonymization(params.result.details || '', mapping, params.shouldAnonymize);
+    if (!params.noCache && params.result.details) {
+      await tryStoreToCache(cacheKey, params.result.details);
+    }
+    return;
+  }
+
+  const legacyResponse = await applyLegacyAiFallback(ctx);
+  if (legacyResponse) {
+    params.result.details = applyAnonymization(legacyResponse, mapping, params.shouldAnonymize);
+    if (!params.noCache) {
+      await tryStoreToCache(cacheKey, legacyResponse);
+    }
+    return;
+  }
+
+  applyRawSummaryFallback(ctx);
+  params.result.details = applyAnonymization(params.result.details || '', mapping, params.shouldAnonymize);
+}
+
 /**
  * Explains a single analyzer result by building a prompt, calling the AI provider,
  * and attaching the response to the result's details field.
@@ -261,14 +360,7 @@ async function tryRunAgentCouncil(
  */
 export async function explainSingleResult(params: ExplainSingleParams): Promise<void> {
   const failureText = params.result.errors.map((e) => e.text).join('\n');
-  let promptText = failureText;
-  let mapping: { original: string; placeholder: string }[] = [];
-
-  if (params.shouldAnonymize) {
-    const anonymized = anonymize(failureText);
-    promptText = anonymized.text;
-    mapping = anonymized.mapping;
-  }
+  const { promptText, mapping } = preparePromptMapping(failureText, params.shouldAnonymize);
 
   const prompt = buildPrompt({
     failureText: promptText,
@@ -288,7 +380,16 @@ export async function explainSingleResult(params: ExplainSingleParams): Promise<
 
   const cached = await tryLoadFromCache(cacheKey, params.noCache);
   if (cached) {
-    params.result.details = params.shouldAnonymize ? deanonymize(cached, mapping) : cached;
+    params.result.details = applyAnonymization(cached, mapping, params.shouldAnonymize);
+    return;
+  }
+
+  const primary = await executePrimaryStep(params, promptText, prompt, model);
+  if (primary.success && primary.response) {
+    params.result.details = applyAnonymization(primary.response, mapping, params.shouldAnonymize);
+    if (!params.noCache) {
+      await tryStoreToCache(cacheKey, primary.response);
+    }
     return;
   }
 
@@ -297,81 +398,11 @@ export async function explainSingleResult(params: ExplainSingleParams): Promise<
     backend: params.backend,
     failureText: promptText,
     prompt,
+    degradationReason: primary.degradationReason,
     customHeaders: params.customHeaders,
   };
 
-  const isOllamaBackend = params.backend.toLowerCase() === 'ollama';
-
-  if (isOllamaBackend) {
-    // ─── Step 1: Multi-Agent Council Probe & Execution ─────────────────────────
-    const baseUrl = resolveOllamaBaseUrl();
-    const deps = await checkCouncilDependencies(baseUrl);
-
-    if (deps.canRunCouncil) {
-      const agentResponse = await tryRunAgentCouncil(params, promptText, model, baseUrl);
-      if (agentResponse) {
-        const explanation = params.shouldAnonymize ? deanonymize(agentResponse, mapping) : agentResponse;
-        params.result.details = explanation;
-        if (!params.noCache) {
-          await tryStoreToCache(cacheKey, agentResponse);
-        }
-        return;
-      }
-      fallbackCtx.degradationReason = 'Multi-agent council execution failed';
-    } else {
-      fallbackCtx.degradationReason = deps.degradationReason;
-    }
-  } else {
-    // Primary non-Ollama backend attempt (e.g. OpenAI)
-    try {
-      const client = await createAIClient(params.backend);
-      const rawResponse = await client.getCompletion(prompt);
-      if (rawResponse) {
-        const explanation = params.shouldAnonymize ? deanonymize(rawResponse, mapping) : rawResponse;
-        params.result.details = explanation;
-        if (!params.noCache) {
-          await tryStoreToCache(cacheKey, rawResponse);
-        }
-        return;
-      }
-    } catch (err) {
-      logger.warn(`Primary AI backend '${params.backend}' failed: ${(err as Error).message}`);
-      fallbackCtx.degradationReason = `Primary AI backend '${params.backend}' failed`;
-    }
-  }
-
-  // ─── Step 2: Deterministic Rule Engine ─────────────────────────────────────
-  const ruleMatch = applyRuleEngineFallback(fallbackCtx);
-  if (ruleMatch) {
-    if (params.shouldAnonymize && params.result.details) {
-      params.result.details = deanonymize(params.result.details, mapping);
-    }
-    if (!params.noCache && params.result.details) {
-      await tryStoreToCache(cacheKey, params.result.details);
-    }
-    return;
-  }
-
-  // ─── Step 3: Legacy AI Client Fallback ─────────────────────────────────────
-  try {
-    const legacyAiResponse = await applyLegacyAiFallback(fallbackCtx);
-    if (legacyAiResponse) {
-      const explanation = params.shouldAnonymize ? deanonymize(legacyAiResponse, mapping) : legacyAiResponse;
-      params.result.details = explanation;
-      if (!params.noCache) {
-        await tryStoreToCache(cacheKey, legacyAiResponse);
-      }
-      return;
-    }
-  } catch {
-    // Proceed to Step 4
-  }
-
-  // ─── Step 4: Raw Kubernetes Summary (Zero AI Available) ────────────────────
-  applyRawSummaryFallback(fallbackCtx);
-  if (params.shouldAnonymize && params.result.details) {
-    params.result.details = deanonymize(params.result.details, mapping);
-  }
+  await executeFallbackSteps(fallbackCtx, params, cacheKey, mapping);
 }
 
 /**

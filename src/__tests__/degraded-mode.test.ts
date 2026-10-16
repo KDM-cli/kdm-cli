@@ -53,6 +53,32 @@ const IMAGE_PULL_FAILURE =
 const UNKNOWN_FAILURE =
   'Workload state unknown: internal custom RPC timeout communicating with external sidecar daemon.';
 
+async function explainDegradedProblem(
+  kind: string,
+  name: string,
+  failureText: string,
+  deps: Partial<probesModule.CouncilDependencies> = {}
+): Promise<AnalyzerResult> {
+  const resolvedDeps: probesModule.CouncilDependencies = {
+    pythonAvailable: false,
+    ollamaAvailable: false,
+    canRunCouncil: false,
+    degradationReason: 'Local Ollama service is unreachable (http://localhost:11434)',
+    ...deps,
+  };
+  vi.spyOn(probesModule, 'checkCouncilDependencies').mockResolvedValue(resolvedDeps);
+
+  const result = createProblemResult(kind, name, failureText);
+  await explainSingleResult({
+    result,
+    backend: 'ollama',
+    language: 'english',
+    shouldAnonymize: false,
+    noCache: true,
+  });
+  return result;
+}
+
 describe('Graceful Degradation & Fallback Ladder (Phase 18)', () => {
   let loggerInfoSpy: ReturnType<typeof vi.spyOn>;
   let loggerWarnSpy: ReturnType<typeof vi.spyOn>;
@@ -133,21 +159,10 @@ describe('Graceful Degradation & Fallback Ladder (Phase 18)', () => {
 
   describe('Task 18.2 & 18.3: Degradation Ladder & Fault Injection', () => {
     it('simulates missing Python -> cleanly falls back to Deterministic Rule Engine', async () => {
-      vi.spyOn(probesModule, 'checkCouncilDependencies').mockResolvedValue({
+      const result = await explainDegradedProblem('Deployment', 'checkout-api', OOM_KILLED_FAILURE, {
         pythonAvailable: false,
         ollamaAvailable: true,
-        canRunCouncil: false,
         degradationReason: 'Python 3 or ollama package is not available',
-      });
-
-      const result = createProblemResult('Deployment', 'checkout-api', OOM_KILLED_FAILURE);
-
-      await explainSingleResult({
-        result,
-        backend: 'ollama',
-        language: 'english',
-        shouldAnonymize: false,
-        noCache: true,
       });
 
       expect(result.fallbackBadge).toBe('DETERMINISTIC RULE MODE');
@@ -166,21 +181,9 @@ describe('Graceful Degradation & Fallback Ladder (Phase 18)', () => {
     });
 
     it('simulates Ollama connection refused -> cleanly falls back to Deterministic Rule Engine', async () => {
-      vi.spyOn(probesModule, 'checkCouncilDependencies').mockResolvedValue({
+      const result = await explainDegradedProblem('Pod', 'api-server', CRASH_LOOP_FAILURE, {
         pythonAvailable: true,
         ollamaAvailable: false,
-        canRunCouncil: false,
-        degradationReason: 'Local Ollama service is unreachable (http://localhost:11434)',
-      });
-
-      const result = createProblemResult('Pod', 'api-server', CRASH_LOOP_FAILURE);
-
-      await explainSingleResult({
-        result,
-        backend: 'ollama',
-        language: 'english',
-        shouldAnonymize: false,
-        noCache: true,
       });
 
       expect(result.fallbackBadge).toBe('DETERMINISTIC RULE MODE');
@@ -197,22 +200,7 @@ describe('Graceful Degradation & Fallback Ladder (Phase 18)', () => {
     });
 
     it('simulates ImagePull failure under Ollama outage -> triggers ImagePull rule', async () => {
-      vi.spyOn(probesModule, 'checkCouncilDependencies').mockResolvedValue({
-        pythonAvailable: false,
-        ollamaAvailable: false,
-        canRunCouncil: false,
-        degradationReason: 'Local Ollama service is unreachable (http://localhost:11434)',
-      });
-
-      const result = createProblemResult('Pod', 'web-frontend', IMAGE_PULL_FAILURE);
-
-      await explainSingleResult({
-        result,
-        backend: 'ollama',
-        language: 'english',
-        shouldAnonymize: false,
-        noCache: true,
-      });
+      const result = await explainDegradedProblem('Pod', 'web-frontend', IMAGE_PULL_FAILURE);
 
       expect(result.fallbackBadge).toBe('DETERMINISTIC RULE MODE');
       expect(result.details).toContain('ImagePull');
@@ -221,25 +209,15 @@ describe('Graceful Degradation & Fallback Ladder (Phase 18)', () => {
     });
 
     it('simulates Council subprocess crash -> safely degrades to Deterministic Rule Engine', async () => {
-      vi.spyOn(probesModule, 'checkCouncilDependencies').mockResolvedValue({
-        pythonAvailable: true,
-        ollamaAvailable: true,
-        canRunCouncil: true,
-      });
-
       vi.spyOn(pythonBridge, 'isPythonAgentAvailable').mockResolvedValue(true);
       vi.spyOn(pythonBridge, 'runPythonAgentCouncil').mockRejectedValue(
         new Error('ChildProcess exited with code 1: Out of memory in worker')
       );
 
-      const result = createProblemResult('Deployment', 'checkout-api', OOM_KILLED_FAILURE);
-
-      await explainSingleResult({
-        result,
-        backend: 'ollama',
-        language: 'english',
-        shouldAnonymize: false,
-        noCache: true,
+      const result = await explainDegradedProblem('Deployment', 'checkout-api', OOM_KILLED_FAILURE, {
+        pythonAvailable: true,
+        ollamaAvailable: true,
+        canRunCouncil: true,
       });
 
       expect(result.fallbackBadge).toBe('DETERMINISTIC RULE MODE');
@@ -251,14 +229,6 @@ describe('Graceful Degradation & Fallback Ladder (Phase 18)', () => {
     });
 
     it('simulates inconclusive rule match with cloud AI available -> degrades to Step 3 (Legacy AI)', async () => {
-      vi.spyOn(probesModule, 'checkCouncilDependencies').mockResolvedValue({
-        pythonAvailable: false,
-        ollamaAvailable: false,
-        canRunCouncil: false,
-        degradationReason: 'Local Ollama service is unreachable (http://localhost:11434)',
-      });
-
-      // Configure a secondary cloud provider
       setAIConfig({
         providers: [
           { name: 'ollama', model: 'llama3.1' },
@@ -276,15 +246,7 @@ describe('Graceful Degradation & Fallback Ladder (Phase 18)', () => {
         return { name, getCompletion: vi.fn() } as any;
       });
 
-      const result = createProblemResult('Pod', 'custom-service', UNKNOWN_FAILURE);
-
-      await explainSingleResult({
-        result,
-        backend: 'ollama',
-        language: 'english',
-        shouldAnonymize: false,
-        noCache: true,
-      });
+      const result = await explainDegradedProblem('Pod', 'custom-service', UNKNOWN_FAILURE);
 
       expect(result.fallbackBadge).toBe('LEGACY CLOUD AI');
       expect(result.fallbackStep).toBe('legacy_ai');
@@ -292,25 +254,9 @@ describe('Graceful Degradation & Fallback Ladder (Phase 18)', () => {
     });
 
     it('simulates inconclusive rules and zero AI available -> degrades to Step 4 (Raw K8s Summary)', async () => {
-      vi.spyOn(probesModule, 'checkCouncilDependencies').mockResolvedValue({
-        pythonAvailable: false,
-        ollamaAvailable: false,
-        canRunCouncil: false,
-        degradationReason: 'Local Ollama service is unreachable (http://localhost:11434)',
-      });
-
-      // Zero alternative providers configured
       setAIConfig({ providers: [{ name: 'ollama', model: 'llama3.1' }] });
 
-      const result = createProblemResult('Pod', 'custom-service', UNKNOWN_FAILURE);
-
-      await explainSingleResult({
-        result,
-        backend: 'ollama',
-        language: 'english',
-        shouldAnonymize: false,
-        noCache: true,
-      });
+      const result = await explainDegradedProblem('Pod', 'custom-service', UNKNOWN_FAILURE);
 
       expect(result.fallbackBadge).toBe('RAW K8S SUMMARY');
       expect(result.fallbackStep).toBe('raw_summary');

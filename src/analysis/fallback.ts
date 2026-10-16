@@ -93,7 +93,7 @@ function resolveCloudFallbackBackend(currentBackend: string): string | null {
   try {
     const aiConfig = getAIConfig();
     const cloudProvider = aiConfig?.providers?.find(
-      (p) => p.name.toLowerCase() !== 'ollama' && Boolean(p.password || (p as any).apiKey)
+      (p) => p.name.toLowerCase() !== 'ollama' && Boolean(p.password)
     );
     if (cloudProvider?.name) {
       return cloudProvider.name;
