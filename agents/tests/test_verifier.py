@@ -202,29 +202,23 @@ class TestWorkloadVerifier(unittest.IsolatedAsyncioTestCase):
         result = await self._execute_verifier(status, initial_restarts=2)
         self.assertEqual(result["status"], "verified")
 
-    async def test_k8s_container_statuses_all_ready(self) -> None:
-        """Verify k8s containerStatuses array requires all containers ready."""
-        status = {
-            "phase": "Running",
-            "containerStatuses": [
-                _build_container_status(ready=True, name="c1"),
-                _build_container_status(ready=True, name="c2"),
-            ],
-        }
-        result = await self._execute_verifier(status)
-        self.assertEqual(result["status"], "verified")
-
-    async def test_k8s_container_statuses_partial_ready_not_verified(self) -> None:
-        """When one of multiple containers is not ready, workload times out."""
-        status = {
-            "phase": "Running",
-            "containerStatuses": [
-                _build_container_status(ready=True, name="c1"),
-                _build_container_status(ready=False, name="c2"),
-            ],
-        }
-        result = await self._execute_verifier(status, timeout=0.03)
-        self.assertEqual(result["status"], "timed_out")
+    async def test_k8s_container_readiness_scenarios(self) -> None:
+        """Verify multi-container workloads require all containers ready."""
+        scenarios = (
+            (True, "verified", 1.0),
+            (False, "timed_out", 0.03),
+        )
+        for second_ready, expected_status, timeout_val in scenarios:
+            with self.subTest(second_ready=second_ready):
+                status = {
+                    "phase": "Running",
+                    "containerStatuses": [
+                        _build_container_status(ready=True, name="c1"),
+                        _build_container_status(ready=second_ready, name="c2"),
+                    ],
+                }
+                result = await self._execute_verifier(status, timeout=timeout_val)
+                self.assertEqual(result["status"], expected_status)
 
     async def test_non_running_pod_phase_fails_verification(self) -> None:
         """Pods in 'Pending' or non-Running state do not verify even if ready flag is True."""
