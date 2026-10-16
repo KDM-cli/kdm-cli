@@ -213,23 +213,33 @@ export function sanitizeAuditData<T>(data: T): T {
 export const redactSensitiveData = sanitizeAuditData;
 
 /**
+ * Collects optional audit session fields when provided.
+ */
+function resolveOptionalAuditFields(params: CreateAuditSessionParams): Partial<IncidentAuditSession> {
+  const extra: Partial<IncidentAuditSession> = {};
+  if (params.consensus) extra.consensus = params.consensus;
+  if (params.specialistReports) extra.specialistReports = params.specialistReports;
+  if (params.metadata) extra.metadata = params.metadata;
+  return extra;
+}
+
+/**
  * Assembles and normalizes an incident audit session bundle.
  *
  * @param params Audit session construction properties.
  * @returns Fully populated IncidentAuditSession object.
  */
 export function createIncidentAuditSession(params: CreateAuditSessionParams): IncidentAuditSession {
-  return {
-    sessionId: params.sessionId || `an-${Date.now()}`,
-    cliVersion: params.cliVersion || '4.0.0',
+  const baseSession: IncidentAuditSession = {
+    sessionId: params.sessionId ?? `an-${Date.now()}`,
+    cliVersion: params.cliVersion ?? '4.0.0',
     target: params.target,
-    evidence: params.evidence !== undefined ? params.evidence : {},
-    toolCalls: Array.isArray(params.toolCalls) ? params.toolCalls : [],
-    ...(params.consensus ? { consensus: params.consensus } : {}),
-    ...(params.timestamp ? { timestamp: params.timestamp } : { timestamp: new Date().toISOString() }),
-    ...(params.specialistReports ? { specialistReports: params.specialistReports } : {}),
-    ...(params.metadata ? { metadata: params.metadata } : {}),
+    evidence: params.evidence ?? {},
+    toolCalls: params.toolCalls ?? [],
+    timestamp: params.timestamp ?? new Date().toISOString(),
   };
+
+  return Object.assign(baseSession, resolveOptionalAuditFields(params));
 }
 
 /**
