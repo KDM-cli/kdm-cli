@@ -21,9 +21,22 @@ interface ContainerResolveOptions {
   fallback?: string;
 }
 
+interface CrashValidationOptions {
+  isLoop: boolean;
+  exitCode?: string;
+  restartCount?: string;
+}
+
+function extractPatternCapture(text: string, pattern: RegExp): string | undefined {
+  const match = pattern.exec(text);
+  return match ? match[1] : undefined;
+}
+
 function resolveContainerName(opts: ContainerResolveOptions): string {
   const match = opts.text.match(/container\s+["']?([a-zA-Z0-9_.\-]+)["']?/i);
-  return match?.[1] || opts.fallback || 'container';
+  if (match) return match[1];
+  if (opts.fallback) return opts.fallback;
+  return 'container';
 }
 
 function buildTarget(context?: WorkloadContext, fallbackName = 'pod'): { target: string; ns: string } {
@@ -45,6 +58,7 @@ interface OomFacts {
 const OOM_EXIT_PATTERN = /\b137\b|exit\s*code\s*[:=]?\s*137/i;
 const OOM_MENTION_PATTERN = /oomkilled|out[\s_-]?of[\s_-]?memory/i;
 const OOM_TRIGGER_PATTERN = /\b137\b|oomkilled|out[\s_-]?of[\s_-]?memory|memory\s*limit/i;
+const OOM_LIMIT_PATTERN = /memory\s*limit[:\s]*([0-9]+[a-zA-Z]+)/i;
 
 function detectOomFacts(opts: RuleContextOptions): OomFacts | null {
   if (!OOM_TRIGGER_PATTERN.test(opts.text)) {
@@ -53,7 +67,7 @@ function detectOomFacts(opts: RuleContextOptions): OomFacts | null {
 
   const hasExit137 = OOM_EXIT_PATTERN.test(opts.text);
   const hasOomMention = OOM_MENTION_PATTERN.test(opts.text);
-  const memLimit = opts.text.match(/memory\s*limit[:\s]*([0-9]+[a-zA-Z]+)/i)?.[1];
+  const memLimit = extractPatternCapture(opts.text, OOM_LIMIT_PATTERN);
 
   const isConfirmed = hasOomMention || (hasExit137 && Boolean(memLimit));
   const confidence = isConfirmed ? 1.0 : 0.8;
@@ -113,19 +127,26 @@ interface CrashFacts {
 }
 
 const CRASH_TRIGGER_PATTERN = /crashloopbackoff|back-off restarting failed container/i;
+const EXIT_CODE_PATTERN = /exit\s*code\s*[:=]?\s*(\d+)/i;
+const RESTART_COUNT_PATTERN = /restart\s*count\s*[:=]?\s*(\d+)/i;
+
+function isLegitimateCrash(opts: CrashValidationOptions): boolean {
+  if (opts.isLoop) return true;
+  if (opts.exitCode === '0') return false;
+  return Boolean(opts.exitCode || opts.restartCount);
+}
 
 function detectCrashFacts(opts: RuleContextOptions): CrashFacts | null {
-  const isCrashLoop = CRASH_TRIGGER_PATTERN.test(opts.text);
-  const exitCode = opts.text.match(/exit\s*code\s*[:=]?\s*(\d+)/i)?.[1];
-  const restartCount = opts.text.match(/restart\s*count\s*[:=]?\s*(\d+)/i)?.[1];
+  const isLoop = CRASH_TRIGGER_PATTERN.test(opts.text);
+  const exitCode = extractPatternCapture(opts.text, EXIT_CODE_PATTERN);
+  const restartCount = extractPatternCapture(opts.text, RESTART_COUNT_PATTERN);
 
-  if (!isCrashLoop) {
-    if (!restartCount && !exitCode) return null;
-    if (exitCode === '0') return null;
+  if (!isLegitimateCrash({ isLoop, exitCode, restartCount })) {
+    return null;
   }
 
   const container = resolveContainerName({ text: opts.text, fallback: opts.context?.container });
-  const confidence = isCrashLoop ? 1.0 : 0.9;
+  const confidence = isLoop ? 1.0 : 0.9;
 
   return { container, exitCode, restartCount, confidence };
 }
@@ -167,16 +188,18 @@ export class CrashLoopRule implements DiagnosticRule {
 
 // ─── ImagePull Rule ──────────────────────────────────────────────────────────
 
+const IMAGE_PULL_TRIGGER = /imagepullbackoff|errimagepull|failed to pull image/i;
+const IMAGE_PATTERN = /image\s+["']?([^\s"':]+(?::[^\s"']+)?)["']?/i;
+
 export class ImagePullRule implements DiagnosticRule {
   readonly ruleId = 'rule.kubernetes.image_pull';
   readonly title = 'Container Image Pull Failure (ImagePullBackOff)';
 
   evaluate(failureText: string, context?: WorkloadContext): RuleMatch | null {
-    const isImagePull = /imagepullbackoff|errimagepull|failed to pull image/i.test(failureText);
-    if (!isImagePull) return null;
+    if (!IMAGE_PULL_TRIGGER.test(failureText)) return null;
 
     const container = resolveContainerName({ text: failureText, fallback: context?.container });
-    const image = failureText.match(/image\s+["']?([^\s"':]+(?::[^\s"']+)?)["']?/i)?.[1];
+    const image = extractPatternCapture(failureText, IMAGE_PATTERN);
     const imageSuffix = image ? ` '${image}'` : '';
 
     const details: string[] = [
@@ -200,15 +223,16 @@ export class ImagePullRule implements DiagnosticRule {
 
 // ─── ProbeFailure Rule ───────────────────────────────────────────────────────
 
+const PROBE_PATTERN = /\b(liveness|readiness|startup)\s+probe\s+failed/i;
+
 export class ProbeFailureRule implements DiagnosticRule {
   readonly ruleId = 'rule.kubernetes.probe_failure';
   readonly title = 'Container Probe Failure';
 
   evaluate(failureText: string, context?: WorkloadContext): RuleMatch | null {
-    const probeMatch = failureText.match(/\b(liveness|readiness|startup)\s+probe\s+failed/i);
-    if (!probeMatch) return null;
+    const rawType = extractPatternCapture(failureText, PROBE_PATTERN);
+    if (!rawType) return null;
 
-    const rawType = probeMatch[1];
     const probeType = rawType.charAt(0).toUpperCase() + rawType.slice(1).toLowerCase();
     const container = resolveContainerName({ text: failureText, fallback: context?.container });
 
@@ -233,16 +257,15 @@ export class ProbeFailureRule implements DiagnosticRule {
 
 // ─── Scheduling Rule ─────────────────────────────────────────────────────────
 
+const SCHEDULING_PATTERN =
+  /failedscheduling|0\/\d+\s+nodes\s+available|insufficient\s+(cpu|memory)|untolerated\s+taint/i;
+
 export class SchedulingRule implements DiagnosticRule {
   readonly ruleId = 'rule.kubernetes.failed_scheduling';
   readonly title = 'Pod Scheduling Failure (FailedScheduling)';
 
   evaluate(failureText: string, context?: WorkloadContext): RuleMatch | null {
-    const isScheduling =
-      /failedscheduling|0\/\d+\s+nodes\s+available|insufficient\s+(cpu|memory)|untolerated\s+taint/i.test(
-        failureText
-      );
-    if (!isScheduling) return null;
+    if (!SCHEDULING_PATTERN.test(failureText)) return null;
 
     const details: string[] = [
       'Pod cannot be scheduled onto any cluster node (FailedScheduling)',
