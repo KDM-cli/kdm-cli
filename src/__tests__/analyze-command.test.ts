@@ -31,6 +31,10 @@ vi.mock('../utils/logger', () => ({
   },
 }));
 
+vi.mock('../utils/audit-exporter', () => ({
+  exportIncidentAudit: vi.fn(async () => ({})),
+}));
+
 describe('analyze command', () => {
   let program: Command;
   let logSpy: any;
@@ -137,5 +141,25 @@ describe('analyze command', () => {
   it('keeps json output machine readable', async () => {
     await program.parseAsync(['node', 'test', 'analyze', '--output', 'json']);
     expect(logSpy).toHaveBeenCalled();
+  });
+
+  it('exports incident audit when --export-audit flag is provided', async () => {
+    const { exportIncidentAudit } = await import('../utils/audit-exporter');
+    await program.parseAsync([
+      'node',
+      'test',
+      'analyze',
+      '--output',
+      'json',
+      '--export-audit',
+      'incident.json',
+    ]);
+    expect(exportIncidentAudit).toHaveBeenCalledWith(
+      'incident.json',
+      expect.objectContaining({
+        cliVersion: '4.0.0',
+        target: expect.any(Object),
+      })
+    );
   });
 });
