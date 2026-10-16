@@ -171,13 +171,25 @@ class WorkloadVerifier:
     async def _fetch_status(self, remaining_time: float) -> Dict[str, Any]:
         """Invoke check_fn safely bounded by remaining deadline time."""
         try:
-            res = self.check_fn()
-            if inspect.isawaitable(res):
-                bound = max(0.001, remaining_time)
-                res = await asyncio.wait_for(res, timeout=bound)
+            bound = max(0.001, remaining_time)
+            res = await self._call_check_fn(bound)
             return res if isinstance(res, dict) else {}
         except Exception as exc:
             return {"error": str(exc), "ready": False}
+
+    async def _call_check_fn(self, timeout_bound: float) -> Any:
+        """Execute check_fn synchronously off-loop or asynchronously with timeout."""
+        if inspect.iscoroutinefunction(self.check_fn):
+            return await asyncio.wait_for(self.check_fn(), timeout=timeout_bound)
+
+        loop = asyncio.get_running_loop()
+        res = await asyncio.wait_for(
+            loop.run_in_executor(None, self.check_fn),
+            timeout=timeout_bound,
+        )
+        if inspect.isawaitable(res):
+            return await asyncio.wait_for(res, timeout=timeout_bound)
+        return res
 
     def _extract_facts(
         self, status: Dict[str, Any], initial_restarts: int
@@ -212,7 +224,8 @@ class WorkloadVerifier:
     ) -> bool:
         """Determine whether all containers or workload status report ready."""
         if containers:
-            return all(bool(c.get("ready")) for c in containers)
+            all_containers_ready = all(bool(c.get("ready")) for c in containers)
+            return all_containers_ready and bool(status.get("ready", True))
         return bool(status.get("ready", False))
 
     def _resolve_restart_count(
