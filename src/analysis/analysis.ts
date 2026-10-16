@@ -10,6 +10,20 @@ import { createCacheProvider } from '../cache';
 import { logger } from '../utils/logger';
 import { runPythonAgentCouncil, isPythonAgentAvailable } from '../agent/python-bridge';
 import type { ConsensusDiagnosis, AgentProgressEvent, NDJSONEvent } from '../agent/types';
+import {
+  isOllamaAvailable,
+  checkCouncilDependencies,
+  resolveOllamaBaseUrl,
+} from './probes';
+import { RuleEngine } from '../rules';
+import type { RuleMatch } from '../rules/types';
+import {
+  applyRuleEngineFallback,
+  applyLegacyAiFallback,
+  applyRawSummaryFallback,
+  formatRawKubernetesSummary,
+  type FallbackContext,
+} from './fallback';
 
 const DEFAULT_FILTERS = ['Pod', 'Deployment', 'Service', 'PersistentVolumeClaim', 'Node'];
 const MAX_ALLOWED_CONCURRENCY = 100;
@@ -203,7 +217,8 @@ export function formatConsensusExplanation(consensus: ConsensusDiagnosis): strin
 async function tryRunAgentCouncil(
   params: ExplainSingleParams,
   promptText: string,
-  model: string
+  model: string,
+  baseUrl: string = resolveOllamaBaseUrl()
 ): Promise<string | null> {
   if (params.backend !== 'ollama') return null;
 
@@ -219,10 +234,12 @@ async function tryRunAgentCouncil(
         namespace: params.result.namespace,
       },
       model: model || 'gemma:2b',
+      baseUrl,
       onProgress: params.onAgentProgress,
       onEvent: params.onEvent,
     });
     (params.result as any).consensus = consensus;
+    params.result.fallbackStep = 'council';
     return formatConsensusExplanation(consensus);
   } catch (err) {
     logger.warn(`Multi-agent council failed, using direct completion: ${(err as Error).message}`);
@@ -233,6 +250,13 @@ async function tryRunAgentCouncil(
 /**
  * Explains a single analyzer result by building a prompt, calling the AI provider,
  * and attaching the response to the result's details field.
+ *
+ * Implements the 4-Step Fallback Ladder (Phase 18, Issue #289):
+ *   Step 1: Multi-Agent Council (Python + Ollama)
+ *   Step 2: Deterministic Rule Engine (Synchronous, zero LLM overhead)
+ *   Step 3: Legacy AI Client (OpenAI/Claude cloud backends)
+ *   Step 4: Raw Kubernetes event and log summary
+ *
  * @param params Parameters for the explain operation.
  */
 export async function explainSingleResult(params: ExplainSingleParams): Promise<void> {
@@ -268,13 +292,85 @@ export async function explainSingleResult(params: ExplainSingleParams): Promise<
     return;
   }
 
-  const agentResponse = await tryRunAgentCouncil(params, promptText, model);
-  const rawResponse = agentResponse || (await client.getCompletion(prompt));
-  const explanation = params.shouldAnonymize ? deanonymize(rawResponse, mapping) : rawResponse;
-  params.result.details = explanation;
+  const fallbackCtx: FallbackContext = {
+    result: params.result,
+    backend: params.backend,
+    failureText: promptText,
+    prompt,
+    customHeaders: params.customHeaders,
+  };
 
-  if (!params.noCache) {
-    await tryStoreToCache(cacheKey, rawResponse);
+  const isOllamaBackend = params.backend.toLowerCase() === 'ollama';
+
+  if (isOllamaBackend) {
+    // ─── Step 1: Multi-Agent Council Probe & Execution ─────────────────────────
+    const baseUrl = resolveOllamaBaseUrl();
+    const deps = await checkCouncilDependencies(baseUrl);
+
+    if (deps.canRunCouncil) {
+      const agentResponse = await tryRunAgentCouncil(params, promptText, model, baseUrl);
+      if (agentResponse) {
+        const explanation = params.shouldAnonymize ? deanonymize(agentResponse, mapping) : agentResponse;
+        params.result.details = explanation;
+        if (!params.noCache) {
+          await tryStoreToCache(cacheKey, agentResponse);
+        }
+        return;
+      }
+      fallbackCtx.degradationReason = 'Multi-agent council execution failed';
+    } else {
+      fallbackCtx.degradationReason = deps.degradationReason;
+    }
+  } else {
+    // Primary non-Ollama backend attempt (e.g. OpenAI)
+    try {
+      const client = await createAIClient(params.backend);
+      const rawResponse = await client.getCompletion(prompt);
+      if (rawResponse) {
+        const explanation = params.shouldAnonymize ? deanonymize(rawResponse, mapping) : rawResponse;
+        params.result.details = explanation;
+        if (!params.noCache) {
+          await tryStoreToCache(cacheKey, rawResponse);
+        }
+        return;
+      }
+    } catch (err) {
+      logger.warn(`Primary AI backend '${params.backend}' failed: ${(err as Error).message}`);
+      fallbackCtx.degradationReason = `Primary AI backend '${params.backend}' failed`;
+    }
+  }
+
+  // ─── Step 2: Deterministic Rule Engine ─────────────────────────────────────
+  const ruleMatch = applyRuleEngineFallback(fallbackCtx);
+  if (ruleMatch) {
+    if (params.shouldAnonymize && params.result.details) {
+      params.result.details = deanonymize(params.result.details, mapping);
+    }
+    if (!params.noCache && params.result.details) {
+      await tryStoreToCache(cacheKey, params.result.details);
+    }
+    return;
+  }
+
+  // ─── Step 3: Legacy AI Client Fallback ─────────────────────────────────────
+  try {
+    const legacyAiResponse = await applyLegacyAiFallback(fallbackCtx);
+    if (legacyAiResponse) {
+      const explanation = params.shouldAnonymize ? deanonymize(legacyAiResponse, mapping) : legacyAiResponse;
+      params.result.details = explanation;
+      if (!params.noCache) {
+        await tryStoreToCache(cacheKey, legacyAiResponse);
+      }
+      return;
+    }
+  } catch {
+    // Proceed to Step 4
+  }
+
+  // ─── Step 4: Raw Kubernetes Summary (Zero AI Available) ────────────────────
+  applyRawSummaryFallback(fallbackCtx);
+  if (params.shouldAnonymize && params.result.details) {
+    params.result.details = deanonymize(params.result.details, mapping);
   }
 }
 
@@ -428,3 +524,17 @@ export async function runAnalysis(options: AnalysisOptions): Promise<AnalysisOut
 
   return output;
 }
+
+export {
+  isOllamaAvailable,
+  checkCouncilDependencies,
+  resolveOllamaBaseUrl,
+} from './probes';
+export { RuleEngine } from '../rules';
+export type { RuleMatch } from '../rules/types';
+export {
+  applyRuleEngineFallback,
+  applyLegacyAiFallback,
+  applyRawSummaryFallback,
+  formatRawKubernetesSummary,
+};
