@@ -1,7 +1,7 @@
 """Specialist agents for diagnosing Kubernetes and Docker workload failures using Ollama Python SDK.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 import json
 import re
 import ollama
@@ -47,6 +47,10 @@ def parse_k8s_failure(failure_text: str, context: Dict[str, Any]) -> Dict[str, A
     is_crash = bool(re.search(r'CrashLoopBackOff|Back-off restarting failed container|exit code 1(?!\d)', text, re.IGNORECASE))
     # Unschedulable / Nodes
     is_unschedulable = bool(re.search(r'0/\d+ nodes are available|FailedScheduling|Insufficient cpu|Insufficient memory|node\(s\) had untolerated taint', text, re.IGNORECASE))
+    # Node pressure / eviction
+    is_node_pressure = bool(re.search(r'MemoryPressure|DiskPressure|PIDPressure|evicted by kubelet|pod was evicted|NodeUnderMemoryPressure', text, re.IGNORECASE))
+    # Probe failure
+    is_probe_failure = bool(re.search(r'(?:liveness|readiness|startup)\s+probe\s+failed', text, re.IGNORECASE))
 
     return {
         "pod_name": pod_name,
@@ -59,6 +63,8 @@ def parse_k8s_failure(failure_text: str, context: Dict[str, Any]) -> Dict[str, A
         "is_oom": is_oom,
         "is_crash": is_crash,
         "is_unschedulable": is_unschedulable,
+        "is_node_pressure": is_node_pressure,
+        "is_probe_failure": is_probe_failure,
     }
 
 
@@ -308,6 +314,12 @@ class ClusterResourceAgent:
                     "Node CPU, memory, and disk pressure levels remain healthy",
                     "Workload startup is gated solely by missing configuration objects",
                 ]
+            elif parsed_meta.get("is_node_pressure"):
+                summary = f"Node reported MemoryPressure condition triggering eviction of {parsed_meta['pod_name']}."
+                evidence = [
+                    "Kubelet evicted pod to relieve node memory pressure",
+                    "Node allocatable memory threshold breached",
+                ]
             elif parsed_meta["is_image_err"]:
                 summary = "Node compute resources normal; container execution blocked by image retrieval."
                 evidence = [
@@ -439,11 +451,11 @@ class SynthesizerAgent:
                     "confidence": "high",
                     "findings": findings,
                     "bestSolution": {
-                        "actionTitle": f"Correct Container Image Tag or Configure ImagePullSecrets",
+                        "actionTitle": "Correct Container Image Tag or Configure ImagePullSecrets",
                         "steps": [
                             f"Inspect exact pull failure: kubectl describe pod {pod} -n {ns}",
                             f"Ensure image '{img}' exists on registry with the specified tag",
-                            f"If private registry, verify imagePullSecrets are attached to the Pod or service account",
+                            "If private registry, verify imagePullSecrets are attached to the Pod or service account",
                         ],
                         "commandToRun": f"kubectl describe pod {pod} -n {ns}",
                         "riskLevel": "low",
@@ -480,6 +492,40 @@ class SynthesizerAgent:
                             "Add additional worker nodes or relax node affinity/taint constraints",
                         ],
                         "commandToRun": "kubectl describe nodes",
+                        "riskLevel": "low",
+                    },
+                }
+
+            if parsed_meta.get("is_node_pressure"):
+                return {
+                    "rootCause": f"Pod '{pod}' was evicted due to cluster node MemoryPressure condition.",
+                    "confidence": "high",
+                    "findings": findings,
+                    "bestSolution": {
+                        "actionTitle": "Relieve Node Memory Pressure or Reschedule Workload",
+                        "steps": [
+                            "Inspect node memory conditions: kubectl describe nodes",
+                            "Identify memory-intensive workloads on the node: kubectl top pods -A",
+                            "Scale node pool or adjust pod resource requests/limits",
+                        ],
+                        "commandToRun": "kubectl describe nodes",
+                        "riskLevel": "medium",
+                    },
+                }
+
+            if parsed_meta.get("is_probe_failure"):
+                return {
+                    "rootCause": f"Container in Pod '{pod}' failed health probes repeatedly and was terminated by kubelet.",
+                    "confidence": "high",
+                    "findings": findings,
+                    "bestSolution": {
+                        "actionTitle": f"Adjust Probe Thresholds or Resolve Health Check Failure for '{pod}'",
+                        "steps": [
+                            f"Inspect probe definitions: kubectl describe pod {pod} -n {ns}",
+                            f"Check container logs for probe timeouts or 5xx responses: kubectl logs {pod} -n {ns}",
+                            "Adjust initialDelaySeconds or failureThreshold in pod specification",
+                        ],
+                        "commandToRun": f"kubectl describe pod {pod} -n {ns}",
                         "riskLevel": "low",
                     },
                 }
