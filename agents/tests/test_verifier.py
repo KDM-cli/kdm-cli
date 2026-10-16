@@ -5,6 +5,7 @@ Validates:
 - Successful verification when workload reaches Ready state without restarts.
 - Detection of restart regressions post-remediation triggering failure and rollback.
 - Identification of CrashLoopBackOff and OOMKilled container failure regressions.
+- Excluding pre-remediation historical lastState failures when restart count is stable.
 - Timeout handling when workload fails to transition to Ready in allotted duration.
 - Support for synchronous and asynchronous status check functions.
 - Multi-iteration rollout simulation where workload transitions to Ready after delay.
@@ -53,38 +54,40 @@ def _build_container_state(reason: Optional[str]) -> Dict[str, Any]:
 def _build_container_status(
     ready: bool,
     restart_count: int = 0,
-    reason: Optional[str] = None,
-    name: str = "api",
+    **kwargs: Any,
 ) -> Dict[str, Any]:
     """Construct a container status dictionary with optional state reason."""
-    return {
+    reason = kwargs.get("reason")
+    name = kwargs.get("name", "api")
+    last_state = kwargs.get("last_state")
+
+    c_dict: Dict[str, Any] = {
         "name": name,
         "ready": ready,
         "restartCount": restart_count,
         "state": _build_container_state(reason),
     }
+    if last_state:
+        c_dict["lastState"] = last_state
+    return c_dict
 
 
 def _build_flat_status(
     ready: bool = True,
     restart_count: int = 0,
-    phase: str = "Running",
-    pod_name: str = "checkout-api-7d9f",
-    reason: Optional[str] = None,
-    memory_usage: Optional[str] = None,
-    memory_limit: Optional[str] = None,
+    **kwargs: Any,
 ) -> Dict[str, Any]:
     """Helper factory for generating flat workload status payloads."""
     payload: Dict[str, Any] = {
-        "phase": phase,
-        "pod_name": pod_name,
+        "phase": kwargs.get("phase", "Running"),
+        "pod_name": kwargs.get("pod_name", "checkout-api-7d9f"),
         "ready": ready,
         "restart_count": restart_count,
-        "memory_usage": memory_usage,
-        "memory_limit": memory_limit,
+        "memory_usage": kwargs.get("memory_usage"),
+        "memory_limit": kwargs.get("memory_limit"),
     }
-    if reason:
-        payload["reason"] = reason
+    if "reason" in kwargs:
+        payload["reason"] = kwargs["reason"]
     return payload
 
 
@@ -95,21 +98,19 @@ class TestWorkloadVerifier(unittest.IsolatedAsyncioTestCase):
         self,
         check_target: Union[Dict[str, Any], Callable[[], Any]],
         initial_restarts: int = 0,
-        timeout: Union[int, float] = 1,
-        rollback_cmd: Optional[str] = None,
-        print_fn: Optional[Callable[[str], None]] = None,
+        **kwargs: Any,
     ) -> Dict[str, Any]:
         """Unified runner to eliminate setup duplication across test cases."""
         fn = check_target if callable(check_target) else (lambda: check_target)
         verifier = WorkloadVerifier(
             check_fn=fn,
             poll_interval=0.01,
-            rollback_command=rollback_cmd,
-            print_fn=print_fn,
+            rollback_command=kwargs.get("rollback_cmd"),
+            print_fn=kwargs.get("print_fn"),
         )
         return await verifier.verify(
             initial_restart_count=initial_restarts,
-            timeout=timeout,
+            timeout=kwargs.get("timeout", 1),
         )
 
     async def test_pod_transitions_to_ready_verified(self) -> None:
@@ -188,6 +189,18 @@ class TestWorkloadVerifier(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(result["regression"], reason)
                 self.assertTrue(result["rollback_recommended"])
                 self.assertEqual(result["rollback_command"], rollback)
+
+    async def test_historical_last_state_without_new_restart_does_not_fail(self) -> None:
+        """Pre-remediation failure in lastState does not trigger regression when restarts are stable."""
+        container = _build_container_status(
+            ready=True,
+            restart_count=2,
+            last_state={"terminated": {"reason": "OOMKilled", "exitCode": 137}},
+        )
+        status = {"phase": "Running", "containerStatuses": [container]}
+
+        result = await self._execute_verifier(status, initial_restarts=2)
+        self.assertEqual(result["status"], "verified")
 
     async def test_k8s_container_statuses_all_ready(self) -> None:
         """Verify k8s containerStatuses array requires all containers ready."""

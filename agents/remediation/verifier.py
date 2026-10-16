@@ -55,18 +55,32 @@ def _extract_reason_from_dict(sub_state: Any) -> Optional[str]:
     return None
 
 
-def _extract_container_regression(container: Dict[str, Any]) -> Optional[str]:
-    """Inspect state and lastState for regression triggers without nested loops."""
-    for key in ("state", "lastState", "last_state"):
-        state_dict = container.get(key)
-        if not isinstance(state_dict, dict):
-            continue
-        waiting_reason = _extract_reason_from_dict(state_dict.get("waiting"))
-        if waiting_reason:
-            return waiting_reason
-        term_reason = _extract_reason_from_dict(state_dict.get("terminated"))
-        if term_reason:
-            return term_reason
+def _extract_state_reason(state_dict: Any) -> Optional[str]:
+    """Inspect waiting and terminated state dictionaries for failure reason."""
+    if not isinstance(state_dict, dict):
+        return None
+    waiting_reason = _extract_reason_from_dict(state_dict.get("waiting"))
+    if waiting_reason:
+        return waiting_reason
+    return _extract_reason_from_dict(state_dict.get("terminated"))
+
+
+def _extract_container_regression(
+    container: Dict[str, Any], is_new_restart: bool
+) -> Optional[str]:
+    """Inspect state and lastState for regression triggers.
+
+    Active container state is always evaluated. Historical lastState is only
+    treated as a new regression if restartCount has increased since baseline.
+    """
+    state_reason = _extract_state_reason(container.get("state"))
+    if state_reason:
+        return state_reason
+
+    if is_new_restart:
+        last_state = container.get("lastState") or container.get("last_state")
+        return _extract_state_reason(last_state)
+
     return None
 
 
@@ -119,8 +133,8 @@ class WorkloadVerifier:
         last_facts = PodStatusFacts()
 
         while (loop.time() - start) < timeout:
-            raw_status = await self._fetch_status()
-            last_facts = self._extract_facts(raw_status)
+            raw_status = await self._fetch_status(timeout - (loop.time() - start))
+            last_facts = self._extract_facts(raw_status, initial_restart_count)
 
             result = self._check_iteration(last_facts, initial_restart_count, effective_rollback)
             if result is not None:
@@ -154,22 +168,26 @@ class WorkloadVerifier:
         if self.print_fn is not None:
             self.print_fn(format_verification_result(result))
 
-    async def _fetch_status(self) -> Dict[str, Any]:
-        """Invoke check_fn safely supporting both sync and async callables."""
+    async def _fetch_status(self, remaining_time: float) -> Dict[str, Any]:
+        """Invoke check_fn safely bounded by remaining deadline time."""
         try:
             res = self.check_fn()
             if inspect.isawaitable(res):
-                res = await res
+                bound = max(0.001, remaining_time)
+                res = await asyncio.wait_for(res, timeout=bound)
             return res if isinstance(res, dict) else {}
         except Exception as exc:
             return {"error": str(exc), "ready": False}
 
-    def _extract_facts(self, status: Dict[str, Any]) -> PodStatusFacts:
+    def _extract_facts(
+        self, status: Dict[str, Any], initial_restarts: int
+    ) -> PodStatusFacts:
         """Extract canonical health and container facts from raw status dict."""
         containers = self._parse_containers(status)
-        ready = self._resolve_ready(status, containers)
         restarts = self._resolve_restart_count(status, containers)
-        regression = self._find_regression_reason(status, containers)
+        is_new_restart = restarts > initial_restarts
+        ready = self._resolve_ready(status, containers)
+        regression = self._find_regression_reason(status, containers, is_new_restart)
 
         return PodStatusFacts(
             phase=status.get("phase") or status.get("pod_phase"),
@@ -193,28 +211,29 @@ class WorkloadVerifier:
         self, status: Dict[str, Any], containers: List[Dict[str, Any]]
     ) -> bool:
         """Determine whether all containers or workload status report ready."""
-        if "ready" in status:
-            return bool(status["ready"])
         if containers:
             return all(bool(c.get("ready")) for c in containers)
-        return False
+        return bool(status.get("ready", False))
 
     def _resolve_restart_count(
         self, status: Dict[str, Any], containers: List[Dict[str, Any]]
     ) -> int:
         """Extract current total container restart count."""
-        raw_count = status.get("restart_count", status.get("restartCount"))
-        if raw_count is not None:
-            return self._safe_int(raw_count)
+        raw_top = status.get("restart_count", status.get("restartCount"))
+        top_count = self._safe_int(raw_top) if raw_top is not None else 0
         if containers:
-            return sum(
+            container_total = sum(
                 self._safe_int(c.get("restartCount", c.get("restart_count", 0)))
                 for c in containers
             )
-        return 0
+            return max(top_count, container_total)
+        return top_count
 
     def _find_regression_reason(
-        self, status: Dict[str, Any], containers: List[Dict[str, Any]]
+        self,
+        status: Dict[str, Any],
+        containers: List[Dict[str, Any]],
+        is_new_restart: bool,
     ) -> Optional[str]:
         """Detect CrashLoopBackOff, OOMKilled, or failure states in status or containers."""
         top_reason = status.get("regression") or status.get("reason")
@@ -222,7 +241,7 @@ class WorkloadVerifier:
             return str(top_reason)
 
         for c in containers:
-            reason = _extract_container_regression(c)
+            reason = _extract_container_regression(c, is_new_restart)
             if reason:
                 return reason
 
@@ -240,7 +259,7 @@ class WorkloadVerifier:
 
     def _is_verified(self, facts: PodStatusFacts, initial_restart_count: int) -> bool:
         """Verify that workload meets all readiness and stability criteria."""
-        phase_ok = facts.phase is None or str(facts.phase).strip().lower() == "running"
+        phase_ok = facts.phase is not None and str(facts.phase).strip().lower() == "running"
         return facts.ready and phase_ok and facts.restart_count <= initial_restart_count
 
     async def _sleep_poll_interval(
@@ -323,40 +342,64 @@ class WorkloadVerifier:
             return 0
 
 
+def _format_restart_line(restarts: int) -> str:
+    """Format restart count status line."""
+    if restarts == 0:
+        return "   - Zero restarts detected since patch"
+    return f"   - Restart count stable at {restarts}"
+
+
+def _format_memory_line(details: Dict[str, Any]) -> Optional[str]:
+    """Format memory usage string if metrics are present."""
+    usage = details.get("memory_usage")
+    limit = details.get("memory_limit")
+    if usage and limit:
+        return f"   - Memory usage: {usage} / {limit} (healthy)"
+    return None
+
+
+def _format_verified_lines(result: Dict[str, Any]) -> List[str]:
+    """Format lines for passed verification."""
+    pod_name = result.get("pod_name") or "workload"
+    restarts = result.get("restart_count", 0)
+    details = result.get("details", {})
+
+    lines = [
+        "✓ Verification Passed:",
+        f"   - Pod {pod_name} is 1/1 Ready",
+        _format_restart_line(restarts),
+    ]
+    mem_line = _format_memory_line(details)
+    if mem_line:
+        lines.append(mem_line)
+    return lines
+
+
+def _format_failed_lines(result: Dict[str, Any]) -> List[str]:
+    """Format lines for failed verification."""
+    lines = [
+        "✖ Verification Failed:",
+        f"   - {result.get('message', 'Container crashed post-remediation.')}",
+    ]
+    rollback = result.get("rollback_command")
+    if rollback:
+        lines.append(f"   - Recommended Rollback: {rollback}")
+    return lines
+
+
 def format_verification_result(result: Dict[str, Any]) -> str:
     """Format verification outcome into standard CLI terminal output.
 
     :param result: Result dict returned by WorkloadVerifier.verify().
     :return: Formatted multi-line string for terminal display.
     """
-    status = result.get("status")
     lines = ["🔍 Verifying remediation outcome..."]
+    status = result.get("status")
 
     if status == "verified":
-        lines.append("✓ Verification Passed:")
-        pod_name = result.get("pod_name") or "workload"
-        restarts = result.get("restart_count", 0)
-        details = result.get("details", {})
-        mem_usage = details.get("memory_usage")
-        mem_limit = details.get("memory_limit")
-
-        lines.append(f"   - Pod {pod_name} is 1/1 Ready")
-        restart_str = (
-            "Zero restarts detected since patch"
-            if restarts == 0
-            else f"Restart count stable at {restarts}"
-        )
-        lines.append(f"   - {restart_str}")
-        if mem_usage and mem_limit:
-            lines.append(f"   - Memory usage: {mem_usage} / {mem_limit} (healthy)")
-
+        lines.extend(_format_verified_lines(result))
     elif status == "failed":
-        lines.append("✖ Verification Failed:")
-        lines.append(f"   - {result.get('message', 'Container crashed post-remediation.')}")
-        rollback = result.get("rollback_command")
-        if rollback:
-            lines.append(f"   - Recommended Rollback: {rollback}")
-
+        lines.extend(_format_failed_lines(result))
     else:
         lines.append("✖ Verification Timed Out:")
         lines.append(f"   - {result.get('message', 'Workload did not reach Ready within timeout.')}")
