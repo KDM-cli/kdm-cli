@@ -52,6 +52,39 @@ export interface ExecuteWithFeedbackOptions extends ExecutionOptions {
 }
 
 /**
+ * Data payload for recording an audit entry.
+ */
+export interface AuditRecordPayload {
+  result: ExecutionResult;
+  command: string;
+  executable: string;
+  args: string[];
+}
+
+/**
+ * Payload used to construct an ExecutionResult.
+ */
+export interface ExecutionPayload {
+  success: boolean;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  durationMs: number;
+  command?: string;
+  rollbackCommand?: string;
+}
+
+/**
+ * Common shape for Node.js process execution errors.
+ */
+interface ProcessError {
+  code?: unknown;
+  stdout?: unknown;
+  stderr?: unknown;
+  message?: unknown;
+}
+
+/**
  * Immutable audit log record capturing command execution details.
  */
 export interface RemediationAuditRecord {
@@ -74,24 +107,19 @@ export interface RemediationAuditRecord {
 export class RemediationAuditTrail {
   private readonly records: RemediationAuditRecord[] = [];
 
-  record(
-    result: ExecutionResult,
-    command: string,
-    executable: string,
-    args: string[]
-  ): RemediationAuditRecord {
+  record(payload: AuditRecordPayload): RemediationAuditRecord {
     const record: RemediationAuditRecord = {
       auditId: `audit-rem-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       timestamp: new Date().toISOString(),
-      command,
-      executable,
-      args,
-      success: result.success,
-      exitCode: result.exitCode,
-      stdout: result.stdout,
-      stderr: result.stderr,
-      durationMs: result.durationMs,
-      rollbackCommand: result.rollbackCommand,
+      command: payload.command,
+      executable: payload.executable,
+      args: payload.args,
+      success: payload.result.success,
+      exitCode: payload.result.exitCode,
+      stdout: payload.result.stdout,
+      stderr: payload.result.stderr,
+      durationMs: payload.result.durationMs,
+      rollbackCommand: payload.result.rollbackCommand,
     };
     this.records.push(record);
     return record;
@@ -116,18 +144,6 @@ export class RemediationAuditTrail {
 export const defaultAuditTrail = new RemediationAuditTrail();
 
 /**
- * Safely strips surrounding quotation marks from a token string.
- */
-function stripQuotes(token: string): string {
-  const isDoubleQuoted = token.startsWith('"') && token.endsWith('"');
-  const isSingleQuoted = token.startsWith("'") && token.endsWith("'");
-  if (isDoubleQuoted || isSingleQuoted) {
-    return token.slice(1, -1);
-  }
-  return token;
-}
-
-/**
  * Splits a command string into the executable file and argument array,
  * safely preserving quoted arguments and preventing raw shell injection.
  *
@@ -141,21 +157,40 @@ export function splitCommand(commandStr: string): { file: string; args: string[]
   }
 
   const matches = trimmed.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
-  const parts = matches.map(stripQuotes);
+  const parts = matches.map((token) => {
+    if (token.startsWith('"') && token.endsWith('"')) {
+      return token.slice(1, -1);
+    }
+    if (token.startsWith("'") && token.endsWith("'")) {
+      return token.slice(1, -1);
+    }
+    return token;
+  });
+
   const file = parts[0] || '';
   const args = parts.slice(1);
   return { file, args };
 }
 
 /**
+ * Safely casts an unknown error into a ProcessError structure.
+ */
+function asProcessError(err: unknown): ProcessError | null {
+  if (!err) {
+    return null;
+  }
+  if (typeof err !== 'object') {
+    return null;
+  }
+  return err as ProcessError;
+}
+
+/**
  * Resolves a numeric exit code from an execFile error.
  */
-function resolveExitCode(error: unknown): number {
-  if (typeof error === 'object' && error !== null && 'code' in error) {
-    const code = (error as { code: unknown }).code;
-    if (typeof code === 'number') {
-      return code;
-    }
+function resolveExitCode(err: ProcessError | null): number {
+  if (typeof err?.code === 'number') {
+    return err.code;
   }
   return 1;
 }
@@ -163,15 +198,12 @@ function resolveExitCode(error: unknown): number {
 /**
  * Resolves standard error text from an execFile failure.
  */
-function resolveStderr(error: unknown): string {
-  if (typeof error === 'object' && error !== null) {
-    const errObj = error as { stderr?: unknown; message?: unknown };
-    if (typeof errObj.stderr === 'string' && errObj.stderr.trim()) {
-      return errObj.stderr.trim();
-    }
-    if (typeof errObj.message === 'string' && errObj.message.trim()) {
-      return errObj.message.trim();
-    }
+function resolveStderr(err: ProcessError | null): string {
+  if (typeof err?.stderr === 'string') {
+    return err.stderr.trim();
+  }
+  if (typeof err?.message === 'string') {
+    return err.message.trim();
   }
   return 'Execution failed';
 }
@@ -179,68 +211,25 @@ function resolveStderr(error: unknown): string {
 /**
  * Resolves standard output text from an execFile failure.
  */
-function resolveStdout(error: unknown): string {
-  if (typeof error === 'object' && error !== null && 'stdout' in error) {
-    const stdout = (error as { stdout: unknown }).stdout;
-    if (typeof stdout === 'string') {
-      return stdout.trim();
-    }
+function resolveStdout(err: ProcessError | null): string {
+  if (typeof err?.stdout === 'string') {
+    return err.stdout.trim();
   }
   return '';
 }
 
 /**
- * Constructs an ExecutionResult representing an empty command error.
+ * Unified factory constructing normalized ExecutionResult instances.
  */
-function buildEmptyCommandResult(startTime: number, rollbackCommand?: string): ExecutionResult {
+function createResult(payload: ExecutionPayload): ExecutionResult {
   return {
-    success: false,
-    exitCode: 1,
-    stdout: '',
-    stderr: 'Command string cannot be empty',
-    durationMs: Date.now() - startTime,
-    rollbackCommand,
-  };
-}
-
-/**
- * Constructs an ExecutionResult representing a successful command run.
- */
-function buildSuccessResult(
-  stdout: string,
-  stderr: string,
-  startTime: number,
-  command?: string,
-  rollbackCommand?: string
-): ExecutionResult {
-  return {
-    success: true,
-    exitCode: 0,
-    stdout: stdout.trim(),
-    stderr: stderr.trim(),
-    durationMs: Date.now() - startTime,
-    command,
-    rollbackCommand,
-  };
-}
-
-/**
- * Constructs an ExecutionResult representing a failed command run.
- */
-function buildFailureResult(
-  error: unknown,
-  startTime: number,
-  command?: string,
-  rollbackCommand?: string
-): ExecutionResult {
-  return {
-    success: false,
-    exitCode: resolveExitCode(error),
-    stdout: resolveStdout(error),
-    stderr: resolveStderr(error),
-    durationMs: Date.now() - startTime,
-    command,
-    rollbackCommand,
+    success: payload.success,
+    exitCode: payload.exitCode,
+    stdout: payload.stdout.trim(),
+    stderr: payload.stderr.trim(),
+    durationMs: payload.durationMs,
+    command: payload.command,
+    rollbackCommand: payload.rollbackCommand,
   };
 }
 
@@ -249,13 +238,10 @@ function buildFailureResult(
  */
 function recordAuditEntry(
   auditTrail: RemediationAuditTrail | undefined,
-  result: ExecutionResult,
-  command: string,
-  executable: string,
-  args: string[]
+  payload: AuditRecordPayload
 ): void {
   const trail = auditTrail ?? defaultAuditTrail;
-  trail.record(result, command, executable, args);
+  trail.record(payload);
 }
 
 /**
@@ -274,8 +260,21 @@ export async function executeRemediationCommand(
   const rollback = options.rollbackCommand;
 
   if (!file) {
-    const emptyResult = buildEmptyCommandResult(startTime, rollback);
-    recordAuditEntry(options.auditTrail, emptyResult, commandStr, file, args);
+    const emptyResult = createResult({
+      success: false,
+      exitCode: 1,
+      stdout: '',
+      stderr: 'Command string cannot be empty',
+      durationMs: Date.now() - startTime,
+      command: commandStr,
+      rollbackCommand: rollback,
+    });
+    recordAuditEntry(options.auditTrail, {
+      result: emptyResult,
+      command: commandStr,
+      executable: file,
+      args,
+    });
     return emptyResult;
   }
 
@@ -288,12 +287,39 @@ export async function executeRemediationCommand(
       cwd: options.cwd,
       env: options.env,
     });
-    const result = buildSuccessResult(stdout, stderr, startTime, commandStr, rollback);
-    recordAuditEntry(options.auditTrail, result, commandStr, file, args);
+    const result = createResult({
+      success: true,
+      exitCode: 0,
+      stdout,
+      stderr,
+      durationMs: Date.now() - startTime,
+      command: commandStr,
+      rollbackCommand: rollback,
+    });
+    recordAuditEntry(options.auditTrail, {
+      result,
+      command: commandStr,
+      executable: file,
+      args,
+    });
     return result;
-  } catch (error: unknown) {
-    const result = buildFailureResult(error, startTime, commandStr, rollback);
-    recordAuditEntry(options.auditTrail, result, commandStr, file, args);
+  } catch (rawError: unknown) {
+    const err = asProcessError(rawError);
+    const result = createResult({
+      success: false,
+      exitCode: resolveExitCode(err),
+      stdout: resolveStdout(err),
+      stderr: resolveStderr(err),
+      durationMs: Date.now() - startTime,
+      command: commandStr,
+      rollbackCommand: rollback,
+    });
+    recordAuditEntry(options.auditTrail, {
+      result,
+      command: commandStr,
+      executable: file,
+      args,
+    });
     return result;
   }
 }
@@ -303,29 +329,6 @@ export async function executeRemediationCommand(
  */
 export function formatApplyingFeedback(command: string): string[] {
   return ['⚡ Applying remediation...', `   $ ${command.trim()}`];
-}
-
-/**
- * Formats the terminal message for successful command execution.
- */
-export function formatSuccessFeedback(durationMs: number, stdout: string): string {
-  const details = stdout ? `: ${stdout}` : '';
-  return `✓ Command succeeded in ${durationMs}ms${details}`;
-}
-
-/**
- * Formats the terminal message for failed command execution.
- */
-export function formatFailureFeedback(exitCode: number, stderr: string): string {
-  const details = stderr ? `: ${stderr}` : '';
-  return `✖ Command failed (exit code ${exitCode})${details}`;
-}
-
-/**
- * Formats the recommended rollback command notice.
- */
-export function formatRollbackFeedback(rollbackCommand: string): string {
-  return `⚠️ Recommended Rollback: ${rollbackCommand.trim()}`;
 }
 
 /**
@@ -340,13 +343,15 @@ export function formatExecutionFeedback(
   rollbackCommand?: string
 ): string[] {
   if (result.success) {
-    return [formatSuccessFeedback(result.durationMs, result.stdout)];
+    const details = result.stdout ? `: ${result.stdout}` : '';
+    return [`✓ Command succeeded in ${result.durationMs}ms${details}`];
   }
 
-  const lines = [formatFailureFeedback(result.exitCode, result.stderr)];
+  const errorDetails = result.stderr ? `: ${result.stderr}` : '';
+  const lines = [`✖ Command failed (exit code ${result.exitCode})${errorDetails}`];
   const rollback = rollbackCommand || result.rollbackCommand;
   if (rollback) {
-    lines.push(formatRollbackFeedback(rollback));
+    lines.push(`⚠️ Recommended Rollback: ${rollback.trim()}`);
   }
   return lines;
 }

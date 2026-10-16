@@ -4,9 +4,6 @@ import {
   executeRemediationWithFeedback,
   splitCommand,
   formatApplyingFeedback,
-  formatSuccessFeedback,
-  formatFailureFeedback,
-  formatRollbackFeedback,
   formatExecutionFeedback,
   RemediationAuditTrail,
   defaultAuditTrail,
@@ -146,26 +143,7 @@ describe('Remediation Executor — Feedback Formatting', () => {
     expect(lines[1]).toBe(`   $ ${cmd}`);
   });
 
-  it('formats success feedback correctly', () => {
-    const output = formatSuccessFeedback(320, 'resource requirements updated');
-    expect(output).toBe('✓ Command succeeded in 320ms: resource requirements updated');
-
-    const emptyOutput = formatSuccessFeedback(150, '');
-    expect(emptyOutput).toBe('✓ Command succeeded in 150ms');
-  });
-
-  it('formats failure feedback with exit code and error message', () => {
-    const output = formatFailureFeedback(1, 'Error from server (NotFound)');
-    expect(output).toBe('✖ Command failed (exit code 1): Error from server (NotFound)');
-  });
-
-  it('formats rollback recommendation note correctly', () => {
-    const rollback = 'kubectl rollout undo deployment/checkout-api -n production';
-    const output = formatRollbackFeedback(rollback);
-    expect(output).toBe(`⚠️ Recommended Rollback: ${rollback}`);
-  });
-
-  it('formats full execution feedback on success and failure', () => {
+  it('formats full execution feedback on success with stdout details', () => {
     const successRes: ExecutionResult = {
       success: true,
       exitCode: 0,
@@ -177,7 +155,21 @@ describe('Remediation Executor — Feedback Formatting', () => {
     expect(successLines).toEqual([
       '✓ Command succeeded in 320ms: resource requirements updated',
     ]);
+  });
 
+  it('formats full execution feedback on success without stdout', () => {
+    const successRes: ExecutionResult = {
+      success: true,
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      durationMs: 150,
+    };
+    const successLines = formatExecutionFeedback(successRes);
+    expect(successLines).toEqual(['✓ Command succeeded in 150ms']);
+  });
+
+  it('formats full execution feedback on failure with rollback recommendation', () => {
     const failureRes: ExecutionResult = {
       success: false,
       exitCode: 1,
