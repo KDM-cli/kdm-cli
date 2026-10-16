@@ -143,30 +143,26 @@ describe('Remediation Executor — Feedback Formatting', () => {
     expect(lines[1]).toBe(`   $ ${cmd}`);
   });
 
-  it('formats full execution feedback on success with stdout details', () => {
-    const successRes: ExecutionResult = {
+  it('formats full execution feedback on success with and without stdout', () => {
+    const withOutput: ExecutionResult = {
       success: true,
       exitCode: 0,
       stdout: 'resource requirements updated',
       stderr: '',
       durationMs: 320,
     };
-    const successLines = formatExecutionFeedback(successRes);
-    expect(successLines).toEqual([
+    expect(formatExecutionFeedback(withOutput)).toEqual([
       '✓ Command succeeded in 320ms: resource requirements updated',
     ]);
-  });
 
-  it('formats full execution feedback on success without stdout', () => {
-    const successRes: ExecutionResult = {
+    const withoutOutput: ExecutionResult = {
       success: true,
       exitCode: 0,
       stdout: '',
       stderr: '',
       durationMs: 150,
     };
-    const successLines = formatExecutionFeedback(successRes);
-    expect(successLines).toEqual(['✓ Command succeeded in 150ms']);
+    expect(formatExecutionFeedback(withoutOutput)).toEqual(['✓ Command succeeded in 150ms']);
   });
 
   it('formats full execution feedback on failure with rollback recommendation', () => {
