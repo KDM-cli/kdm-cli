@@ -114,33 +114,35 @@ function isPlainObject(val: unknown): val is Record<string, unknown> {
 }
 
 /**
+ * Tests whether a key-value pair represents a sensitive Kubernetes env entry.
+ */
+function isSensitiveEnvEntry(key: string, value: unknown): boolean {
+  const lower = key.toLowerCase();
+  return (lower === 'name' || lower === 'key') && typeof value === 'string' && isSensitiveKey(value);
+}
+
+/**
  * Checks if a Kubernetes-style env/secret object contains a sensitive `name` or `key` sibling.
  */
 function hasSensitiveEnvSibling(obj: Record<string, unknown>): boolean {
-  for (const [k, v] of Object.entries(obj)) {
-    const lowerKey = k.toLowerCase();
-    if ((lowerKey === 'name' || lowerKey === 'key') && typeof v === 'string' && isSensitiveKey(v)) {
-      return true;
-    }
-  }
-  return false;
+  return Object.entries(obj).some(([k, v]) => isSensitiveEnvEntry(k, v));
+}
+
+/**
+ * Determines whether a dictionary property value should be replaced with REDACTED.
+ */
+function shouldRedactProperty(key: string, hasEnvSibling: boolean): boolean {
+  return isSensitiveKey(key) || (hasEnvSibling && key.toLowerCase() === 'value');
 }
 
 /**
  * Scrubs embedded bearer tokens, private keys, and inline credentials from strings.
  */
 function sanitizeString(val: string): string {
-  let result = val;
-  if (PRIVATE_KEY_PATTERN.test(result)) {
-    result = result.replace(PRIVATE_KEY_PATTERN, REDACTED_PLACEHOLDER);
-  }
-  if (AUTH_HEADER_PATTERN.test(result)) {
-    result = result.replace(AUTH_HEADER_PATTERN, `$1 ${REDACTED_PLACEHOLDER}`);
-  }
-  if (KV_SECRET_PATTERN.test(result)) {
-    result = result.replace(KV_SECRET_PATTERN, `$1${REDACTED_PLACEHOLDER}`);
-  }
-  return result;
+  return val
+    .replace(PRIVATE_KEY_PATTERN, REDACTED_PLACEHOLDER)
+    .replace(AUTH_HEADER_PATTERN, `$1 ${REDACTED_PLACEHOLDER}`)
+    .replace(KV_SECRET_PATTERN, `$1${REDACTED_PLACEHOLDER}`);
 }
 
 /**
@@ -158,31 +160,19 @@ function sanitizeObject(obj: Record<string, unknown>, seen: WeakSet<object>): Re
   const hasEnvSibling = hasSensitiveEnvSibling(obj);
 
   for (const [key, val] of Object.entries(obj)) {
-    if (isSensitiveKey(key)) {
-      dest[key] = REDACTED_PLACEHOLDER;
-      continue;
-    }
-    if (hasEnvSibling && key.toLowerCase() === 'value') {
-      dest[key] = REDACTED_PLACEHOLDER;
-      continue;
-    }
-    dest[key] = sanitizeValue(val, seen);
+    dest[key] = shouldRedactProperty(key, hasEnvSibling)
+      ? REDACTED_PLACEHOLDER
+      : sanitizeValue(val, seen);
   }
 
   return dest;
 }
 
 /**
- * Core recursive value sanitizer supporting primitives, arrays, and objects.
+ * Sanitizes complex compound container types (Arrays and Objects) with cycle detection.
  */
-function sanitizeValue(val: unknown, seen: WeakSet<object>): unknown {
-  if (val === null || val === undefined) return val;
-  if (typeof val === 'string') return sanitizeString(val);
-  if (typeof val !== 'object') return val;
-
-  if (seen.has(val)) {
-    return '[CIRCULAR]';
-  }
+function sanitizeContainer(val: object, seen: WeakSet<object>): unknown {
+  if (seen.has(val)) return '[CIRCULAR]';
   seen.add(val);
 
   if (Array.isArray(val)) {
@@ -192,6 +182,15 @@ function sanitizeValue(val: unknown, seen: WeakSet<object>): unknown {
     return sanitizeObject(val, seen);
   }
   return val;
+}
+
+/**
+ * Core recursive value sanitizer supporting primitives, arrays, and objects.
+ */
+function sanitizeValue(val: unknown, seen: WeakSet<object>): unknown {
+  if (typeof val === 'string') return sanitizeString(val);
+  if (!val || typeof val !== 'object') return val;
+  return sanitizeContainer(val, seen);
 }
 
 /**
@@ -251,6 +250,26 @@ async function writeAuditFile(filePath: string, content: string): Promise<void> 
 }
 
 /**
+ * Validates file path argument ensuring it is a non-empty string.
+ */
+function validateFilePath(filePath: unknown): string {
+  if (typeof filePath !== 'string' || !filePath.trim()) {
+    throw new Error('Target file path must be a non-empty string');
+  }
+  return filePath;
+}
+
+/**
+ * Validates session data argument ensuring it is an object.
+ */
+function validateSession(session: unknown): IncidentAuditSession {
+  if (!session || typeof session !== 'object') {
+    throw new Error('Incident audit session data must be provided');
+  }
+  return session as IncidentAuditSession;
+}
+
+/**
  * Resolves input arguments whether passed as separate (filePath, session) or an options object.
  */
 function resolveExportParams(
@@ -258,26 +277,20 @@ function resolveExportParams(
   sessionData?: IncidentAuditSession
 ): { filePath: string; session: IncidentAuditSession } {
   if (typeof targetOrPath === 'string') {
-    if (!targetOrPath.trim()) {
-      throw new Error('Target file path must be a non-empty string');
-    }
-    if (!sessionData) {
-      throw new Error('Incident audit session data must be provided');
-    }
-    return { filePath: targetOrPath, session: sessionData };
+    return {
+      filePath: validateFilePath(targetOrPath),
+      session: validateSession(sessionData),
+    };
   }
 
   if (!targetOrPath || typeof targetOrPath !== 'object') {
     throw new Error('Invalid export arguments: file path or options object expected');
   }
-  if (!targetOrPath.filePath || !targetOrPath.filePath.trim()) {
-    throw new Error('Target file path must be a non-empty string');
-  }
-  if (!targetOrPath.session) {
-    throw new Error('Incident audit session data must be provided');
-  }
 
-  return { filePath: targetOrPath.filePath, session: targetOrPath.session };
+  return {
+    filePath: validateFilePath(targetOrPath.filePath),
+    session: validateSession(targetOrPath.session),
+  };
 }
 
 /**

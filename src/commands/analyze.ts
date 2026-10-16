@@ -91,6 +91,34 @@ const printAnalysisResult = (result: any, output: AnalysisOptions['output']): vo
 };
 
 /**
+ * Resolves target workload descriptor from primary analysis result or options.
+ */
+function resolveIncidentTarget(primaryResult: any, runOpts: AnalysisOptions) {
+  return {
+    kind: primaryResult?.kind || 'Workload',
+    name: primaryResult?.name || runOpts.labelSelector || runOpts.namespace || 'all',
+    namespace: primaryResult?.namespace || runOpts.namespace || 'default',
+  };
+}
+
+/**
+ * Resolves consensus diagnosis or fallback diagnostic problem summary.
+ */
+function resolveConsensus(primaryResult: any, problems: number) {
+  if (primaryResult?.consensus) return primaryResult.consensus;
+  if (problems > 0) {
+    return {
+      rootCause: primaryResult?.message || 'Workload problem detected',
+      confidence: 'high',
+    };
+  }
+  return {
+    rootCause: 'No problems detected',
+    confidence: 'high',
+  };
+}
+
+/**
  * Exports a structured, sanitized incident audit session file if requested.
  * @param exportPath Destination JSON file path.
  * @param runOpts Configured analysis options.
@@ -102,26 +130,13 @@ async function handleExportAudit(
   result: any,
 ): Promise<void> {
   const primaryResult = result.results?.[0];
-  const targetKind = primaryResult?.kind || 'Workload';
-  const targetName = primaryResult?.name || runOpts.labelSelector || runOpts.namespace || 'all';
-  const targetNamespace = primaryResult?.namespace || runOpts.namespace || 'default';
-
-  const consensus = primaryResult?.consensus || (result.problems > 0 ? {
-    rootCause: primaryResult?.message || 'Workload problem detected',
-    confidence: 'high',
-  } : {
-    rootCause: 'No problems detected',
-    confidence: 'high',
-  });
+  const target = resolveIncidentTarget(primaryResult, runOpts);
+  const consensus = resolveConsensus(primaryResult, result.problems || 0);
 
   const session: IncidentAuditSession = {
     sessionId: `an-${Date.now()}`,
     cliVersion: '4.0.0',
-    target: {
-      kind: targetKind,
-      name: targetName,
-      namespace: targetNamespace,
-    },
+    target,
     evidence: result.results?.flatMap((r: any) => r.evidence || []) || {},
     toolCalls: result.toolCalls || [],
     consensus,
