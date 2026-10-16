@@ -1,0 +1,78 @@
+{
+  "target": {
+    "workload_kind": "Pod",
+    "workload_name": "auth-service",
+    "namespace": "production",
+    "container_name": "auth-server"
+  },
+  "collected_at": "2026-10-16T12:00:00Z",
+  "items": {
+    "ev.pod.container.status": {
+      "id": "ev.pod.container.status",
+      "source": "kubernetes_api",
+      "status": "available",
+      "timestamp": "2026-10-16T12:00:00Z",
+      "data": {
+        "name": "auth-server",
+        "restartCount": 10,
+        "lastState": {
+          "terminated": {
+            "exitCode": 1,
+            "reason": "Error",
+            "message": "Process exited with status 1"
+          }
+        },
+        "state": {
+          "waiting": {
+            "reason": "CrashLoopBackOff",
+            "message": "back-off 5m0s restarting failed container=auth-server pod=auth-service-589fc7d-xyz12"
+          }
+        }
+      }
+    },
+    "ev.pod.logs.previous": {
+      "id": "ev.pod.logs.previous",
+      "source": "kubernetes_api",
+      "status": "available",
+      "timestamp": "2026-10-16T12:00:00Z",
+      "data": "2026-10-16T12:00:01.000Z [INFO] Initializing authentication service on :8080\n2026-10-16T12:00:01.045Z [INFO] Connecting to primary database replica...\npanic: runtime error: invalid memory address or nil pointer dereference\n[signal SIGSEGV: segmentation violation code=0x1 addr=0x0 pc=0x7f9a2b]\n\ngoroutine 1 [running]:\nmain.setupDatabasePool(0x0, 0x0)\n\t/go/src/auth-service/cmd/server/db.go:58 +0x3a\nmain.main()\n\t/go/src/auth-service/cmd/server/main.go:24 +0x9c\n"
+    },
+    "ev.pod.spec": {
+      "id": "ev.pod.spec",
+      "source": "kubernetes_api",
+      "status": "available",
+      "timestamp": "2026-10-16T12:00:00Z",
+      "data": {
+        "containers": [
+          {
+            "name": "auth-server",
+            "image": "registry.example.com/auth/server:v1.9.0",
+            "resources": {
+              "requests": {
+                "cpu": "200m",
+                "memory": "256Mi"
+              },
+              "limits": {
+                "cpu": "1000m",
+                "memory": "512Mi"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "ev.pod.events": {
+      "id": "ev.pod.events",
+      "source": "kubernetes_api",
+      "status": "available",
+      "timestamp": "2026-10-16T12:00:00Z",
+      "data": [
+        {
+          "type": "Warning",
+          "reason": "BackOff",
+          "message": "Back-off restarting failed container auth-server in pod auth-service-589fc7d-xyz12_production"
+        }
+      ]
+    }
+  }
+}

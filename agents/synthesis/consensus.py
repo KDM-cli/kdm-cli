@@ -129,6 +129,23 @@ class BestSolution:
             "riskLevel": self.risk_level,
         }
 
+    def __getitem__(self, key: str) -> Any:
+        """Provide dictionary-like access to camelCase and snake_case properties."""
+        d = self.to_dict()
+        if key in d:
+            return d[key]
+        snake = re.sub(r"(?<!^)(?=[A-Z])", "_", key).lower()
+        if hasattr(self, snake):
+            return getattr(self, snake)
+        raise KeyError(key)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Safe retrieval for dictionary-style key queries."""
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> BestSolution:
         """Construct BestSolution from either camelCase or snake_case dictionary.
@@ -215,6 +232,34 @@ class ConsensusDiagnosis:
             },
             "evidenceCitations": list(self.evidence_citations),
         }
+
+    def __getitem__(self, key: str) -> Any:
+        """Provide dictionary-like access to camelCase and snake_case properties."""
+        d = self.to_dict()
+        if key in d:
+            return d[key]
+        snake = re.sub(r"(?<!^)(?=[A-Z])", "_", key).lower()
+        if hasattr(self, snake):
+            return getattr(self, snake)
+        raise KeyError(key)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Safe retrieval for dictionary-style key queries."""
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    @classmethod
+    def from_rule_match(
+        cls, match: Any, target_name: str = ""
+    ) -> ConsensusDiagnosis:
+        """Construct a validated ConsensusDiagnosis from a deterministic RuleMatch."""
+        return ConsensusGenerator.generate(
+            hypothesis=match,
+            target_name=target_name,
+            evidence_citations=getattr(match, "evidence_ids", None),
+        )
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> ConsensusDiagnosis:
@@ -323,6 +368,36 @@ def _build_resource_remediation(target: str) -> BestSolution:
     )
 
 
+def _build_crash_remediation(target: str) -> BestSolution:
+    """Build remediation solution for application crashes and crashloopbackoff."""
+    name = target or "container"
+    return BestSolution(
+        action_title=f"Inspect Application Crash Logs and Fix Startup Panic in {name}",
+        steps=[
+            f"Inspect previous execution crash logs: kubectl logs {name} --previous",
+            "Resolve application runtime panic, unhandled exception, or missing entrypoint dependency.",
+            "Rebuild and redeploy patched container image.",
+        ],
+        command_to_run=f"kubectl logs {name} --previous",
+        risk_level="low",
+    )
+
+
+def _build_probe_remediation(target: str) -> BestSolution:
+    """Build remediation solution for liveness and readiness probe failures."""
+    name = target or "container"
+    return BestSolution(
+        action_title=f"Adjust Health Probe Thresholds or Fix Endpoint Failure for {name}",
+        steps=[
+            f"Inspect probe definitions: kubectl describe pod {name}",
+            "Check endpoint response times and application logs for HTTP 5xx errors or timeouts.",
+            "Increase initialDelaySeconds or failureThreshold in pod specification to prevent premature kills.",
+        ],
+        command_to_run=f"kubectl describe pod {name}",
+        risk_level="low",
+    )
+
+
 def _build_default_remediation(target: str) -> BestSolution:
     """Build fallback diagnostic remediation solution."""
     return BestSolution(
@@ -349,7 +424,15 @@ _REMEDIATION_BUILDERS: Tuple[Tuple[Tuple[str, ...], Any], ...] = (
     ),
     (("imagepullbackoff", "errimagepull", "image"), _build_image_remediation),
     (
-        ("memorypressure", "insufficient memory", "insufficient cpu", "node"),
+        ("crashloop", "crashloopbackoff", "panic", "repeatedly crashed"),
+        _build_crash_remediation,
+    ),
+    (
+        ("liveness", "readiness", "probe", "unhealthy"),
+        _build_probe_remediation,
+    ),
+    (
+        ("memorypressure", "insufficient memory", "insufficient cpu", "node", "evicted"),
         _build_resource_remediation,
     ),
 )
@@ -452,7 +535,7 @@ def _parse_obj_hypothesis(hyp: Any) -> Tuple[str, Optional[float], List[str]]:
 def _extract_hypothesis_text(hypothesis: Any) -> Tuple[str, Optional[float], List[str]]:
     """Extract description, likelihood, and supporting evidence from a hypothesis.
 
-    :param hypothesis: Hypothesis instance, dict, or string.
+    :param hypothesis: Hypothesis instance, dict, RuleMatch, or string.
     :return: Tuple of (description, likelihood, supporting_evidence).
     """
     if hypothesis is None:
@@ -463,6 +546,15 @@ def _extract_hypothesis_text(hypothesis: Any) -> Tuple[str, Optional[float], Lis
         return _parse_dict_hypothesis(hypothesis)
     if hasattr(hypothesis, "description"):
         return _parse_obj_hypothesis(hypothesis)
+    if hasattr(hypothesis, "root_cause"):
+        desc = getattr(hypothesis, "root_cause", "")
+        prob = getattr(hypothesis, "confidence", None)
+        ev = getattr(hypothesis, "evidence_ids", [])
+        return (
+            str(desc),
+            _parse_score_float(prob),
+            list(ev) if isinstance(ev, list) else [],
+        )
     return (str(hypothesis), None, [])
 
 

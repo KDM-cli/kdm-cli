@@ -1,0 +1,102 @@
+{
+  "target": {
+    "workload_kind": "Pod",
+    "workload_name": "payment-processor",
+    "namespace": "production",
+    "container_name": "payment-api"
+  },
+  "collected_at": "2026-10-16T12:00:00Z",
+  "items": {
+    "ev.pod.container.status": {
+      "id": "ev.pod.container.status",
+      "source": "kubernetes_api",
+      "status": "available",
+      "timestamp": "2026-10-16T12:00:00Z",
+      "data": {
+        "name": "payment-api",
+        "restartCount": 5,
+        "lastState": {
+          "terminated": {
+            "exitCode": 137,
+            "reason": "OOMKilled",
+            "message": "The container was terminated by the Linux OOM-killer because it exceeded its memory limit."
+          }
+        },
+        "state": {
+          "waiting": {
+            "reason": "CrashLoopBackOff",
+            "message": "back-off 40s restarting failed container=payment-api pod=payment-processor-789df-xk9lp"
+          }
+        }
+      }
+    },
+    "ev.pod.spec": {
+      "id": "ev.pod.spec",
+      "source": "kubernetes_api",
+      "status": "available",
+      "timestamp": "2026-10-16T12:00:00Z",
+      "data": {
+        "containers": [
+          {
+            "name": "payment-api",
+            "image": "registry.example.com/payment/api:v2.4.1",
+            "resources": {
+              "requests": {
+                "cpu": "100m",
+                "memory": "128Mi"
+              },
+              "limits": {
+                "cpu": "500m",
+                "memory": "256Mi"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "ev.pod.events": {
+      "id": "ev.pod.events",
+      "source": "kubernetes_api",
+      "status": "available",
+      "timestamp": "2026-10-16T12:00:00Z",
+      "data": [
+        {
+          "type": "Warning",
+          "reason": "OOMKilling",
+          "message": "Memory cgroup out of memory: Kill process 29482 (payment-api) score 1005 or sacrifice child"
+        },
+        {
+          "type": "Warning",
+          "reason": "BackOff",
+          "message": "Back-off restarting failed container payment-api in pod payment-processor-789df-xk9lp_production"
+        }
+      ]
+    },
+    "ev.node.conditions": {
+      "id": "ev.node.conditions",
+      "source": "kubernetes_api",
+      "status": "available",
+      "timestamp": "2026-10-16T12:00:00Z",
+      "data": [
+        {
+          "type": "MemoryPressure",
+          "status": "False",
+          "reason": "KubeletHasSufficientMemory",
+          "message": "kubelet has sufficient memory available"
+        },
+        {
+          "type": "DiskPressure",
+          "status": "False",
+          "reason": "KubeletHasNoDiskPressure",
+          "message": "kubelet has no disk pressure"
+        },
+        {
+          "type": "Ready",
+          "status": "True",
+          "reason": "KubeletReady",
+          "message": "kubelet is posting ready status"
+        }
+      ]
+    }
+  }
+}
