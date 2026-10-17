@@ -77,6 +77,8 @@ const buildAnalysisOptions = (options: any, signal: AbortSignal): AnalysisOption
   interactive: options.output !== 'json',
   exportAudit: options.exportAudit,
   multiAgent: options.multiAgent ? Boolean(options.multiAgent) : undefined,
+  targetResource: options.targetResource,
+  resourceName: options.resourceName,
 });
 
 /**
@@ -96,9 +98,12 @@ const printAnalysisResult = (result: any, output: AnalysisOptions['output']): vo
  * Resolves target workload descriptor from primary analysis result or options.
  */
 function resolveIncidentTarget(primaryResult: any, runOpts: AnalysisOptions) {
+  const kindFromResource = runOpts.targetResource?.includes('/')
+    ? runOpts.targetResource.split('/')[0]
+    : undefined;
   return {
-    kind: primaryResult?.kind || 'Workload',
-    name: primaryResult?.name || runOpts.labelSelector || runOpts.namespace || 'all',
+    kind: primaryResult?.kind || kindFromResource || 'Workload',
+    name: primaryResult?.name || runOpts.resourceName || runOpts.labelSelector || runOpts.namespace || 'all',
     namespace: primaryResult?.namespace || runOpts.namespace || 'default',
   };
 }
@@ -170,10 +175,41 @@ const handleAnalysisError = (
 };
 
 /**
- * Handler for the analyze CLI command execution.
- * @param options CLI parsed options configuration.
+ * Normalizes workload resource argument and filter options.
  */
-async function handleAnalyze(options: any): Promise<void> {
+function normalizeResourceOptions(resourceOrOptions: any, optionsOrCommand?: any): Record<string, any> {
+  const isResource = typeof resourceOrOptions === 'string';
+  const rawOptions = isResource
+    ? { ...(optionsOrCommand || {}), resource: resourceOrOptions }
+    : { ...(resourceOrOptions || optionsOrCommand || {}) };
+
+  const res = rawOptions.resource;
+  if (typeof res === 'string' && res.trim()) {
+    const trimmed = res.trim();
+    rawOptions.targetResource = trimmed;
+    const parts = trimmed.split('/');
+    if (parts.length === 2) {
+      const rawKind = parts[0];
+      const kind = rawKind.charAt(0).toUpperCase() + rawKind.slice(1).toLowerCase();
+      rawOptions.filter = rawOptions.filter || [];
+      if (!rawOptions.filter.includes(kind)) {
+        rawOptions.filter.push(kind);
+      }
+      rawOptions.resourceName = parts[1];
+    } else {
+      rawOptions.resourceName = trimmed;
+    }
+  }
+
+  return rawOptions;
+}
+
+/**
+ * Handler for the analyze CLI command execution.
+ * @param resourceOrOptions CLI parsed resource argument or options configuration.
+ * @param optionsOrCommand CLI options when resource argument is provided.
+ */
+async function handleAnalyze(resourceOrOptions: any, optionsOrCommand?: any): Promise<void> {
   let output: AnalysisOptions['output'] = 'text';
   let spinner: ReturnType<typeof createSpinner> | null = null;
 
@@ -186,6 +222,7 @@ async function handleAnalyze(options: any): Promise<void> {
   process.on('SIGINT', onSigint);
 
   try {
+    const options = normalizeResourceOptions(resourceOrOptions, optionsOrCommand);
     output = parseOutput(options.output);
     const runOpts = buildAnalysisOptions(options, abortController.signal);
 
@@ -222,7 +259,7 @@ async function handleAnalyze(options: any): Promise<void> {
  */
 export const registerAnalyzeCommand = (program: Command) => {
   program
-    .command('analyze')
+    .command('analyze [resource]')
     .alias('analyse')
     .description('Analyze Kubernetes resources for common workload problems')
     .option('-n, --namespace <namespace>', 'Namespace to analyze')
