@@ -162,8 +162,7 @@ describe('Phase 24: Final System Architecture Integration & E2E Validation', () 
   // ─── 1. COMPLETE LIFECYCLE PRODUCT FLOW ────────────────────────────────────
 
   describe('Lifecycle Flow (Stages 1-6): Checkout-API OOMKilled Scenario', () => {
-    it('executes full pipeline from evidence to remediation verification', async () => {
-      // 1. COLLECT: Simulate analyzer collecting Kubernetes failure facts
+    it('evaluates deterministic failure rules in fast-path (< 5ms) for OOMKilled workload', () => {
       const ruleEngine = new RuleEngine();
       const mockResult: AnalyzerResult = {
         kind: 'Deployment',
@@ -172,7 +171,6 @@ describe('Phase 24: Final System Architecture Integration & E2E Validation', () 
         errors: [{ text: CHECKOUT_API_OOM_FAILURE }],
       };
 
-      // 2. INVESTIGATE: Fast-path deterministic rule engine (< 5ms)
       const startTime = performance.now();
       const ruleMatches = ruleEngine.evaluateAll(mockResult);
       const ruleDuration = performance.now() - startTime;
@@ -180,9 +178,10 @@ describe('Phase 24: Final System Architecture Integration & E2E Validation', () 
       expect(ruleMatches.length).toBeGreaterThan(0);
       expect(ruleMatches[0].ruleId).toBe('rule.kubernetes.oom_killed');
       expect(ruleMatches[0].confidence).toBeGreaterThanOrEqual(0.99);
-      expect(ruleDuration).toBeLessThan(50); // Well under budget
+      expect(ruleDuration).toBeLessThan(50);
+    });
 
-      // 3. SPECIALIST COUNCIL & CROSS-AGENT VALIDATION: Bridge invocation
+    it('synthesizes consensus diagnosis through specialist council and cross-agent validator', async () => {
       const mockProc = createMockStreamProcess();
       const mockSpawn = vi.fn().mockImplementation(() => {
         setTimeout(() => {
@@ -203,7 +202,6 @@ describe('Phase 24: Final System Architecture Integration & E2E Validation', () 
         spawnFn: mockSpawn as any,
       });
 
-      // 4. DIAGNOSIS: Consensus diagnosis synthesized
       expect(consensus).toEqual(CANONICAL_CONSENSUS);
       expect(consensus.rootCause).toBe('Container exceeded 256Mi memory limit under peak load');
       expect(consensus.confidence).toBe('high');
@@ -211,12 +209,13 @@ describe('Phase 24: Final System Architecture Integration & E2E Validation', () 
 
       const roles = consensus.findings.map((f) => f.role);
       expect(roles).toEqual(['runtime', 'config', 'resource', 'synthesizer']);
+    });
 
-      // 5. REMEDIATION & SAFETY GATE: Generate proposal and apply execution
+    it('constructs verified remediation proposal and checks safety gate attributes', () => {
       const proposal: RemediationProposal = {
-        action: consensus.bestSolution.actionTitle,
-        command: consensus.bestSolution.commandToRun!,
-        risk: consensus.bestSolution.riskLevel,
+        action: CANONICAL_CONSENSUS.bestSolution.actionTitle,
+        command: CANONICAL_CONSENSUS.bestSolution.commandToRun!,
+        risk: CANONICAL_CONSENSUS.bestSolution.riskLevel,
         diffPreview: '- limits.memory: 256Mi\n+ limits.memory: 512Mi',
       };
 
@@ -226,15 +225,17 @@ describe('Phase 24: Final System Architecture Integration & E2E Validation', () 
       );
       expect(getRiskColor(proposal.risk)).toBe('green');
       expect(parseDiffLines(proposal.diffPreview)).toHaveLength(2);
+    });
 
-      // Execute approved command via parameterized executor
+    it('executes approved remediation command and logs immutable audit trail record', async () => {
       const mockExecFn = vi.fn().mockResolvedValue({
         stdout: 'deployment.apps/checkout-api resource requirements updated\n',
         stderr: '',
       });
 
       const auditTrail = new RemediationAuditTrail();
-      const execResult = await executeRemediationCommand(proposal.command, {
+      const command = 'kubectl set resources deployment checkout-api --limits=memory=512Mi';
+      const execResult = await executeRemediationCommand(command, {
         execFileFn: mockExecFn,
         auditTrail,
       });
@@ -244,14 +245,14 @@ describe('Phase 24: Final System Architecture Integration & E2E Validation', () 
       expect(execResult.stdout).toContain('resource requirements updated');
       expect(execResult.durationMs).toBeGreaterThanOrEqual(0);
 
-      // Verify audit trail entry was recorded
       const records = auditTrail.getRecords();
       expect(records).toHaveLength(1);
-      expect(records[0].command).toBe(proposal.command);
+      expect(records[0].command).toBe(command);
       expect(records[0].executable).toBe('kubectl');
       expect(records[0].success).toBe(true);
+    });
 
-      // 6. VERIFY: Closed-loop workload verification post-remediation
+    it('verifies post-fix rollout status, container readiness, and restart stability', () => {
       const postFixFacts = {
         deployment: 'checkout-api',
         readyReplicas: '1/1',
