@@ -79,39 +79,37 @@ def _extract_models_map(config: Optional[Dict[str, Any]]) -> Dict[str, str]:
     }
 
 
-def load_agents_config(config_path: Optional[str] = None) -> Dict[str, Any]:
-    """Loads agent configuration from YAML file if present.
+def _read_yaml_file(path: str) -> Optional[Dict[str, Any]]:
+    """Safely reads and parses a single YAML configuration file."""
+    if not path or not os.path.isfile(path) or yaml is None:
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+            return data if isinstance(data, dict) else None
+    except Exception as err:
+        logger.warning("Failed to load agent configuration from %s: %s", path, err)
+        return None
 
-    If an explicit config_path is provided, loads exclusively from that path.
-    Otherwise, searches candidate paths in the following priority:
-      1. Environment variable KDM_AGENTS_CONFIG.
-      2. Current working directory ./config/agents.yaml.
-      3. Repository root ./config/agents.yaml.
 
-    Returns an empty dictionary if the file is absent, unparseable, or invalid.
-    """
+def _get_config_search_paths(config_path: Optional[str] = None) -> List[str]:
+    """Returns candidate paths for the agent configuration file."""
     if config_path:
-        candidates = [config_path]
-    else:
-        candidates = []
-        env_path = os.environ.get("KDM_AGENTS_CONFIG")
-        if env_path:
-            candidates.append(env_path)
-        candidates.append(os.path.join(os.getcwd(), "config", CONFIG_FILE_NAME))
-        candidates.append(os.path.join(_REPO_ROOT, "config", CONFIG_FILE_NAME))
+        return [config_path]
 
-    for path in candidates:
-        if path and os.path.isfile(path):
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    if yaml is not None:
-                        loaded = yaml.safe_load(f)
-                    else:
-                        loaded = None
-                    if isinstance(loaded, dict):
-                        return loaded
-            except Exception as err:
-                logger.warning("Failed to load agent configuration from %s: %s", path, err)
+    env_path = os.environ.get("KDM_AGENTS_CONFIG")
+    paths = [env_path] if env_path else []
+    paths.append(os.path.join(os.getcwd(), "config", CONFIG_FILE_NAME))
+    paths.append(os.path.join(_REPO_ROOT, "config", CONFIG_FILE_NAME))
+    return paths
+
+
+def load_agents_config(config_path: Optional[str] = None) -> Dict[str, Any]:
+    """Loads agent configuration from YAML file if present."""
+    for path in _get_config_search_paths(config_path):
+        parsed = _read_yaml_file(path)
+        if parsed is not None:
+            return parsed
     return {}
 
 
@@ -155,6 +153,21 @@ def resolve_installed_model(client: Any, requested_model: str) -> str:
     return requested_model or "gemma:2b"
 
 
+def _resolve_from_config(role: str, config: Optional[Dict[str, Any]]) -> str:
+    """Resolves target model from configuration dictionary hierarchy."""
+    effective_config = config if isinstance(config, dict) else load_agents_config()
+    models_map = _extract_models_map(effective_config)
+    role_key = str(role).strip().lower()
+
+    if role_key in models_map and models_map[role_key]:
+        return models_map[role_key]
+
+    if "default" in models_map and models_map["default"]:
+        return models_map["default"]
+
+    return DEFAULT_FALLBACK_MODEL
+
+
 def resolve_model(
     role: Any = "default",
     config: Optional[Union[Dict[str, Any], str]] = None,
@@ -173,32 +186,17 @@ def resolve_model(
       If called with `resolve_model(client, requested_model)`, delegates to
       `resolve_installed_model(client, requested_model)`.
     """
-    # Legacy invocation support: resolve_model(client, requested_model)
-    if not isinstance(role, str) and (hasattr(role, "list") or (client is None and isinstance(config, str))):
+    if not isinstance(role, str):
         return resolve_installed_model(role, str(config) if config else DEFAULT_FALLBACK_MODEL)
 
-    # Priority 1: CLI override takes precedence over all configurations
-    if cli_override is not None and str(cli_override).strip():
-        resolved_name = str(cli_override).strip()
+    if cli_override and str(cli_override).strip():
+        model_name = str(cli_override).strip()
     else:
-        # Load configuration if not explicitly provided
-        effective_config = config if isinstance(config, dict) else load_agents_config()
-        models_map = _extract_models_map(effective_config)
-        role_key = str(role).strip().lower()
-
-        # Priority 2: Role-specific mapping
-        if role_key in models_map and models_map[role_key]:
-            resolved_name = str(models_map[role_key]).strip()
-        # Priority 3: Configuration default
-        elif "default" in models_map and models_map["default"]:
-            resolved_name = str(models_map["default"]).strip()
-        # Priority 4: Hardcoded fallback
-        else:
-            resolved_name = DEFAULT_FALLBACK_MODEL
+        model_name = _resolve_from_config(role, config if isinstance(config, dict) else None)
 
     if client is not None:
-        return resolve_installed_model(client, resolved_name)
-    return resolved_name
+        return resolve_installed_model(client, model_name)
+    return model_name
 
 
 class AgentCouncil:
