@@ -7,6 +7,7 @@ export interface KDMConfig {
   notifications?: NotificationConfig;
   integrations?: IntegrationSettingsConfig;
   customAnalyzers?: CustomAnalyzerEntry[];
+  multi_agent?: boolean;
 }
 
 export interface AIConfig {
@@ -79,6 +80,7 @@ export type LegacyNotificationConfig = {
   email_to?: string;
   email_password?: string;
   alert_cooldown?: number;
+  multi_agent?: boolean;
 };
 export type StoredKDMConfig = KDMConfig & LegacyNotificationConfig;
 

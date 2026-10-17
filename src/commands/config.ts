@@ -344,13 +344,19 @@ const checkDeprecation = (key: string) => {
   }
 };
 
-const parseConfigValue = (key: string, value: string): string | number => {
+const parseConfigValue = (key: string, value: string): string | number | boolean => {
   if (key === 'alert_cooldown' || key === 'email_port') {
     const parsed = Number.parseInt(value, 10);
     if (Number.isNaN(parsed)) {
       throw new Error(`Invalid numeric value for "${key}"`);
     }
     return parsed;
+  }
+  if (key === 'multi_agent') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true' || normalized === '1') return true;
+    if (normalized === 'false' || normalized === '0') return false;
+    throw new Error(`Invalid boolean value for "${key}". Expected "true" or "false".`);
   }
   return value;
 };

@@ -76,6 +76,7 @@ const buildAnalysisOptions = (options: any, signal: AbortSignal): AnalysisOption
   noCache: Boolean(options.noCache),
   interactive: options.output !== 'json',
   exportAudit: options.exportAudit,
+  multiAgent: options.multiAgent ? Boolean(options.multiAgent) : undefined,
 });
 
 /**
@@ -241,5 +242,6 @@ export const registerAnalyzeCommand = (program: Command) => {
     .option('-r, --custom-headers <headers>', 'Custom HTTP headers (Key:Value,Key2:Value2)', parseCustomHeaders, {})
     .option('-c, --no-cache', 'Skip cache for AI explanations')
     .option('--export-audit <path>', 'Export sanitized incident audit trail to a JSON file')
+    .option('--multi-agent', 'Enable experimental multi-agent SRE council')
     .action(handleAnalyze);
 };
