@@ -416,7 +416,7 @@ export function buildSuggestedFixes(results: AnalyzerResult[]): SuggestedFix[] {
   return results.flatMap((result, index) =>
     result.errors.map((failure, failureIndex) => ({
       id: `${result.kind.toLowerCase()}-${index}-${failureIndex}`,
-      title: `Review ${result.kind} ${result.name}`,
+      title: (result as any).consensus?.bestSolution?.actionTitle || `Review ${result.kind} ${result.name}`,
       description: failure.text,
       namespace: result.namespace,
       kind: result.kind,
@@ -575,12 +575,15 @@ async function executeCouncilForResults(
   const primaryResult = results[0];
   const failureText = results
     .flatMap((r) => r.errors.map((e) => e.text))
-    .join('\n') || (options.labelSelector ? `Workload matching selector ${options.labelSelector} failure` : 'Cluster workload failure');
+    .join('\n') || (options.targetResource ? `Workload ${options.targetResource} failure` : options.labelSelector ? `Workload matching selector ${options.labelSelector} failure` : 'Cluster workload failure');
+
+  const targetKind = primaryResult?.kind || (options.targetResource?.includes('/') ? options.targetResource.split('/')[0] : 'Workload');
+  const targetName = primaryResult?.name || options.resourceName || options.labelSelector || 'cluster';
 
   const targetContext = {
     namespace: primaryResult?.namespace || options.namespace,
-    kind: primaryResult?.kind || 'Workload',
-    name: primaryResult?.name || options.labelSelector || 'cluster',
+    kind: targetKind,
+    name: targetName,
   };
 
   try {

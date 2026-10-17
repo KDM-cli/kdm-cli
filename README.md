@@ -50,6 +50,7 @@ Unlike tools that focus on a single runtime ([k9s] for Kubernetes or [lazydocker
 | **Log Fetching** | Retrieve logs from containers or pods with automatic Docker-to-Kubernetes fallback |
 | **Alert Notifications** | Send alerts via Discord webhook or email SMTP on failures |
 | **Minikube Support** | Check Minikube profile status and connectivity |
+| **Multi-Agent SRE** | Autonomous multi-agent council with local Ollama models, live Ink TUI, and closed-loop remediation (`kdm analyze --multi-agent`) |
 | **AI Diagnostics** | Scan cluster workload configuration errors (`kdm analyze`) with AI explanations (`--explain`) |
 | **AI Providers** | Multi-backend credentials (`kdm auth`) supporting OpenAI, Anthropic, Gemini, WatsonX, Ollama, etc. |
 | **Local Cache** | Cache system (`kdm cache`) to save AI explanation API tokens and reduce network latency |
@@ -151,11 +152,101 @@ Scan your Kubernetes cluster for common workload issues (mismatched replicas, cr
 ```bash
 kdm analyze                          # Run cluster diagnostics and output color-coded report
 kdm analyze -n default               # Analyze resources in the 'default' namespace only
-kdm analyze --explain                # Run diagnostics and fetch AI explanation
+kdm analyze --multi-agent            # Run autonomous multi-agent SRE council with local Ollama models
+kdm analyze deployment/checkout-api --multi-agent # Target specific workload for multi-agent root-cause triaging
+kdm analyze --explain                # Run diagnostics and fetch single-prompt AI explanation
 kdm analyze --explain --backend ollama # Force specific active AI backend provider
 kdm analyze --explain --anonymize    # Anonymize resource names in prompt to protect sensitive data
 kdm analyze --output json            # Output results in structured JSON format
 ```
+
+### Multi-Agent SRE Architecture (`--multi-agent`)
+
+KDM v4.0.0 features an autonomous **Multi-Agent SRE Council** running 100% locally via Ollama. Instead of relying on a single static LLM prompt, KDM coordinates domain-specialist agents in parallel to collect evidence, evaluate deterministic failure rules, correlate observations, formulate root-cause hypotheses, and safely apply verified remediations.
+
+#### Complete Lifecycle Flow
+
+```mermaid
+flowchart TD
+    CLI["CLI Command: kdm analyze --multi-agent"] --> Collect["1. Evidence Collector\n(Pods, Events, Logs, Node Metrics)"]
+    Collect --> RuleEngine{"2. Deterministic Rule Engine\n(&lt; 5ms fast-path check)"}
+    RuleEngine -- Conclusive Match --> Instant["Instant Diagnosis\n(Zero LLM Overhead)"]
+    RuleEngine -- Complex Failure --> Council["Specialist Agent Council\n(Parallel Execution)"]
+    
+    subgraph Specialists["2. Specialist Council"]
+        Council --> Runtime["Runtime & Log Agent\n(Exit codes, panic traces, crashes)"]
+        Council --> Config["Config & Dependency Agent\n(Limits, probes, secrets, ConfigMaps)"]
+        Council --> Resource["Cluster & Resource Agent\n(Node memory/disk pressure, capacity)"]
+    end
+    
+    Runtime --> Correlate["3. Correlate & Validate\n(Lead SRE Synthesizer)"]
+    Config --> Correlate
+    Resource --> Correlate
+    
+    Correlate --> Validator{"Cross-Agent Validator\n(Contradiction Check)"}
+    Validator -- Validated --> Consensus["4. Consensus Diagnosis\n(Root Cause + High Confidence + Solution)"]
+    Instant --> Consensus
+    
+    Consensus --> TUI["Live Ink TUI Dashboard"]
+    TUI --> SafetyGate{"5. Remediation Safety Gate [y/N]\n(Destructive Command Policy)"}
+    SafetyGate -- "Confirmed [y]" --> Executor["Parameterized Executor\n(Stdout/Stderr + Audit Trail)"]
+    SafetyGate -- "Aborted [n]" --> Aborted["Remediation Aborted Safely"]
+    
+    Executor --> Verify["6. Post-Fix Verification\n(Pod Ready 1/1, Rollout, Zero Restarts)"]
+    Verify --> Done["Remediation Successful!"]
+```
+
+#### Expected Product Flow
+
+```text
+$ kdm analyze deployment/checkout-api --multi-agent
+
+1. COLLECT
+   ✓ Kubernetes evidence collected (14 items)
+
+2. INVESTIGATE
+   ✓ Runtime Agent (detected exit code 137)
+   ✓ Config Agent (checked limits and probes)
+   ✓ Resource Agent (checked node memory pressure)
+
+3. CORRELATE & VALIDATE
+   ✓ Lead Investigator formulated root-cause hypothesis
+   ✓ Validator confirmed: no contradictions
+
+4. DIAGNOSIS
+   Root Cause: Container exceeded 256Mi memory limit under peak load
+   Confidence: HIGH · 96%
+
+5. REMEDIATION
+   Action: Increase memory limit (256Mi → 512Mi)
+   Command: kubectl set resources deployment checkout-api --limits=memory=512Mi
+   Apply? [y/N]: y
+
+6. VERIFY
+   ✓ Deployment rolled out
+   ✓ Pod Ready: 1/1
+   ✓ No new restarts detected
+
+Remediation successful.
+```
+
+#### CLI Flags & Configuration Options
+
+| Option | Method | Description |
+|--------|--------|-------------|
+| `--multi-agent` | CLI Flag | Enables multi-agent council for `kdm analyze` |
+| `--model <model>` | CLI Flag | Selects local Ollama model (e.g. `llama3.1`, `qwen2.5-coder`) |
+| `multi_agent: true` | Config Store | Persist opt-in via `kdm config set multi_agent true` |
+| `KDM_MULTI_AGENT=true` | Environment | Set environment variable for CI/CD or non-interactive automation |
+
+#### Resilient 4-Step Graceful Degradation Ladder
+
+KDM is engineered for mission-critical reliability. If local Ollama, Python, or cloud backends fail or timeout, KDM automatically falls back down the degradation ladder without throwing unhandled exceptions:
+
+1. **Step 1: Multi-Agent Council** — Full parallel multi-agent triage with local Ollama models.
+2. **Step 2: Deterministic Rule Engine** — Evaluates rules in `< 5ms` with zero LLM overhead for canonical failure signatures (`OOMKilled`, `CrashLoopBackOff`, `ImagePullBackOff`, `ProbeFailure`, `Scheduling`).
+3. **Step 3: Legacy AI Client** — Single-prompt cloud provider completions (OpenAI, Claude, Azure).
+4. **Step 4: Raw Kubernetes Summary** — Structured, formatted workload error diagnostics with zero AI required.
 
 ### AI Providers (Auth)
 
@@ -295,18 +386,22 @@ KDM automatically checks for failure conditions and sends notifications when con
 | [Commander.js] | CLI framework and argument parsing |
 | [dockerode] | Docker daemon API client |
 | [@kubernetes/client-node] | Kubernetes API client |
-| [Ink] + [React] | Interactive terminal UI (watch mode) |
+| [Python 3] + [Ollama] | Multi-agent SRE council and local LLM execution |
+| [Ink] + [React] | Interactive terminal UI (watch mode & council dashboard) |
 | [chalk] | Terminal string coloring |
 | [cli-table3] | Table rendering |
 | [conf] | Persistent configuration |
 | [nodemailer] | Email alerts |
 | [tsup] | High-performance bundler |
+| [Vitest] | Unit and end-to-end integration test runner |
 
 [TypeScript]: https://www.typescriptlang.org
 [Node.js]: https://nodejs.org
 [Commander.js]: https://github.com/tj/commander.js
 [dockerode]: https://github.com/apocas/dockerode
 [@kubernetes/client-node]: https://github.com/kubernetes-client/javascript
+[Python 3]: https://www.python.org
+[Ollama]: https://ollama.com
 [Ink]: https://github.com/vadimdemedes/ink
 [React]: https://react.dev
 [chalk]: https://github.com/chalk/chalk
@@ -314,6 +409,7 @@ KDM automatically checks for failure conditions and sends notifications when con
 [conf]: https://github.com/sindresorhus/conf
 [nodemailer]: https://nodemailer.com
 [tsup]: https://tsup.egoist.dev
+[Vitest]: https://vitest.dev
 
 ---
 

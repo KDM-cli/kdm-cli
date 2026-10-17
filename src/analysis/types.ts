@@ -24,6 +24,10 @@ export interface AnalysisOptions {
   multiAgent?: boolean;
   /** Optional file path to export sanitized incident audit trail. */
   exportAudit?: string;
+  /** Optional specific target workload string (e.g. 'deployment/checkout-api'). */
+  targetResource?: string;
+  /** Optional target resource name parsed from targetResource. */
+  resourceName?: string;
 }
 
 export interface AnalysisStats {
