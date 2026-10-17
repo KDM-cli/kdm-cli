@@ -13,6 +13,7 @@ export interface AnalysisOptions {
   signal?: AbortSignal;
   explain?: boolean;
   backend?: string;
+  model?: string;
   language?: string;
   anonymize?: boolean;
   customHeaders?: Record<string, string>;

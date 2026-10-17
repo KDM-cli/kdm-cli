@@ -167,6 +167,7 @@ async function tryStoreToCache(cacheKey: string, data: string): Promise<void> {
 export interface ExplainSingleParams {
   result: AnalyzerResult;
   backend: string;
+  model?: string;
   language: string;
   shouldAnonymize: boolean;
   noCache: boolean;
@@ -230,7 +231,7 @@ async function tryRunAgentCouncil(
         name: params.result.name,
         namespace: params.result.namespace,
       },
-      model: model || 'gemma:2b',
+      model: params.model || model,
       baseUrl,
       onProgress: params.onAgentProgress,
       onEvent: params.onEvent,
@@ -366,7 +367,7 @@ export async function explainSingleResult(params: ExplainSingleParams): Promise<
   });
 
   const client = await createAIClient(params.backend);
-  const model = (client as any).model ?? '';
+  const model = params.model || ((client as any).model ?? '');
 
   const cacheKey = await buildCacheKey({
     provider: params.backend,
@@ -440,6 +441,7 @@ async function explainResults(results: AnalyzerResult[], options: AnalysisOption
     await explainSingleResult({
       result,
       backend,
+      model: options.model,
       language,
       shouldAnonymize,
       noCache,
