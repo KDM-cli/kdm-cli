@@ -6,6 +6,12 @@ import json
 import re
 import ollama
 
+DEFAULT_OLLAMA_OPTIONS: Dict[str, Any] = {
+    "num_ctx": 4096,
+    "temperature": 0.1,
+    "num_predict": 512,
+}
+
 
 def extract_json(raw: str) -> Dict[str, Any]:
     """Extracts and parses JSON from raw LLM output, handling markdown fences and whitespace."""
@@ -82,13 +88,8 @@ class RuntimeLogAgent:
     def analyze(self, failure_text: str, context: Dict[str, Any]) -> Dict[str, Any]:
         system_prompt = (
             "You are a Senior Kubernetes & Docker Runtime Engineer specializing in container lifecycle, "
-            "Linux signals, exit codes (137 OOMKill, 1 Crash, 126 Permissions, 143 SIGTERM), "
-            "and application stderr/stdout stack traces.\n"
-            "Analyze the given failure text. Identify the immediate runtime or process-level trigger.\n"
-            "Return a clean JSON object with keys:\n"
-            '  "summary": concise diagnosis sentence naming the exact component or trigger,\n'
-            '  "evidence": list of 2-3 specific technical observations\n'
-            "Return ONLY valid JSON."
+            "exit codes (137 OOMKill, 1 Crash, 126 Permissions, 143 SIGTERM), and stderr/stdout logs.\n"
+            "Identify the runtime trigger. Return ONLY valid JSON with keys 'summary' and 'evidence'."
         )
 
         user_content = f"Workload Failure Information:\n{failure_text}\nContext: {json.dumps(context)}"
@@ -100,6 +101,7 @@ class RuntimeLogAgent:
                     {"role": "user", "content": user_content},
                 ],
                 format="json",
+                options=DEFAULT_OLLAMA_OPTIONS,
             )
             raw = response.message.content
             parsed = extract_json(raw)
@@ -180,12 +182,8 @@ class ConfigDependencyAgent:
     def analyze(self, failure_text: str, context: Dict[str, Any]) -> Dict[str, Any]:
         system_prompt = (
             "You are a Senior Kubernetes Configuration Specialist focusing on ConfigMaps, Secrets, "
-            "environment variables, volume mounts, service discovery, and liveness/readiness probe timeouts.\n"
-            "Analyze whether the failure stems from misconfiguration, missing dependencies, or probe thresholds.\n"
-            "Return a clean JSON object with keys:\n"
-            '  "summary": concise diagnosis sentence detailing the configuration gap,\n'
-            '  "evidence": list of 2-3 specific configuration observations\n'
-            "Return ONLY valid JSON."
+            "volume mounts, and probe timeouts.\n"
+            "Identify the declarative root cause. Return ONLY valid JSON with keys 'summary' and 'evidence'."
         )
 
         user_content = f"Workload Failure Information:\n{failure_text}\nContext: {json.dumps(context)}"
@@ -197,6 +195,7 @@ class ConfigDependencyAgent:
                     {"role": "user", "content": user_content},
                 ],
                 format="json",
+                options=DEFAULT_OLLAMA_OPTIONS,
             )
             raw = response.message.content
             parsed = extract_json(raw)
@@ -265,12 +264,8 @@ class ClusterResourceAgent:
     def analyze(self, failure_text: str, context: Dict[str, Any]) -> Dict[str, Any]:
         system_prompt = (
             "You are a Senior Kubernetes Capacity & Infrastructure Engineer focusing on node memory/disk pressure, "
-            "OOMKilled events, CPU throttling, cgroup memory limits, and QoS classes.\n"
-            "Analyze whether the workload failed due to quota exhaustion, cluster starvation, or improper sizing.\n"
-            "Return a clean JSON object with keys:\n"
-            '  "summary": concise diagnosis sentence evaluating node and cgroup capacity,\n'
-            '  "evidence": list of 2-3 technical resource observations\n'
-            "Return ONLY valid JSON."
+            "cgroup memory limits, OOMKilled events, and QoS classes.\n"
+            "Identify capacity and sizing constraints. Return ONLY valid JSON with keys 'summary' and 'evidence'."
         )
 
         user_content = f"Workload Failure Information:\n{failure_text}\nContext: {json.dumps(context)}"
@@ -282,6 +277,7 @@ class ClusterResourceAgent:
                     {"role": "user", "content": user_content},
                 ],
                 format="json",
+                options=DEFAULT_OLLAMA_OPTIONS,
             )
             raw = response.message.content
             parsed = extract_json(raw)
@@ -359,20 +355,9 @@ class SynthesizerAgent:
         context: Dict[str, Any],
     ) -> Dict[str, Any]:
         system_prompt = (
-            "You are the Lead SRE Incident Commander. You have received investigative reports from three "
-            "specialist agents: Runtime Agent, Config Agent, and Resource Agent.\n"
-            "Reconcile the findings, eliminate symptoms that are merely consequences, determine the true root cause, "
-            "and output the optimal step-by-step remediation plan with exact commands.\n"
-            "Return a clean JSON object with keys:\n"
-            '  "rootCause": concise statement of true root cause,\n'
-            '  "confidence": "high" | "medium" | "low",\n'
-            '  "bestSolution": {\n'
-            '    "actionTitle": specific actionable fix title,\n'
-            '    "steps": ["specific step 1", "specific step 2", ...],\n'
-            '    "commandToRun": "exact executable command like kubectl create secret or kubectl describe",\n'
-            '    "riskLevel": "low" | "medium" | "high"\n'
-            "  }\n"
-            "Return ONLY valid JSON."
+            "You are the Lead SRE Incident Commander synthesizing specialist findings into root cause consensus.\n"
+            "Return ONLY valid JSON with keys: rootCause, confidence (high|medium|low), and bestSolution "
+            "(actionTitle, steps, commandToRun, riskLevel)."
         )
 
         user_content = (
@@ -389,6 +374,7 @@ class SynthesizerAgent:
                     {"role": "user", "content": user_content},
                 ],
                 format="json",
+                options=DEFAULT_OLLAMA_OPTIONS,
             )
             raw = response.message.content
             parsed = extract_json(raw)

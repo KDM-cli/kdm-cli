@@ -19,12 +19,20 @@ if _AGENTS_DIR not in sys.path:
     sys.path.insert(0, _AGENTS_DIR)
 
 try:
-    from agents.specialists.base import BaseSpecialistAgent
+    from agents.specialists.base import (
+        DEFAULT_OLLAMA_OPTIONS,
+        BaseSpecialistAgent,
+        minify_system_prompt,
+    )
     from agents.specialists.config import ConfigDependencyAgent
     from agents.specialists.resource import ClusterResourceAgent
     from agents.specialists.runtime import RuntimeLogAgent
 except ImportError:
-    from specialists.base import BaseSpecialistAgent  # type: ignore[no-redef]
+    from specialists.base import (  # type: ignore[no-redef]
+        DEFAULT_OLLAMA_OPTIONS,
+        BaseSpecialistAgent,
+        minify_system_prompt,
+    )
     from specialists.config import ConfigDependencyAgent  # type: ignore[no-redef]
     from specialists.resource import ClusterResourceAgent  # type: ignore[no-redef]
     from specialists.runtime import RuntimeLogAgent  # type: ignore[no-redef]
@@ -33,7 +41,9 @@ __all__ = [
     "BaseSpecialistAgent",
     "ClusterResourceAgent",
     "ConfigDependencyAgent",
+    "DEFAULT_OLLAMA_OPTIONS",
     "RuntimeLogAgent",
+    "minify_system_prompt",
 ]
 
 # Legacy compatibility helper for council.py until Phase 6

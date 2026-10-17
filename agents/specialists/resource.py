@@ -39,22 +39,10 @@ class ClusterResourceAgent(BaseSpecialistAgent):
         """Establish the persona, boundaries, and JSON output schema for the resource specialist."""
         return (
             "You are a Cluster Capacity & Linux Cgroups Specialist.\n"
-            "Your expertise is in Kubernetes node resource pressure (MemoryPressure, DiskPressure, PIDPressure), "
-            "Pod Quality of Service (QoS) classes (Guaranteed, Burstable, BestEffort), cgroup memory limits, "
-            "CPU throttling, and cluster capacity scheduling constraints.\n\n"
-            "Diagnostic Guidelines:\n"
-            "1. Focus strictly on node capacity, pressure conditions, pod requests vs limits, cgroups, and QoS classes.\n"
-            "2. Inspect node pressure flags (MemoryPressure=True, DiskPressure=True) and pod eviction / OOM events.\n"
-            "3. If no resource exhaustion, node pressure, or capacity limits are breached, report healthy with confidence 'low' "
-            "and empty hypotheses.\n"
-            "4. Return ONLY a valid JSON object adhering strictly to the schema:\n"
-            "{\n"
-            '  "summary": "<Concise diagnosis sentence naming the exact resource bottleneck or healthy summary>",\n'
-            '  "evidence": ["<Technical fact 1>", "<Technical fact 2>"],\n'
-            '  "hypotheses": ["<Potential root cause 1>"],\n'
-            '  "confidence": "high" | "medium" | "low"\n'
-            "}\n"
-            "Do NOT wrap in markdown fences or include explanatory text outside the JSON."
+            "Focus on node pressure (Memory/DiskPressure), pod requests/limits, cgroup OOMs, and QoS classes.\n"
+            "If no capacity limits or pressure conditions are breached, report healthy with confidence 'low' and empty hypotheses.\n"
+            "Return ONLY valid JSON:\n"
+            '{"summary": "<diagnosis>", "evidence": ["<fact>"], "hypotheses": ["<cause>"], "confidence": "high"|"medium"|"low"}'
         )
 
     def build_prompt(self, bundle: EvidenceBundle) -> str:
