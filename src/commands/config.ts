@@ -344,15 +344,30 @@ const checkDeprecation = (key: string) => {
   }
 };
 
-const parseConfigValue = (key: string, value: string): string | number => {
-  if (key === 'alert_cooldown' || key === 'email_port') {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isNaN(parsed)) {
-      throw new Error(`Invalid numeric value for "${key}"`);
-    }
-    return parsed;
+const parseNumericConfigValue = (key: string, value: string): number => {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) {
+    throw new Error(`Invalid numeric value for "${key}"`);
   }
-  return value;
+  return parsed;
+};
+
+const parseBooleanConfigValue = (key: string, value: string): boolean => {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'true' || normalized === '1') return true;
+  if (normalized === 'false' || normalized === '0') return false;
+  throw new Error(`Invalid boolean value for "${key}". Expected "true" or "false".`);
+};
+
+const VALUE_PARSERS: Record<string, (key: string, value: string) => number | boolean> = {
+  alert_cooldown: parseNumericConfigValue,
+  email_port: parseNumericConfigValue,
+  multi_agent: parseBooleanConfigValue,
+};
+
+const parseConfigValue = (key: string, value: string): string | number | boolean => {
+  const customParser = VALUE_PARSERS[key];
+  return customParser ? customParser(key, value) : value;
 };
 
 const printDiscordWebhookGuide = () => {

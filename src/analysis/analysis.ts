@@ -1,14 +1,18 @@
 import type { AnalysisOptions, AnalysisOutput, AnalysisStats, SuggestedFix } from './types';
 import { registry } from '../analyzers';
 import { measureDuration } from './stats';
-import { getActiveFilters, getAIConfig, getCacheConfig } from '../config/store';
+import { getActiveFilters, getAIConfig, getCacheConfig, getConfig } from '../config/store';
 import type { Analyzer, AnalyzerResult } from '../analyzers/types';
 import { createAIClient } from '../ai/factory';
 import { buildPrompt } from '../ai/prompts';
 import { anonymize, deanonymize } from '../utils/text';
 import { createCacheProvider } from '../cache';
 import { logger } from '../utils/logger';
-import { runPythonAgentCouncil, isPythonAgentAvailable } from '../agent/python-bridge';
+import {
+  runPythonAgentCouncil,
+  runAgentCouncilProcess,
+  isPythonAgentAvailable,
+} from '../agent/python-bridge';
 import type { ConsensusDiagnosis, AgentProgressEvent, NDJSONEvent } from '../agent/types';
 import {
   checkCouncilDependencies,
@@ -481,47 +485,42 @@ async function runSingleAnalyzer(params: RunSingleParams): Promise<void> {
 }
 
 /**
- * Executes a full Kubernetes analysis run across selected analyzers in parallel,
- * respecting concurrency limits and monitoring cancellation signals.
- * @param options Options configuration directing namespace, filters, context, and stats.
- * @returns Aggregated analysis results containing status, problems, and stats.
+ * Checks whether the multi-agent council execution mode is requested via CLI flag,
+ * environment variable, or persistent configuration setting.
+ *
+ * @param options Analysis options provided to the execution run.
+ * @returns True if multi-agent council mode is enabled.
  */
-export async function runAnalysis(options: AnalysisOptions): Promise<AnalysisOutput> {
-  // ─── Feature Flag Gate (Phase 0 scaffolding) ───────────────────────────────
-  // When KDM_MULTI_AGENT is enabled, route to the multi-agent engine (Phases 1–24).
-  // For now, the multi-agent path is a no-op placeholder that falls through to legacy.
-  const useMultiAgent = process.env.KDM_MULTI_AGENT === 'true' || options.multiAgent === true;
-
-  if (useMultiAgent) {
-    // TODO(Phase 1+): Route to Multi-Agent Engine
-    // For now, log and fall through to the legacy pipeline.
-    logger.warn('KDM_MULTI_AGENT is enabled but multi-agent engine is not yet implemented. Falling through to legacy pipeline.');
+function isMultiAgentRequested(options: AnalysisOptions): boolean {
+  if (options.multiAgent === true) return true;
+  if (process.env.KDM_MULTI_AGENT === 'true') return true;
+  try {
+    const config = getConfig();
+    if (config?.multi_agent === true) return true;
+  } catch {
+    // Fail-safe if store fails to read
   }
+  return false;
+}
 
-  // ─── Legacy Pipeline (Frozen Baseline) ─────────────────────────────────────
-  const errors: string[] = [];
-  const results: AnalyzerResult[] = [];
-  const stats: AnalysisStats[] = [];
-
-  const filters = resolveFilters(options);
-  const analyzersToRun = resolveAnalyzers(filters, errors);
+/**
+ * Executes the selected analyzers concurrently up to the configured concurrency limit.
+ */
+async function executeAnalyzersConcurrently(
+  analyzers: Analyzer[],
+  options: AnalysisOptions,
+  context: any,
+  results: AnalyzerResult[],
+  errors: string[],
+  stats: AnalysisStats[],
+): Promise<void> {
   const limit = resolveConcurrencyLimit(options.maxConcurrency);
-
-  const context = {
-    namespace: options.namespace,
-    labelSelector: options.labelSelector,
-    kubeconfig: options.kubeconfig,
-    kubecontext: options.kubecontext,
-    withDocs: options.withDocs,
-    signal: options.signal,
-  };
-
   let index = 0;
-  const workers = Array.from({ length: Math.min(limit, analyzersToRun.length) }, async () => {
-    while (index < analyzersToRun.length) {
+  const workers = Array.from({ length: Math.min(limit, analyzers.length) }, async () => {
+    while (index < analyzers.length) {
       if (options.signal?.aborted) break;
       const currentIndex = index++;
-      const analyzer = analyzersToRun[currentIndex];
+      const analyzer = analyzers[currentIndex];
 
       await runSingleAnalyzer({
         analyzer,
@@ -535,9 +534,17 @@ export async function runAnalysis(options: AnalysisOptions): Promise<AnalysisOut
   });
 
   await Promise.all(workers);
+}
 
-  await explainResults(results, options);
-
+/**
+ * Packages analyzer results into an aggregated AnalysisOutput payload.
+ */
+function buildAnalysisOutput(
+  results: AnalyzerResult[],
+  errors: string[],
+  stats: AnalysisStats[],
+  options: AnalysisOptions,
+): AnalysisOutput {
   const problems = results.reduce((acc, curr) => acc + curr.errors.length, 0);
   const suggestedFixes = options.interactive ? buildSuggestedFixes(results) : undefined;
 
@@ -551,8 +558,137 @@ export async function runAnalysis(options: AnalysisOptions): Promise<AnalysisOut
   };
 
   tryAttachProvider(output);
-
   return output;
+}
+
+/**
+ * Delegates detected failures or target workload diagnostics to the Python Multi-Agent Council bridge.
+ * Sets consensus diagnosis on the primary result or safely degrades on bridge failures.
+ *
+ * @param results Detected analyzer results.
+ * @param options Analysis execution options.
+ */
+async function executeCouncilForResults(
+  results: AnalyzerResult[],
+  options: AnalysisOptions,
+): Promise<void> {
+  const primaryResult = results[0];
+  const failureText = results
+    .flatMap((r) => r.errors.map((e) => e.text))
+    .join('\n') || (options.labelSelector ? `Workload matching selector ${options.labelSelector} failure` : 'Cluster workload failure');
+
+  const targetContext = {
+    namespace: primaryResult?.namespace || options.namespace,
+    kind: primaryResult?.kind || 'Workload',
+    name: primaryResult?.name || options.labelSelector || 'cluster',
+  };
+
+  try {
+    const runner = runAgentCouncilProcess || runPythonAgentCouncil;
+    const consensus = await runner({
+      failureText,
+      context: targetContext,
+      model: options.model,
+      baseUrl: resolveOllamaBaseUrl(),
+    });
+
+    if (consensus) {
+      if (primaryResult) {
+        (primaryResult as any).consensus = consensus;
+        primaryResult.details = formatConsensusExplanation(consensus);
+        primaryResult.fallbackStep = 'council';
+      } else {
+        results.push({
+          kind: targetContext.kind,
+          name: targetContext.name,
+          namespace: targetContext.namespace || 'default',
+          errors: [{ text: failureText }],
+          details: formatConsensusExplanation(consensus),
+          consensus,
+          fallbackStep: 'council',
+        } as any);
+      }
+      return;
+    }
+  } catch (err) {
+    logger.warn(`Multi-agent council bridge failed: ${(err as Error).message}. Falling back to legacy pipeline.`);
+  }
+
+  await explainResults(results, options);
+}
+
+/**
+ * Runs the Multi-Agent Council pipeline (Phases 1–24) for workload analysis.
+ * Concurrently evaluates analyzers and delegates to the Python agent council bridge.
+ *
+ * @param options Analysis options directing analyzers and multi-agent execution.
+ * @returns Aggregated analysis output with council consensus.
+ */
+async function runMultiAgentPipeline(options: AnalysisOptions): Promise<AnalysisOutput> {
+  const errors: string[] = [];
+  const results: AnalyzerResult[] = [];
+  const stats: AnalysisStats[] = [];
+
+  const filters = resolveFilters(options);
+  const analyzersToRun = resolveAnalyzers(filters, errors);
+  const context = {
+    namespace: options.namespace,
+    labelSelector: options.labelSelector,
+    kubeconfig: options.kubeconfig,
+    kubecontext: options.kubecontext,
+    withDocs: options.withDocs,
+    signal: options.signal,
+  };
+
+  await executeAnalyzersConcurrently(analyzersToRun, options, context, results, errors, stats);
+  await executeCouncilForResults(results, options);
+
+  return buildAnalysisOutput(results, errors, stats, options);
+}
+
+/**
+ * Executes the frozen legacy baseline analysis pipeline (Phase 0).
+ * Runs analyzers and delegates to single-prompt cloud or local AI completions.
+ *
+ * @param options Analysis execution options.
+ * @returns Aggregated analysis output.
+ */
+async function runLegacyPipeline(options: AnalysisOptions): Promise<AnalysisOutput> {
+  const errors: string[] = [];
+  const results: AnalyzerResult[] = [];
+  const stats: AnalysisStats[] = [];
+
+  const filters = resolveFilters(options);
+  const analyzersToRun = resolveAnalyzers(filters, errors);
+  const context = {
+    namespace: options.namespace,
+    labelSelector: options.labelSelector,
+    kubeconfig: options.kubeconfig,
+    kubecontext: options.kubecontext,
+    withDocs: options.withDocs,
+    signal: options.signal,
+  };
+
+  await executeAnalyzersConcurrently(analyzersToRun, options, context, results, errors, stats);
+  await explainResults(results, options);
+
+  return buildAnalysisOutput(results, errors, stats, options);
+}
+
+/**
+ * Executes a full Kubernetes analysis run across selected analyzers,
+ * routing to either the experimental Multi-Agent Council or the legacy pipeline.
+ *
+ * @param options Options configuration directing namespace, filters, context, and stats.
+ * @returns Aggregated analysis results containing status, problems, and stats.
+ */
+export async function runAnalysis(options: AnalysisOptions): Promise<AnalysisOutput> {
+  if (isMultiAgentRequested(options)) {
+    return runMultiAgentPipeline(options);
+  }
+
+  logger.warn('Legacy single-prompt mode will be deprecated in v4.1.0.');
+  return runLegacyPipeline(options);
 }
 
 export {

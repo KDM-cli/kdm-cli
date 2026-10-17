@@ -180,4 +180,21 @@ describe('analyze command', () => {
       })
     );
   });
+
+  it('passes --multi-agent option to runAnalysis', async () => {
+    await program.parseAsync([
+      'node',
+      'test',
+      'analyze',
+      '--output',
+      'json',
+      '--multi-agent',
+    ]);
+
+    expect(runAnalysis).toHaveBeenCalledWith(
+      expect.objectContaining({
+        multiAgent: true,
+      })
+    );
+  });
 });

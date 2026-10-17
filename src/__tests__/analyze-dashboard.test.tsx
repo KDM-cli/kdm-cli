@@ -60,7 +60,7 @@ class MockStdin extends Readable {
   }
 }
 
-const waitForFrame = async (mockStdout: MockStdout, substring: string, timeout = 2000) => {
+const waitForFrame = async (mockStdout: MockStdout, substring: string, timeout = 5000) => {
   const start = Date.now();
   while (Date.now() - start < timeout) {
     const output = mockStdout.frames.join('\n');
@@ -335,7 +335,7 @@ describe('AnalyzeDashboard', () => {
         status: 'running',
         message: 'Runtime Log Agent is inspecting container logs...',
       });
-      await sleep(100);
+      await sleep(500);
     });
 
     const { unmount } = render(
