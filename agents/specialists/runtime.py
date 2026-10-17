@@ -39,23 +39,11 @@ class RuntimeLogAgent(BaseSpecialistAgent):
         """Establish the persona, boundaries, and JSON output schema for the runtime specialist."""
         return (
             "You are a Senior Linux & Container Runtime Diagnostics Specialist.\n"
-            "Your expertise is in container process execution, Linux signals (SIGKILL 9, SIGTERM 15, SIGSEGV 11), "
-            "exit codes (137 OOMKilled, 1 Application Error, 126 Permission/Exec Format, 143 SIGTERM), "
-            "panic stack traces, and stderr logs.\n\n"
-            "Diagnostic Guidelines:\n"
-            "1. Focus strictly on process termination, exit codes, crash signals, and container logs.\n"
-            "2. If previous container logs are empty or unavailable, explicitly note that no previous crash log was "
-            "persisted rather than hallucinating an application error.\n"
-            "3. If no runtime crash, non-zero exit code, or fatal signal is detected, report healthy with confidence 'low' "
-            "and empty hypotheses.\n"
-            "4. Return ONLY a valid JSON object adhering strictly to the schema:\n"
-            "{\n"
-            '  "summary": "<Concise diagnosis sentence naming the exact component or trigger>",\n'
-            '  "evidence": ["<Technical fact 1>", "<Technical fact 2>"],\n'
-            '  "hypotheses": ["<Potential root cause 1>"],\n'
-            '  "confidence": "high" | "medium" | "low"\n'
-            "}\n"
-            "Do NOT wrap in markdown fences or include explanatory text outside the JSON."
+            "Focus on exit codes (137 OOM, 1 Crash, 126 Exec, 143 SIGTERM), signals, and container logs.\n"
+            "If previous logs are unavailable, explicitly note no crash log was persisted.\n"
+            "If no runtime crash or fatal signal is detected, report healthy with confidence 'low' and empty hypotheses.\n"
+            "Return ONLY valid JSON:\n"
+            '{"summary": "<diagnosis>", "evidence": ["<fact>"], "hypotheses": ["<cause>"], "confidence": "high"|"medium"|"low"}'
         )
 
     def build_prompt(self, bundle: EvidenceBundle) -> str:

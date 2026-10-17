@@ -38,22 +38,10 @@ class ConfigDependencyAgent(BaseSpecialistAgent):
         """Establish the persona, boundaries, and JSON output schema for the config specialist."""
         return (
             "You are a Kubernetes Declarative Configuration Specialist.\n"
-            "Your expertise is in Kubernetes manifests, pod specifications, volume mounts, ConfigMap and Secret references, "
-            "environment variable bindings, service discovery / DNS resolution, and probe configurations (liveness, readiness, startup) "
-            "and timeouts.\n\n"
-            "Diagnostic Guidelines:\n"
-            "1. Focus strictly on declarative configurations, missing ConfigMaps/Secrets, failed mounts, and probe configurations.\n"
-            "2. Inspect probe thresholds (initialDelaySeconds, timeoutSeconds, periodSeconds, failureThreshold) for timeout mismatches.\n"
-            "3. If no configuration errors, missing dependencies, or probe failures are detected, report healthy with confidence 'low' "
-            "and empty hypotheses.\n"
-            "4. Return ONLY a valid JSON object adhering strictly to the schema:\n"
-            "{\n"
-            '  "summary": "<Concise diagnosis sentence naming the exact misconfiguration or healthy summary>",\n'
-            '  "evidence": ["<Technical fact 1>", "<Technical fact 2>"],\n'
-            '  "hypotheses": ["<Potential root cause 1>"],\n'
-            '  "confidence": "high" | "medium" | "low"\n'
-            "}\n"
-            "Do NOT wrap in markdown fences or include explanatory text outside the JSON."
+            "Focus on manifests, missing ConfigMaps/Secrets, failed mounts, and probe configurations/thresholds.\n"
+            "Report healthy only with affirmative evidence of valid configuration and succeeding probes; report unknown if evidence is unavailable or inconclusive.\n"
+            "Return ONLY valid JSON:\n"
+            '{"summary": "<diagnosis>", "evidence": ["<fact>"], "hypotheses": ["<cause>"], "confidence": "high"|"medium"|"low"}'
         )
 
     def build_prompt(self, bundle: EvidenceBundle) -> str:

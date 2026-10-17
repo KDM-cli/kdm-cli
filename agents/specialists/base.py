@@ -28,12 +28,31 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_OLLAMA_OPTIONS: Dict[str, Any] = {
+    "num_ctx": 4096,
+    "temperature": 0.1,
+    "num_predict": 512,
+}
+
 FALLBACK_REPORT: Dict[str, Any] = {
     "summary": "Agent output parsing failed",
     "evidence": [],
     "hypotheses": [],
     "confidence": "low",
 }
+
+
+def minify_system_prompt(prompt: str) -> str:
+    """Minify system prompt text by removing excess whitespace and blank lines.
+
+    Args:
+        prompt: Raw system prompt text.
+
+    Returns:
+        Compacted system prompt.
+    """
+    lines = [line.strip() for line in prompt.strip().splitlines() if line.strip()]
+    return "\n".join(lines)
 
 
 class BaseSpecialistAgent(ABC):
@@ -46,26 +65,38 @@ class BaseSpecialistAgent(ABC):
     role: str
     display_name: str
     icon: str
+    DEFAULT_OPTIONS: Dict[str, Any] = DEFAULT_OLLAMA_OPTIONS
 
-    def __init__(self, client: ollama.Client, model: str) -> None:
-        """Initialize specialist agent with an Ollama client and model name."""
+    def __init__(
+        self,
+        client: ollama.Client,
+        model: str,
+        options: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Initialize specialist agent with an Ollama client, model name, and options."""
         self.client = client
         self.model = model
+        self.options = dict(options) if options is not None else dict(self.DEFAULT_OPTIONS)
 
     @abstractmethod
     def build_prompt(self, bundle: EvidenceBundle) -> str:
         """Construct the domain-specific prompt from the evidence bundle."""
         pass
 
-    @abstractmethod
     def get_system_prompt(self) -> str:
-        """Return the specialist's system prompt establishing its persona and constraints."""
-        pass
+        """Return the specialist's minified system prompt establishing persona and constraints."""
+        role = getattr(self, "display_name", getattr(self, "role", "Diagnostic Specialist"))
+        return (
+            f"You are a Kubernetes SRE Specialist ({role}).\n"
+            "Analyze evidence strictly within your domain. Return ONLY valid JSON:\n"
+            '{"summary": "<diagnosis>", "evidence": ["<fact>"], '
+            '"hypotheses": ["<cause>"], "confidence": "high"|"medium"|"low"}'
+        )
 
     def run_investigation(self, bundle: EvidenceBundle) -> Dict[str, Any]:
         """Run domain investigation using Ollama with strict JSON mode.
 
-        Passes format="json" and options={"temperature": 0.1} to client.chat().
+        Passes format="json" and options to client.chat().
         Returns a dictionary adhering to the SpecialistReport schema:
         {
             "summary": str,
@@ -86,7 +117,7 @@ class BaseSpecialistAgent(ABC):
                     {"role": "user", "content": prompt},
                 ],
                 format="json",
-                options={"temperature": 0.1},
+                options=self.options,
             )
             return self._parse_chat_response(response)
         except Exception as exc:
@@ -113,6 +144,7 @@ class BaseSpecialistAgent(ABC):
                     {"role": "user", "content": user_content},
                 ],
                 format="json",
+                options=self.options,
             )
             content = self._extract_content(response)
             cleaned = self._strip_markdown_fences(content)
@@ -286,7 +318,7 @@ class BaseSpecialistAgent(ABC):
                         {"role": "user", "content": user_content},
                     ],
                     format="json",
-                    options={"temperature": 0.1},
+                    options=self.options,
                 ),
             )
             parsed = self._parse_json_dict(response)
@@ -344,7 +376,7 @@ class BaseSpecialistAgent(ABC):
                         {"role": "user", "content": user_content},
                     ],
                     format="json",
-                    options={"temperature": 0.1},
+                    options=self.options,
                 ),
             )
             return self._parse_chat_response(response)

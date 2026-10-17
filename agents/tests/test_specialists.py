@@ -2,7 +2,7 @@
 Unit Tests — Structured Specialist Agents (agents/specialists/)
 ================================================================
 Tests cover:
-  - BaseSpecialistAgent initialization, contracts, format="json", and options={"temperature": 0.1}.
+  - BaseSpecialistAgent initialization, contracts, format="json", and options={"num_ctx": 4096, "temperature": 0.1, "num_predict": 512}.
   - Robust JSON parsing, markdown code fences, malformed responses, and timeout/exception recovery.
   - RuntimeLogAgent system prompt, exit codes/signals/log extraction, and empty logs edge case.
   - ConfigDependencyAgent system prompt, manifest/probe inspection, and missing volume/secret events.
@@ -144,7 +144,7 @@ class TestBaseSpecialistContracts(SpecialistTestBase):
                 {"role": "user", "content": "Investigate workload order-api"},
             ],
             format="json",
-            options={"temperature": 0.1},
+            options={"num_ctx": 4096, "temperature": 0.1, "num_predict": 512},
         )
         self.assertEqual(report["summary"], "Root cause identified.")
         self.assertEqual(report["evidence"], ["Fact A", "Fact B"])

@@ -31,8 +31,8 @@ _AGENTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _AGENTS_DIR not in sys.path:
     sys.path.insert(0, _AGENTS_DIR)
 
-from core.sanitizer import redact_sensitive_data
-from tools.registry import tool_registry
+from core.sanitizer import redact_sensitive_data  # noqa: E402
+from tools.registry import tool_registry  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Maximum number of log lines that may be requested in a single call.
@@ -160,6 +160,41 @@ async def get_pod_status(namespace: str, pod: str) -> Dict[str, Any]:
     return redact_sensitive_data(_extract_pod_status(raw))
 
 
+def clip_log_lines(
+    lines: List[str],
+    head: int = 20,
+    tail: int = 80,
+    max_lines: int = 100,
+) -> List[str]:
+    """Bound log lines by keeping head and tail, omitting middle lines if total lines exceed max_lines.
+
+    If len(lines) > max_lines, keeps the first head lines, inserts
+    `... [X lines omitted] ...`, and keeps the last tail lines.
+
+    Args:
+        lines: List of raw log strings.
+        head: Number of lines to preserve at the start (default: 20).
+        tail: Number of lines to preserve at the end (default: 80).
+        max_lines: Threshold line count above which clipping is applied (default: 100).
+
+    Returns:
+        List of log lines, clipped if len(lines) > max_lines.
+
+    Raises:
+        ValueError: If head or tail are negative, or if head + tail > max_lines.
+    """
+    if head < 0 or tail < 0 or max_lines < 0 or (head + tail) > max_lines:
+        raise ValueError(
+            f"Invalid clipping parameters: head ({head}) and tail ({tail}) "
+            f"must be non-negative and head + tail must not exceed max_lines ({max_lines})."
+        )
+    if len(lines) <= max_lines:
+        return lines
+    omitted = len(lines) - head - tail
+    tail_lines = lines[len(lines) - tail:] if tail > 0 else []
+    return [*lines[:head], f"... [{omitted} lines omitted] ...", *tail_lines]
+
+
 @tool_registry.register(
     "get_container_logs",
     "Fetch recent log lines for a named container inside a pod.",
@@ -194,7 +229,8 @@ async def get_container_logs(
     stdout, stderr = await proc.communicate()
     if proc.returncode != 0:
         return _kubectl_error(stderr.decode())
-    return {"lines": stdout.decode().splitlines()}
+    raw_lines = stdout.decode().splitlines()
+    return {"lines": clip_log_lines(raw_lines)}
 
 
 def _build_logs_cmd(
