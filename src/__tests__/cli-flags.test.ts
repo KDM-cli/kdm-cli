@@ -4,9 +4,11 @@ import { runAnalysis } from '../analysis/analysis';
 import { registerAnalyzeCommand } from '../commands/analyze';
 import { registerConfigCommand } from '../commands/config';
 import * as pythonBridge from '../agent/python-bridge';
-import { clearConfig, getConfig, setMultiAgentConfig, setConfigValue } from '../config/store';
+import { clearConfig, getConfig, setMultiAgentConfig } from '../config/store';
 import { logger } from '../utils/logger';
 import type { ConsensusDiagnosis } from '../agent/types';
+
+const LEGACY_DEPRECATION_WARNING = 'Legacy single-prompt mode will be deprecated in v4.1.0';
 
 const MOCK_CONSENSUS: ConsensusDiagnosis = {
   rootCause: 'Pod evicted due to node memory pressure',
@@ -51,16 +53,10 @@ vi.mock('conf', () => {
     get store() {
       return Object.fromEntries(store.entries());
     },
-    set: vi.fn((key: string, val: any) => {
-      store.set(key, val);
-    }),
+    set: vi.fn((key: string, val: any) => store.set(key, val)),
     get: vi.fn((key: string) => store.get(key)),
-    delete: vi.fn((key: string) => {
-      store.delete(key);
-    }),
-    clear: vi.fn(() => {
-      store.clear();
-    }),
+    delete: vi.fn((key: string) => store.delete(key)),
+    clear: vi.fn(() => store.clear()),
   };
   return {
     default: class MockConf {
@@ -92,7 +88,7 @@ describe('Phase 23 - Feature Flags, Rollout Modes & Legacy Fallback (Issue #294)
   });
 
   describe('Flag & Config Routing in Analysis Engine', () => {
-    it('asserts --multi-agent flag routes to multi-agent bridge (runAgentCouncilProcess)', async () => {
+    it('asserts --multi-agent flag routes to multi-agent bridge', async () => {
       const output = await runAnalysis({
         multiAgent: true,
         namespace: 'production',
@@ -110,7 +106,7 @@ describe('Phase 23 - Feature Flags, Rollout Modes & Legacy Fallback (Issue #294)
       expect(output.results[0]?.details).toContain('Root Cause (HIGH confidence):');
       expect(output.results[0]?.details).toContain('Increase memory limits on the pod manifest');
       expect(logger.warn).not.toHaveBeenCalledWith(
-        expect.stringContaining('Legacy single-prompt mode will be deprecated in v4.1.0'),
+        expect.stringContaining(LEGACY_DEPRECATION_WARNING),
       );
     });
 
@@ -122,7 +118,7 @@ describe('Phase 23 - Feature Flags, Rollout Modes & Legacy Fallback (Issue #294)
 
       expect(pythonBridge.runAgentCouncilProcess).not.toHaveBeenCalled();
       expect(logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('Legacy single-prompt mode will be deprecated in v4.1.0.'),
+        expect.stringContaining(LEGACY_DEPRECATION_WARNING),
       );
       expect(output.status).toBe('OK');
     });
@@ -130,13 +126,11 @@ describe('Phase 23 - Feature Flags, Rollout Modes & Legacy Fallback (Issue #294)
     it('routes to multi-agent bridge when KDM_MULTI_AGENT environment variable is true', async () => {
       process.env.KDM_MULTI_AGENT = 'true';
 
-      await runAnalysis({
-        namespace: 'default',
-      });
+      await runAnalysis({ namespace: 'default' });
 
       expect(pythonBridge.runAgentCouncilProcess).toHaveBeenCalled();
       expect(logger.warn).not.toHaveBeenCalledWith(
-        expect.stringContaining('Legacy single-prompt mode will be deprecated in v4.1.0'),
+        expect.stringContaining(LEGACY_DEPRECATION_WARNING),
       );
     });
 
@@ -144,26 +138,22 @@ describe('Phase 23 - Feature Flags, Rollout Modes & Legacy Fallback (Issue #294)
       setMultiAgentConfig(true);
       expect(getConfig().multi_agent).toBe(true);
 
-      await runAnalysis({
-        namespace: 'default',
-      });
+      await runAnalysis({ namespace: 'default' });
 
       expect(pythonBridge.runAgentCouncilProcess).toHaveBeenCalled();
       expect(logger.warn).not.toHaveBeenCalledWith(
-        expect.stringContaining('Legacy single-prompt mode will be deprecated in v4.1.0'),
+        expect.stringContaining(LEGACY_DEPRECATION_WARNING),
       );
     });
 
     it('routes to legacy pipeline when config store multi_agent is false', async () => {
       setMultiAgentConfig(false);
 
-      await runAnalysis({
-        namespace: 'default',
-      });
+      await runAnalysis({ namespace: 'default' });
 
       expect(pythonBridge.runAgentCouncilProcess).not.toHaveBeenCalled();
       expect(logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('Legacy single-prompt mode will be deprecated in v4.1.0'),
+        expect.stringContaining(LEGACY_DEPRECATION_WARNING),
       );
     });
 
@@ -186,7 +176,7 @@ describe('Phase 23 - Feature Flags, Rollout Modes & Legacy Fallback (Issue #294)
   });
 
   describe('CLI Command Flag Registration', () => {
-    it('registers --multi-agent option on analyze command and passes to analysis options', async () => {
+    it('registers --multi-agent option on analyze command and passes to analysis options', () => {
       const program = new Command();
       registerAnalyzeCommand(program);
 
