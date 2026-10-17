@@ -373,7 +373,7 @@ export async function runAgentCouncilProcess(
   const payload = JSON.stringify({
     failureText: options.failureText,
     context: options.context,
-    model: options.model || DEFAULT_MODEL,
+    ...(options.model ? { model: options.model } : {}),
     baseUrl: options.baseUrl || DEFAULT_BASE_URL,
   });
 

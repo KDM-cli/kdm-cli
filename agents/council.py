@@ -15,7 +15,13 @@ import json
 import logging
 import os
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
+
 
 _AGENTS_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_AGENTS_DIR, ".."))
@@ -49,11 +55,62 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+CONFIG_FILE_NAME = "agents.yaml"
+DEFAULT_FALLBACK_MODEL = "llama3.1"
+
+
 def emit_event(event_type: str, data: Dict[str, Any]) -> None:
     """Emits a single JSON event to stdout, followed by an immediate flush."""
     payload = {"type": event_type, **data}
     sys.stdout.write(json.dumps(payload) + "\n")
     sys.stdout.flush()
+
+
+def _extract_models_map(config: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    """Normalizes models dictionary from configuration, supporting nested or flat formats."""
+    if not isinstance(config, dict):
+        return {}
+    models_entry = config.get("models")
+    target = models_entry if isinstance(models_entry, dict) else config
+    return {
+        str(k).strip().lower(): str(v).strip()
+        for k, v in target.items()
+        if v is not None and str(v).strip()
+    }
+
+
+def _read_yaml_file(path: str) -> Optional[Dict[str, Any]]:
+    """Safely reads and parses a single YAML configuration file."""
+    if not path or not os.path.isfile(path) or yaml is None:
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+            return data if isinstance(data, dict) else None
+    except Exception as err:
+        logger.warning("Failed to load agent configuration from %s: %s", path, err)
+        return None
+
+
+def _get_config_search_paths(config_path: Optional[str] = None) -> List[str]:
+    """Returns candidate paths for the agent configuration file."""
+    if config_path:
+        return [config_path]
+
+    env_path = os.environ.get("KDM_AGENTS_CONFIG")
+    paths = [env_path] if env_path else []
+    paths.append(os.path.join(os.getcwd(), "config", CONFIG_FILE_NAME))
+    paths.append(os.path.join(_REPO_ROOT, "config", CONFIG_FILE_NAME))
+    return paths
+
+
+def load_agents_config(config_path: Optional[str] = None) -> Dict[str, Any]:
+    """Loads agent configuration from YAML file if present."""
+    for path in _get_config_search_paths(config_path):
+        parsed = _read_yaml_file(path)
+        if parsed is not None:
+            return parsed
+    return {}
 
 
 def _match_requested_model(candidate_models: List[str], requested_model: str) -> Optional[str]:
@@ -69,7 +126,7 @@ def _find_model_by_base(candidate_models: List[str], model_base: str) -> Optiona
     return next((model for model in candidate_models if model.split(":")[0] == model_base), None)
 
 
-def resolve_model(client: ollama.Client, requested_model: str) -> str:
+def resolve_installed_model(client: Any, requested_model: str) -> str:
     """Resolves an installed local Ollama model, falling back to an available chat model if needed."""
     try:
         res = client.list()
@@ -96,6 +153,52 @@ def resolve_model(client: ollama.Client, requested_model: str) -> str:
     return requested_model or "gemma:2b"
 
 
+def _resolve_from_config(role: str, config: Optional[Dict[str, Any]]) -> str:
+    """Resolves target model from configuration dictionary hierarchy."""
+    effective_config = config if isinstance(config, dict) else load_agents_config()
+    models_map = _extract_models_map(effective_config)
+    role_key = str(role).strip().lower()
+
+    if role_key in models_map and models_map[role_key]:
+        return models_map[role_key]
+
+    if "default" in models_map and models_map["default"]:
+        return models_map["default"]
+
+    return DEFAULT_FALLBACK_MODEL
+
+
+def resolve_model(
+    role: Any = "default",
+    config: Optional[Union[Dict[str, Any], str]] = None,
+    cli_override: Optional[str] = None,
+    client: Optional[ollama.Client] = None,
+) -> str:
+    """Dynamically determine which model to instantiate for an agent role.
+
+    Resolution Priority:
+      1. Global CLI override (`cli_override`).
+      2. Per-role model mapping in `config` (`models.<role>`).
+      3. Default model specification in `config` (`models.default`).
+      4. Fallback default model ("llama3.1").
+
+    Backward compatibility:
+      If called with `resolve_model(client, requested_model)`, delegates to
+      `resolve_installed_model(client, requested_model)`.
+    """
+    if not isinstance(role, str):
+        return resolve_installed_model(role, str(config) if config else DEFAULT_FALLBACK_MODEL)
+
+    if cli_override and str(cli_override).strip():
+        model_name = str(cli_override).strip()
+    else:
+        model_name = _resolve_from_config(role, config if isinstance(config, dict) else None)
+
+    if client is not None:
+        return resolve_installed_model(client, model_name)
+    return model_name
+
+
 class AgentCouncil:
     """Multi-agent SRE diagnostic council coordinating domain specialists and synthesis.
 
@@ -108,25 +211,36 @@ class AgentCouncil:
     def __init__(
         self,
         client: Optional[ollama.Client] = None,
-        model: str = "llama3.1",
+        model: Optional[str] = None,
         base_url: str = "http://localhost:11434",
         rule_engine: Optional[RuleEngine] = None,
+        config: Optional[Dict[str, Any]] = None,
+        config_path: Optional[str] = None,
     ) -> None:
         """Initialize AgentCouncil with client, model, and optional rule engine.
 
         :param client: Optional pre-configured or mocked ollama.Client.
-        :param model: Target LLM model name (default: 'llama3.1').
+        :param model: Optional target LLM model name override (CLI --model).
         :param base_url: Ollama daemon host URL (default: 'http://localhost:11434').
         :param rule_engine: Optional RuleEngine for deterministic fast-path evaluation.
+        :param config: Optional pre-parsed agent configuration dictionary.
+        :param config_path: Optional custom path to agents.yaml configuration file.
         """
         self.base_url = base_url
         self.model = model
         self.client = client if client is not None else ollama.Client(host=base_url)
         self.rule_engine = rule_engine if rule_engine is not None else RuleEngine()
+        self.config = config if config is not None else load_agents_config(config_path)
 
-    def resolve_model(self) -> str:
-        """Resolve installed or compatible Ollama model."""
-        return resolve_model(self.client, self.model)
+    def resolve_model(self, role: str = "default") -> str:
+        """Resolve installed or compatible Ollama model for the specified role."""
+        return resolve_model(
+            role=role,
+            config=self.config,
+            cli_override=self.model,
+            client=self.client,
+        )
+
 
     def diagnose(
         self,
@@ -187,12 +301,15 @@ class AgentCouncil:
         :return: ConsensusDiagnosis instance.
         """
         ctx = context or {}
-        resolved = self.resolve_model()
+        runtime_model = self.resolve_model("runtime")
+        config_model = self.resolve_model("config")
+        resource_model = self.resolve_model("resource")
+        synthesizer_model = self.resolve_model("synthesizer")
 
-        runtime_agent = RuntimeLogAgent(self.client, resolved)
-        config_agent = ConfigDependencyAgent(self.client, resolved)
-        resource_agent = ClusterResourceAgent(self.client, resolved)
-        synthesizer = SynthesizerAgent(self.client, resolved)
+        runtime_agent = RuntimeLogAgent(self.client, runtime_model)
+        config_agent = ConfigDependencyAgent(self.client, config_model)
+        resource_agent = ClusterResourceAgent(self.client, resource_model)
+        synthesizer = SynthesizerAgent(self.client, synthesizer_model)
 
         findings: List[Dict[str, Any]] = []
 
@@ -337,12 +454,20 @@ class AgentCouncil:
 def run_council(
     failure_text: str,
     context: Dict[str, Any],
-    model: str = "llama3.1",
+    model: Optional[str] = None,
     base_url: str = "http://localhost:11434",
     client: Optional[ollama.Client] = None,
+    config: Optional[Dict[str, Any]] = None,
+    config_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Runs the full multi-agent collaborative investigation pipeline."""
-    council = AgentCouncil(client=client, model=model, base_url=base_url)
+    council = AgentCouncil(
+        client=client,
+        model=model,
+        base_url=base_url,
+        config=config,
+        config_path=config_path,
+    )
     diag = council.run(failure_text, context, emit_events=True)
     return diag.to_dict() if hasattr(diag, "to_dict") else diag
 
@@ -363,10 +488,10 @@ def main() -> None:
 
         failure_text = input_data.get("failureText", "General workload error")
         context = input_data.get("context", {})
-        model = input_data.get("model", "llama3.1")
+        model = input_data.get("model") or input_data.get("cli_override")
         base_url = input_data.get("baseUrl", "http://localhost:11434")
 
-        run_council(failure_text, context, model, base_url)
+        run_council(failure_text, context, model=model, base_url=base_url)
     except Exception as err:
         emit_event("error", {"message": str(err)})
         sys.exit(1)

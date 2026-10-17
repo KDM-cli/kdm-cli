@@ -162,4 +162,22 @@ describe('analyze command', () => {
       })
     );
   });
+
+  it('passes --model option to runAnalysis for multi-model strategy', async () => {
+    await program.parseAsync([
+      'node',
+      'test',
+      'analyze',
+      '--output',
+      'json',
+      '--model',
+      'qwen2.5-coder',
+    ]);
+
+    expect(runAnalysis).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'qwen2.5-coder',
+      })
+    );
+  });
 });

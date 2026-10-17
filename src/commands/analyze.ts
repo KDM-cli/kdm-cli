@@ -69,6 +69,7 @@ const buildAnalysisOptions = (options: any, signal: AbortSignal): AnalysisOption
   signal,
   explain: Boolean(options.explain),
   backend: options.backend,
+  model: options.model,
   language: options.language,
   anonymize: Boolean(options.anonymize),
   customHeaders: options.customHeaders,
@@ -234,6 +235,7 @@ export const registerAnalyzeCommand = (program: Command) => {
     .option('--kubecontext <context>', 'Kubernetes context to use')
     .option('-e, --explain', 'Enable AI-powered explanations for detected problems')
     .option('-b, --backend <backend>', 'AI backend provider to use (e.g. openai, ollama, noop)')
+    .option('--model <model>', 'Target AI model name (e.g. llama3.1, qwen2.5-coder)')
     .option('-l, --language <lang>', 'Language for AI responses', 'english')
     .option('-a, --anonymize', 'Anonymize sensitive resource names in AI prompts')
     .option('-r, --custom-headers <headers>', 'Custom HTTP headers (Key:Value,Key2:Value2)', parseCustomHeaders, {})
