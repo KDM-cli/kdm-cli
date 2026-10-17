@@ -23,6 +23,8 @@ _AGENTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _AGENTS_DIR not in sys.path:
     sys.path.insert(0, _AGENTS_DIR)
 
+import ollama  # noqa: E402
+
 from core.evidence import (  # noqa: E402
     CollectionStatus,
     EvidenceBundle,
@@ -131,6 +133,28 @@ class TestLogHeadTailBounding(unittest.TestCase):
         self.assertEqual(lines[20], "... [100 lines omitted] ...")
         self.assertEqual(lines[-80:], [f"line-{i}" for i in range(121, 201)])
 
+    def test_invalid_clipping_parameters_raise_value_error(self) -> None:
+        """Negative counts or head + tail exceeding max_lines must raise ValueError."""
+        with self.assertRaises(ValueError):
+            clip_log_lines([], head=-1)
+
+        with self.assertRaises(ValueError):
+            clip_log_lines([], tail=-1)
+
+        with self.assertRaises(ValueError):
+            clip_log_lines([], max_lines=-1)
+
+        with self.assertRaises(ValueError):
+            clip_log_lines([], head=60, tail=50, max_lines=100)
+
+    def test_clipping_with_zero_tail(self) -> None:
+        """When tail=0, clipping must return only head lines and the omission marker without full log."""
+        raw_logs = [f"line {i}" for i in range(1, 31)]
+        clipped = clip_log_lines(raw_logs, head=10, tail=0, max_lines=20)
+        self.assertEqual(len(clipped), 11)
+        self.assertEqual(clipped[:10], raw_logs[:10])
+        self.assertEqual(clipped[10], "... [20 lines omitted] ...")
+
 
 class TestOllamaOptionsConfiguration(unittest.TestCase):
     """Task 21.2: Verification of Ollama Chat Options Optimization."""
@@ -208,6 +232,23 @@ class TestOllamaOptionsConfiguration(unittest.TestCase):
         call_kwargs = self.mock_client.chat.call_args[1]
         self.assertEqual(
             call_kwargs["options"],
+            {"num_ctx": 4096, "temperature": 0.1, "num_predict": 512},
+        )
+
+        synth_payload = {
+            "summary": "Forced synthesis report",
+            "confidence": "high",
+            "evidence": ["ev1"],
+        }
+        self.mock_client.chat.return_value = {
+            "message": {"content": json.dumps(synth_payload)}
+        }
+        synth_res = asyncio.run(agent.force_synthesis(bundle, []))
+        self.assertEqual(synth_res["summary"], "Forced synthesis report")
+
+        synth_call_kwargs = self.mock_client.chat.call_args[1]
+        self.assertEqual(
+            synth_call_kwargs["options"],
             {"num_ctx": 4096, "temperature": 0.1, "num_predict": 512},
         )
 
@@ -331,6 +372,37 @@ class TestCouncilExecutionSpeedBenchmark(unittest.TestCase):
         )
         self.assertIsNotNone(diagnosis)
         self.assertIn("memory limit", diagnosis.root_cause.lower())
+
+    def test_live_ollama_council_execution_under_thirty_seconds(self) -> None:
+        """Opt-in live model benchmark: verify real multi-agent council latency < 30s.
+
+        Skipped unless KDM_RUN_LIVE_BENCHMARKS=1 is set and Ollama daemon is reachable.
+        """
+        if os.getenv("KDM_RUN_LIVE_BENCHMARKS") != "1":
+            self.skipTest(
+                "Live Ollama benchmarks disabled. Set KDM_RUN_LIVE_BENCHMARKS=1 to enable."
+            )
+
+        model = os.getenv("KDM_BENCHMARK_MODEL", "llama3.1:8b")
+        client = ollama.Client()
+        try:
+            client.show(model)
+        except Exception as exc:
+            self.skipTest(f"Live Ollama model '{model}' not reachable or available: {exc}")
+
+        council = AgentCouncil(client=client, model=model)
+        start = time.perf_counter()
+        diagnosis = council.run(
+            failure_text="Back-off restarting failed container\nExit Code: 137 (OOMKilled)",
+            context={"namespace": "default", "kind": "Pod", "name": "order-api"},
+        )
+        duration = time.perf_counter() - start
+        self.assertLess(
+            duration,
+            30.0,
+            f"Live council execution took {duration:.2f}s, exceeding 30s requirement.",
+        )
+        self.assertIsNotNone(diagnosis)
 
 
 if __name__ == "__main__":

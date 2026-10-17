@@ -39,7 +39,7 @@ class ConfigDependencyAgent(BaseSpecialistAgent):
         return (
             "You are a Kubernetes Declarative Configuration Specialist.\n"
             "Focus on manifests, missing ConfigMaps/Secrets, failed mounts, and probe configurations/thresholds.\n"
-            "If no configuration errors or probe failures exist, report healthy with confidence 'low' and empty hypotheses.\n"
+            "Report healthy only with affirmative evidence of valid configuration and succeeding probes; report unknown if evidence is unavailable or inconclusive.\n"
             "Return ONLY valid JSON:\n"
             '{"summary": "<diagnosis>", "evidence": ["<fact>"], "hypotheses": ["<cause>"], "confidence": "high"|"medium"|"low"}'
         )

@@ -179,11 +179,20 @@ def clip_log_lines(
 
     Returns:
         List of log lines, clipped if len(lines) > max_lines.
+
+    Raises:
+        ValueError: If head or tail are negative, or if head + tail > max_lines.
     """
+    if head < 0 or tail < 0 or max_lines < 0 or (head + tail) > max_lines:
+        raise ValueError(
+            f"Invalid clipping parameters: head ({head}) and tail ({tail}) "
+            f"must be non-negative and head + tail must not exceed max_lines ({max_lines})."
+        )
     if len(lines) <= max_lines:
         return lines
     omitted = len(lines) - head - tail
-    return lines[:head] + [f"... [{omitted} lines omitted] ..."] + lines[-tail:]
+    tail_lines = lines[len(lines) - tail:] if tail > 0 else []
+    return [*lines[:head], f"... [{omitted} lines omitted] ...", *tail_lines]
 
 
 @tool_registry.register(
