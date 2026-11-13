@@ -85,4 +85,20 @@ describe('ShowDashboard search', () => {
     expect(stdout.output).toContain('Search: api');
     expect(stdout.output).toContain('api-server');
   });
+
+  it('clears a preserved filter when Escape is pressed after search is blurred', async () => {
+    const stdout = new TestStdout();
+    stdin = new TestStdin();
+    app = render(<ShowDashboard />, { stdin, stdout, debug: true });
+    await wait();
+    stdin.send('/');
+    await wait();
+    stdin.send('api');
+    await wait();
+    stdin.send('\r');
+    await wait();
+    stdin.send('\u001b');
+    await wait();
+    expect(stdout.output.slice(-500)).toContain('worker');
+  });
 });
