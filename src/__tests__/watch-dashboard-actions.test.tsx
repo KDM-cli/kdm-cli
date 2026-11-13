@@ -69,6 +69,12 @@ describe('WatchDashboard actions', () => {
     await wait();
     expect(api.deleteNamespacedPod).not.toHaveBeenCalled();
 
+    stdin.send('r');
+    await wait();
+    stdin.send('y');
+    await wait();
+    expect(api.deleteNamespacedPod).toHaveBeenCalledWith({ name: 'api-pod', namespace: 'default' });
+
     stdin.send('l');
     await wait();
     expect(stdout.output).toContain('[SNAPSHOT]');
@@ -77,10 +83,5 @@ describe('WatchDashboard actions', () => {
     await wait();
     expect(stdout.output).toContain('KDM Split-Pane Monitoring Dashboard');
 
-    stdin.send('r');
-    await wait();
-    stdin.send('y');
-    await wait();
-    expect(api.deleteNamespacedPod).toHaveBeenCalledWith({ name: 'api-pod', namespace: 'default' });
   });
 });
