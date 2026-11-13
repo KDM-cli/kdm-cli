@@ -256,6 +256,8 @@ describe('Baseline Pipeline Regression Tests', () => {
   });
 
   it('passes the configured Ollama URL to the Python council', async () => {
+    registry.clear();
+    registry.register(createMockAnalyzer('Pod', [OOM_KILLED_FIXTURE]));
     setAIConfig({ providers: [{ name: 'ollama', model: 'gemma:2b', baseUrl: 'http://ollama.remote:11434' }] });
     vi.mocked(isPythonAgentAvailable).mockResolvedValueOnce(true);
     vi.mocked(runPythonAgentCouncil).mockResolvedValueOnce({
@@ -265,12 +267,10 @@ describe('Baseline Pipeline Regression Tests', () => {
       findings: [],
     } as any);
 
-    const result = { ...OOM_KILLED_FIXTURE, errors: [...OOM_KILLED_FIXTURE.errors] };
-    await explainSingleResult({
-      result,
+    await runAnalysis({
+      filters: ['Pod'],
+      explain: true,
       backend: 'ollama',
-      language: 'english',
-      shouldAnonymize: false,
       noCache: true,
     });
 
