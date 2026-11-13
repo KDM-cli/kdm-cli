@@ -148,7 +148,7 @@ describe('AuthDashboard', () => {
 
   const enterAddWizard = async () => {
     await sendInputs(['a']);
-    await waitForFrameToContain({ mockStdout, substring: 'Step 1/4 — Provider:' });
+    await waitForFrameToContain({ mockStdout, substring: 'Step 1/6 — Provider:' });
     await sleep(50);
   };
 
@@ -194,13 +194,19 @@ describe('AuthDashboard', () => {
 
     await enterAddWizard();
 
-    await sendInputs([{ key: 'return' }, { key: 'return' }, 'secret-api-key', { key: 'return' }, { key: 'return' }]);
+    await sendInputs([
+      { key: 'return' }, { key: 'return' }, 'secret-api-key', { key: 'return' }, { key: 'return' },
+      'http://ollama.example:11434', { key: 'return' }, { key: 'backspace' }, { key: 'backspace' },
+      '{"X-Test":"yes"}', { key: 'return' },
+    ]);
     await waitForFrameToContain({ mockStdout, substring: 'Successfully added AI provider "OpenAI"' });
 
     expect(mockStore.providers).toHaveLength(1);
     expect(mockStore.providers[0].name).toBe('openai');
     expect(mockStore.providers[0].model).toBe('gpt-4o');
     expect(mockStore.providers[0].password).toBe('secret-api-key');
+    expect(mockStore.providers[0].baseUrl).toBe('http://ollama.example:11434');
+    expect(mockStore.providers[0].customHeaders).toEqual({ 'X-Test': 'yes' });
 
     await cleanupTest(unmount);
   });
@@ -208,18 +214,26 @@ describe('AuthDashboard', () => {
   it('performs Edit Provider Wizard flow successfully', async () => {
     const { unmount } = await setupDashboardTest({
       initialProviders: [
-        { name: 'openai', model: 'gpt-4o', password: 'old-key', temperature: 0.7 },
+        { name: 'openai', model: 'gpt-4o', password: 'old-key', temperature: 0.7, baseUrl: 'https://proxy.example/v1', customHeaders: { 'X-Org': 'kdm' } },
         { name: 'ollama', model: 'llama3.1', password: 'ollama-key', temperature: 0.7 },
       ],
     });
 
     await enterEditWizard();
 
-    await sendInputs([{ key: 'backspace' }, '-turbo', { key: 'return' }, 'new-key', { key: 'return' }, { key: 'return' }]);
+    await sendInputs([
+      { key: 'backspace' }, '-turbo', { key: 'return' }, 'new-key', { key: 'return' }, { key: 'return' },
+      ...Array.from({ length: 24 }, () => ({ key: 'backspace' })),
+      'https://edited.example/v1', { key: 'return' },
+      ...Array.from({ length: 15 }, () => ({ key: 'backspace' })),
+      '{"X-Env":"test"}', { key: 'return' },
+    ]);
     await waitForFrameToContain({ mockStdout, substring: 'Successfully updated AI provider "OpenAI"' });
 
     expect(mockStore.providers[0].model).toBe('gpt-4-turbo');
     expect(mockStore.providers[0].password).toBe('new-key');
+    expect(mockStore.providers[0].baseUrl).toBe('https://edited.example/v1');
+    expect(mockStore.providers[0].customHeaders).toEqual({ 'X-Env': 'test' });
 
     await cleanupTest(unmount);
   });
@@ -300,6 +314,8 @@ describe('AuthDashboard', () => {
       { key: 'backspace' },
       { key: 'backspace' },
       '0.7abc',
+      { key: 'return' },
+      { key: 'return' },
       { key: 'return' }
     ]);
     await waitForFrameToContain({ mockStdout, substring: 'Temperature must be a valid number.' });
@@ -314,10 +330,8 @@ describe('AuthDashboard', () => {
       ],
     });
 
-    await enterAddWizard();
-
-    await sendInputs([{ key: 'return' }, { key: 'return' }, { key: 'return' }, { key: 'return' }]);
-    await waitForFrameToContain({ mockStdout, substring: 'Provider "openai" is already configured. Use edit (E) instead.' });
+    await sendInputs(['a']);
+    await waitForFrameToContain({ mockStdout, substring: 'Provider "OpenAI" is already configured. Use edit (E) instead.' });
 
     await cleanupTest(unmount);
   });
@@ -338,6 +352,8 @@ describe('AuthDashboard', () => {
       { key: 'backspace' },
       { key: 'backspace' },
       'invalidtemp',
+      { key: 'return' },
+      { key: 'return' },
       { key: 'return' }
     ]);
     await waitForFrameToContain({ mockStdout, substring: 'Temperature must be a valid number.' });
@@ -374,7 +390,7 @@ describe('AuthDashboard', () => {
     await sendInputs([{ key: 'escape' }]);
     const lastRendered = [...mockStdout.frames].reverse().find((f) => f.includes('AI Provider Manager'));
     expect(lastRendered).toBeDefined();
-    expect(lastRendered).not.toContain('Step 1/4');
+    expect(lastRendered).not.toContain('Step 1/6');
 
     await cleanupTest(unmount);
   });

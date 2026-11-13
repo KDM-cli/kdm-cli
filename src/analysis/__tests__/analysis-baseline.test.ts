@@ -11,7 +11,8 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { runAnalysis, explainSingleResult, resolveBackend } from '../analysis';
-import { clearConfig } from '../../config/store';
+import { clearConfig, setAIConfig } from '../../config/store';
+import { isPythonAgentAvailable, runPythonAgentCouncil } from '../../agent/python-bridge';
 import {
   registry,
   PodAnalyzer,
@@ -252,6 +253,30 @@ describe('Baseline Pipeline Regression Tests', () => {
     // When backend is ollama, should return ollama
     const resolvedOllama = resolveBackend({ backend: 'ollama' });
     expect(resolvedOllama).toBe('ollama');
+  });
+
+  it('passes the configured Ollama URL to the Python council', async () => {
+    registry.clear();
+    registry.register(createMockAnalyzer('Pod', [OOM_KILLED_FIXTURE]));
+    setAIConfig({ providers: [{ name: 'ollama', model: 'gemma:2b', baseUrl: 'http://ollama.remote:11434' }] });
+    vi.mocked(isPythonAgentAvailable).mockResolvedValueOnce(true);
+    vi.mocked(runPythonAgentCouncil).mockResolvedValueOnce({
+      confidence: 'high',
+      rootCause: 'test cause',
+      bestSolution: { actionTitle: 'test fix', steps: [] },
+      findings: [],
+    } as any);
+
+    await runAnalysis({
+      filters: ['Pod'],
+      explain: true,
+      backend: 'ollama',
+      noCache: true,
+    });
+
+    expect(runPythonAgentCouncil).toHaveBeenCalledWith(expect.objectContaining({
+      baseUrl: 'http://ollama.remote:11434',
+    }));
   });
 
   // ─── Test 6: Feature Flag Toggle ─────────────────────────────────────────

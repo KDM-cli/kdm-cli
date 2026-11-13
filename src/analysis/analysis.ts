@@ -161,6 +161,7 @@ export interface ExplainSingleParams {
   shouldAnonymize: boolean;
   noCache: boolean;
   customHeaders?: Record<string, string>;
+  baseUrl?: string;
   onAgentProgress?: (event: AgentProgressEvent) => void;
 }
 
@@ -219,6 +220,7 @@ async function tryRunAgentCouncil(
         namespace: params.result.namespace,
       },
       model: model || 'gemma:2b',
+      baseUrl: params.baseUrl,
       onProgress: params.onAgentProgress,
     });
     return formatConsensusExplanation(consensus);
@@ -318,6 +320,7 @@ async function explainResults(results: AnalyzerResult[], options: AnalysisOption
       shouldAnonymize,
       noCache,
       customHeaders: options.customHeaders,
+      baseUrl: getAIConfig().providers.find((provider) => provider.name.toLowerCase() === backend.toLowerCase())?.baseUrl,
     });
   }
 }
