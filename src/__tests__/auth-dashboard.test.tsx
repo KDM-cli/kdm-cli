@@ -221,13 +221,18 @@ describe('AuthDashboard', () => {
 
     await enterEditWizard();
 
-    await sendInputs([{ key: 'backspace' }, '-turbo', { key: 'return' }, 'new-key', { key: 'return' }, { key: 'return' }, { key: 'return' }, { key: 'return' }]);
+    await sendInputs([
+      { key: 'backspace' }, '-turbo', { key: 'return' }, 'new-key', { key: 'return' }, { key: 'return' },
+      'https://edited.example/v1', { key: 'return' },
+      ...Array.from({ length: 15 }, () => ({ key: 'backspace' })),
+      '{"X-Env":"test"}', { key: 'return' },
+    ]);
     await waitForFrameToContain({ mockStdout, substring: 'Successfully updated AI provider "OpenAI"' });
 
     expect(mockStore.providers[0].model).toBe('gpt-4-turbo');
     expect(mockStore.providers[0].password).toBe('new-key');
-    expect(mockStore.providers[0].baseUrl).toBe('https://proxy.example/v1');
-    expect(mockStore.providers[0].customHeaders).toEqual({ 'X-Org': 'kdm' });
+    expect(mockStore.providers[0].baseUrl).toBe('https://edited.example/v1');
+    expect(mockStore.providers[0].customHeaders).toEqual({ 'X-Env': 'test' });
 
     await cleanupTest(unmount);
   });
