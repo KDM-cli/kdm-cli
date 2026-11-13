@@ -758,7 +758,7 @@ describe('Phase 8 analyzers — failure detection paths', () => {
           }],
         },
       }],
-      expectedKind: 'Security',
+      expectedKind: 'Pod',
       expectedName: 'insecure-pod',
       expectedNamespace: 'default',
       expectedErrors: ['may run as root', 'privileged mode', 'read-only root filesystem'],
