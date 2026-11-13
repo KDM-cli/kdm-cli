@@ -589,13 +589,11 @@ async function executeCouncilForResults(
     name: targetName,
   };
 
-  const baseUrl = resolveOllamaBaseUrl();
-  let degradationReason: string | undefined;
   try {
+    const baseUrl = resolveOllamaBaseUrl();
     const dependencies = await checkCouncilDependencies(baseUrl);
     if (!dependencies.canRunCouncil) {
-      degradationReason = dependencies.degradationReason || 'Council dependencies are unavailable';
-      throw new Error(degradationReason);
+      throw new Error(dependencies.degradationReason || 'Council dependencies are unavailable');
     }
 
     const runner = runAgentCouncilProcess || runPythonAgentCouncil;
@@ -607,29 +605,22 @@ async function executeCouncilForResults(
       timeoutMs: options.councilTimeoutMs,
     });
 
-    if (consensus) {
-      if (primaryResult) {
-        (primaryResult as any).consensus = consensus;
-        primaryResult.details = formatConsensusExplanation(consensus);
-        primaryResult.fallbackStep = 'council';
-      } else {
-        results.push({
-          kind: targetContext.kind,
-          name: targetContext.name,
-          namespace: targetContext.namespace || 'default',
-          errors: [{ text: failureText }],
-          details: formatConsensusExplanation(consensus),
-          consensus,
-          fallbackStep: 'council',
-        } as any);
-      }
-      return;
-    }
+    (primaryResult as any).consensus = consensus;
+    primaryResult.details = formatConsensusExplanation(consensus);
+    primaryResult.fallbackStep = 'council';
   } catch (err) {
-    degradationReason ||= (err as Error).message;
+    const degradationReason = (err as Error).message;
     logger.warn(`Multi-agent council bridge failed: ${degradationReason}. Falling back to diagnostics.`);
+    await applyCouncilFallbacks(results, options, degradationReason);
   }
+}
 
+/** Fills result details through the rule, cloud, or raw-summary degradation ladder. */
+async function applyCouncilFallbacks(
+  results: AnalyzerResult[],
+  options: AnalysisOptions,
+  degradationReason: string,
+): Promise<void> {
   // Always leave useful diagnostic details behind when the council is unavailable,
   // including when --explain was not separately requested.
   const backend = resolveBackend(options);
