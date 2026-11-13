@@ -202,7 +202,7 @@ describe('Phase 13: Live NDJSON Streaming UI Components', () => {
     it('returns null when no active tool is executing', () => {
       const { unmount } = render(<ActiveToolPanel tool={null} />, {
         stdout: mockStdout as any,
-        interactive: true,
+        interactive: false,
       });
 
       const output = mockStdout.frames.join('\n');

@@ -12,7 +12,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { runAnalysis, explainSingleResult, resolveBackend } from '../analysis';
 import { clearConfig, setAIConfig } from '../../config/store';
-import { isPythonAgentAvailable, runAgentCouncilProcess } from '../../agent/python-bridge';
+import { isPythonAgentAvailable, runAgentCouncilProcess, runPythonAgentCouncil } from '../../agent/python-bridge';
 import * as probesModule from '../probes';
 import {
   registry,
@@ -267,7 +267,7 @@ describe('Baseline Pipeline Regression Tests', () => {
     registry.register(createMockAnalyzer('Pod', [OOM_KILLED_FIXTURE]));
     setAIConfig({ providers: [{ name: 'ollama', model: 'gemma:2b', baseUrl: 'http://ollama.remote:11434' }] });
     vi.mocked(isPythonAgentAvailable).mockResolvedValueOnce(true);
-    vi.mocked(runAgentCouncilProcess).mockResolvedValueOnce({
+    vi.mocked(runPythonAgentCouncil).mockResolvedValueOnce({
       confidence: 'high',
       rootCause: 'test cause',
       bestSolution: { actionTitle: 'test fix', steps: [] },
@@ -281,7 +281,7 @@ describe('Baseline Pipeline Regression Tests', () => {
       noCache: true,
     });
 
-    expect(runAgentCouncilProcess).toHaveBeenCalledWith(expect.objectContaining({
+    expect(runPythonAgentCouncil).toHaveBeenCalledWith(expect.objectContaining({
       baseUrl: 'http://ollama.remote:11434',
     }));
   });
@@ -306,7 +306,12 @@ describe('Baseline Pipeline Regression Tests', () => {
 
     // Test 2: With env var flag set, pipeline still works (falls through to legacy)
     process.env.KDM_MULTI_AGENT = 'true';
-    mockGetCompletion.mockResolvedValue(OOM_KILLED_LLM_RESPONSE);
+    vi.mocked(runAgentCouncilProcess).mockResolvedValue({
+      confidence: 'high',
+      rootCause: 'council diagnosis',
+      bestSolution: { actionTitle: 'council fix', steps: [] },
+      findings: [],
+    } as any);
 
     const multiAgentResult = await runAnalysis({
       filters: ['Pod'],
@@ -314,13 +319,18 @@ describe('Baseline Pipeline Regression Tests', () => {
       backend: 'openai',
       noCache: true,
     });
-    // Should still produce valid results since multi-agent falls through to legacy
+    // Multi-agent mode uses council output instead of the legacy single-prompt response.
     expect(multiAgentResult.status).toBe('ProblemDetected');
-    expect(multiAgentResult.results[0].details).toBe(OOM_KILLED_LLM_RESPONSE);
+    expect(multiAgentResult.results[0].details).toContain('council diagnosis');
 
     // Test 3: With options.multiAgent flag set
     delete process.env.KDM_MULTI_AGENT;
-    mockGetCompletion.mockResolvedValue(OOM_KILLED_LLM_RESPONSE);
+    vi.mocked(runAgentCouncilProcess).mockResolvedValue({
+      confidence: 'high',
+      rootCause: 'council diagnosis',
+      bestSolution: { actionTitle: 'council fix', steps: [] },
+      findings: [],
+    } as any);
 
     const optionsFlagResult = await runAnalysis({
       filters: ['Pod'],
@@ -330,6 +340,6 @@ describe('Baseline Pipeline Regression Tests', () => {
       multiAgent: true,
     });
     expect(optionsFlagResult.status).toBe('ProblemDetected');
-    expect(optionsFlagResult.results[0].details).toBe(OOM_KILLED_LLM_RESPONSE);
+    expect(optionsFlagResult.results[0].details).toContain('council diagnosis');
   });
 });
