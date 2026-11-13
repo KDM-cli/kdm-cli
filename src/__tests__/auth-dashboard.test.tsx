@@ -223,6 +223,7 @@ describe('AuthDashboard', () => {
 
     await sendInputs([
       { key: 'backspace' }, '-turbo', { key: 'return' }, 'new-key', { key: 'return' }, { key: 'return' },
+      ...Array.from({ length: 24 }, () => ({ key: 'backspace' })),
       'https://edited.example/v1', { key: 'return' },
       ...Array.from({ length: 15 }, () => ({ key: 'backspace' })),
       '{"X-Env":"test"}', { key: 'return' },
