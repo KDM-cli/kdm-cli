@@ -47,6 +47,13 @@ export function getUpdateType(installed: string, latest: string): string {
 }
 
 export async function checkForUpdates(): Promise<void> {
+  const args = process.argv.slice(2);
+  const jsonOutput = args.some((arg, index) =>
+    arg === '--output=json' || (arg === '--output' && args[index + 1] === 'json') ||
+    (arg === '-o' && args[index + 1] === 'json') || arg === '-ojson'
+  );
+  if (process.stdout.isTTY === false || jsonOutput) return;
+
   try {
     const response = await fetch('https://registry.npmjs.org/kdm-cli/latest', {
       signal: AbortSignal.timeout(1500),
