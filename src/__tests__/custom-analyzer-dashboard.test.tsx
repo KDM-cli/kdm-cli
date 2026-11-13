@@ -168,6 +168,27 @@ describe('CustomAnalyzerDashboard', () => {
     await wait();
   });
 
+  it('uses b and Escape for back navigation and q for exit', async () => {
+    stdin = new MockStdin();
+    stdout = new MockStdout();
+    const onBack = vi.fn();
+    const onExit = vi.fn();
+    app = render(
+      <CustomAnalyzerDashboard analyzers={[]} onAdd={vi.fn()} onRemove={vi.fn()} onBack={onBack} onExit={onExit} />,
+      { stdin, stdout, debug: true },
+    );
+
+    stdin.send('b');
+    await wait();
+    expect(onBack).toHaveBeenCalledOnce();
+    stdin.send('\u001b');
+    await wait();
+    expect(onBack).toHaveBeenCalledTimes(2);
+    stdin.send('q');
+    await wait();
+    expect(onExit).toHaveBeenCalledOnce();
+  });
+
   it('rejects duplicate names and cancels the wizard with Esc', async () => {
     stdin = new MockStdin();
     stdout = new MockStdout();

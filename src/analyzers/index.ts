@@ -24,9 +24,19 @@ import { HTTPRouteAnalyzer } from './httproute';
 
 class AnalyzerRegistry {
   private analyzers = new Map<string, Analyzer>();
+  private builtInAnalyzers = new Set<string>();
 
   register(analyzer: Analyzer): void {
     this.analyzers.set(analyzer.name, analyzer);
+  }
+
+  registerBuiltIn(analyzer: Analyzer): void {
+    this.register(analyzer);
+    this.builtInAnalyzers.add(analyzer.name);
+  }
+
+  isBuiltIn(name: string): boolean {
+    return this.builtInAnalyzers.has(name);
   }
 
   get(name: string): Analyzer | undefined {
@@ -42,6 +52,7 @@ class AnalyzerRegistry {
   }
 
   unregister(name: string): boolean {
+    if (this.isBuiltIn(name)) return false;
     return this.analyzers.delete(name);
   }
 
@@ -53,30 +64,30 @@ class AnalyzerRegistry {
 export const registry = new AnalyzerRegistry();
 
 // Register core analyzers (Phase 2)
-registry.register(PodAnalyzer);
-registry.register(DeploymentAnalyzer);
-registry.register(ServiceAnalyzer);
-registry.register(PersistentVolumeClaimAnalyzer);
-registry.register(NodeAnalyzer);
+registry.registerBuiltIn(PodAnalyzer);
+registry.registerBuiltIn(DeploymentAnalyzer);
+registry.registerBuiltIn(ServiceAnalyzer);
+registry.registerBuiltIn(PersistentVolumeClaimAnalyzer);
+registry.registerBuiltIn(NodeAnalyzer);
 
 // Register expanded analyzers (Phase 8)
-registry.register(ReplicaSetAnalyzer);
-registry.register(StatefulSetAnalyzer);
-registry.register(DaemonSetAnalyzer);
-registry.register(JobAnalyzer);
-registry.register(CronJobAnalyzer);
-registry.register(IngressAnalyzer);
-registry.register(ConfigMapAnalyzer);
-registry.register(HPAAnalyzer);
-registry.register(PDBAnalyzer);
-registry.register(NetworkPolicyAnalyzer);
-registry.register(EventsAnalyzer);
-registry.register(LogAnalyzer);
-registry.register(SecurityAnalyzer);
-registry.register(StorageAnalyzer);
-registry.register(GatewayClassAnalyzer);
-registry.register(GatewayAnalyzer);
-registry.register(HTTPRouteAnalyzer);
+registry.registerBuiltIn(ReplicaSetAnalyzer);
+registry.registerBuiltIn(StatefulSetAnalyzer);
+registry.registerBuiltIn(DaemonSetAnalyzer);
+registry.registerBuiltIn(JobAnalyzer);
+registry.registerBuiltIn(CronJobAnalyzer);
+registry.registerBuiltIn(IngressAnalyzer);
+registry.registerBuiltIn(ConfigMapAnalyzer);
+registry.registerBuiltIn(HPAAnalyzer);
+registry.registerBuiltIn(PDBAnalyzer);
+registry.registerBuiltIn(NetworkPolicyAnalyzer);
+registry.registerBuiltIn(EventsAnalyzer);
+registry.registerBuiltIn(LogAnalyzer);
+registry.registerBuiltIn(SecurityAnalyzer);
+registry.registerBuiltIn(StorageAnalyzer);
+registry.registerBuiltIn(GatewayClassAnalyzer);
+registry.registerBuiltIn(GatewayAnalyzer);
+registry.registerBuiltIn(HTTPRouteAnalyzer);
 
 export {
   PodAnalyzer,

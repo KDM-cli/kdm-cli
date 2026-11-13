@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 import type { CustomAnalyzerConfig } from '../analyzers/custom';
+import { registry } from '../analyzers';
 
 type WizardStep = 1 | 2 | 3;
 type AnalyzerType = 'command' | 'url';
@@ -33,13 +34,10 @@ export const CustomAnalyzerDashboard: React.FC<CustomAnalyzerDashboardProps> = (
   const { exit } = useApp();
 
   const handleExit = () => {
-    if (onBack) {
-      onBack();
-    } else {
-      onExit?.();
-      exit();
-    }
+    onExit?.();
+    exit();
   };
+  const handleBack = () => onBack ? onBack() : exit();
   const [rules, setRules] = useState(analyzers);
   const [selected, setSelected] = useState(0);
   const [step, setStep] = useState<WizardStep | null>(null);
@@ -66,6 +64,10 @@ export const CustomAnalyzerDashboard: React.FC<CustomAnalyzerDashboardProps> = (
       }
       if (rules.some((analyzer) => analyzer.name === trimmed)) {
         setError(`Rule "${trimmed}" already exists.`);
+        return;
+      }
+      if (registry.isBuiltIn(trimmed)) {
+        setError(`Rule name "${trimmed}" conflicts with a built-in analyzer.`);
         return;
       }
       setName(trimmed);
@@ -107,7 +109,15 @@ export const CustomAnalyzerDashboard: React.FC<CustomAnalyzerDashboardProps> = (
     }
     if (key.escape) {
       if (step !== null) cancelWizard();
-      else handleExit();
+      else handleBack();
+      return;
+    }
+    if (input.toLowerCase() === 'b' && step === null) {
+      handleBack();
+      return;
+    }
+    if ((input.toLowerCase() === 'q' || (key.ctrl && input === 'c')) && step === null) {
+      handleExit();
       return;
     }
     if (step !== null) {
@@ -196,7 +206,7 @@ export const CustomAnalyzerDashboard: React.FC<CustomAnalyzerDashboardProps> = (
       {pendingRemoval ? (
         <Text color="yellow">Remove &quot;{pendingRemoval}&quot;? [y/N]</Text>
       ) : (
-        <Text>[A] Add Rule  [DELETE/D] Remove  [Esc/Q] Back</Text>
+        <Text>[A] Add Rule  [DELETE/D] Remove  [B/Esc] Back  [Q] Quit</Text>
       )}
     </Box>
   );
