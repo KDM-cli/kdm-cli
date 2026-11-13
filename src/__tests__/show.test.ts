@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
 import { Readable, Writable } from 'node:stream';
+import { render } from 'ink';
 import { getRunningContainers } from '../docker/containers';
 import { getRunningPods } from '../kubernetes/pods';
 import { logger } from '../utils/logger';
