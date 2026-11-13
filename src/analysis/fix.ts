@@ -47,7 +47,7 @@ export async function executeFix(fix: SuggestedFix): Promise<FixExecutionResult>
 
   const targetLabel = fix.kind ? `${fix.kind} ${fix.resourceName ?? fix.id}` : fix.id;
   return {
-    success: true,
-    message: `Remediation initiated for ${targetLabel}.`,
+    success: false,
+    message: `Automated remediation is not supported for ${targetLabel}.`,
   };
 }
