@@ -105,6 +105,23 @@ describe('version-check utilities', () => {
       expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('update available!'));
       expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('v9.9.9'));
     });
+
+    it('suppresses update notices when stdout is redirected', async () => {
+      const originalIsTTY = process.stdout.isTTY;
+      process.stdout.isTTY = false as any;
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ version: '9.9.9' }),
+      });
+      const consoleSpy = vi.spyOn(console, 'log');
+
+      try {
+        await checkForUpdates();
+        expect(consoleSpy).not.toHaveBeenCalled();
+      } finally {
+        process.stdout.isTTY = originalIsTTY;
+      }
+    });
   });
 
   describe('getInstalledVersion', () => {
