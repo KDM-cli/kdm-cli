@@ -22,15 +22,11 @@ export interface AnalysisOptions {
   requestedFixes?: string[];
   /** When true, route analysis through the multi-agent engine (Phases 1–24). */
   multiAgent?: boolean;
+  /** Maximum time for the local council to run, in milliseconds. */
+  councilTimeoutMs?: number;
   /** Optional file path to export sanitized incident audit trail. */
   exportAudit?: string;
   /** Optional specific target workload string (e.g. deployment/checkout-api). */
-  targetResource?: string;
-  /** Optional target resource name parsed from targetResource. */
-  resourceName?: string;
-  /** Optional file path to export sanitized incident audit trail. */
-  exportAudit?: string;
-  /** Optional specific target workload string (e.g. 'deployment/checkout-api'). */
   targetResource?: string;
   /** Optional target resource name parsed from targetResource. */
   resourceName?: string;

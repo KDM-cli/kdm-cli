@@ -291,6 +291,11 @@ describe('Phase 24: Final System Architecture Integration & E2E Validation', () 
       } as any);
 
       vi.spyOn(pythonBridge, 'runAgentCouncilProcess').mockResolvedValue(CANONICAL_CONSENSUS);
+      vi.spyOn(probesModule, 'checkCouncilDependencies').mockResolvedValue({
+        pythonAvailable: true,
+        ollamaAvailable: true,
+        canRunCouncil: true,
+      });
 
       const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 

@@ -4,6 +4,7 @@ import { runAnalysis } from '../analysis/analysis';
 import { registerAnalyzeCommand } from '../commands/analyze';
 import { registerConfigCommand } from '../commands/config';
 import * as pythonBridge from '../agent/python-bridge';
+import * as probesModule from '../analysis/probes';
 import { clearConfig, getConfig, setMultiAgentConfig } from '../config/store';
 import { logger } from '../utils/logger';
 import type { ConsensusDiagnosis } from '../agent/types';
@@ -77,6 +78,11 @@ describe('Phase 23 - Feature Flags, Rollout Modes & Legacy Fallback (Issue #294)
     delete process.env.KDM_MULTI_AGENT;
 
     vi.mocked(pythonBridge.runAgentCouncilProcess).mockResolvedValue(MOCK_CONSENSUS);
+    vi.spyOn(probesModule, 'checkCouncilDependencies').mockResolvedValue({
+      pythonAvailable: true,
+      ollamaAvailable: true,
+      canRunCouncil: true,
+    });
   });
 
   afterEach(() => {
