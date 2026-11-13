@@ -56,6 +56,7 @@ export const WatchDashboard: React.FC<WatchDashboardProps> = ({ onBack, onExit }
   const [runningAi, setRunningAi] = useState(false);
   
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [confirmRestart, setConfirmRestart] = useState(false);
 
   const handleResize = () => {
     setColumns(process.stdout.columns || 80);
@@ -207,7 +208,7 @@ export const WatchDashboard: React.FC<WatchDashboardProps> = ({ onBack, onExit }
           name: res.name,
           namespace: res.namespace,
         });
-        setActionMessage(`Pod ${res.name} deleted (restarting via Deployment).`);
+        setActionMessage(`Pod ${res.name} deleted. A controller may recreate it.`);
       } else {
         const docker = getDockerClient();
         await docker.getContainer(res.id).restart();
@@ -238,9 +239,15 @@ export const WatchDashboard: React.FC<WatchDashboardProps> = ({ onBack, onExit }
   useInput((input, key) => {
     const lowerInput = input.toLowerCase();
 
+    if (confirmRestart) {
+      if (lowerInput === 'y' && selectedResource) void restartResource(selectedResource);
+      if (lowerInput === 'y' || lowerInput === 'n' || key.escape) setConfirmRestart(false);
+      return;
+    }
+
     // Close overlays if active
     if (showLogs) {
-      if (key.escape || lowerInput === 'q') {
+      if (key.escape || lowerInput === 'q' || lowerInput === 'b') {
         setShowLogs(false);
       }
       return;
@@ -249,13 +256,6 @@ export const WatchDashboard: React.FC<WatchDashboardProps> = ({ onBack, onExit }
     if (aiDiagnosis) {
       if (key.escape || lowerInput === 'q' || lowerInput === 'b') {
         setAiDiagnosis(null);
-      }
-      return;
-    }
-
-    if (showLogs) {
-      if (key.escape || lowerInput === 'q' || lowerInput === 'b') {
-        setShowLogs(false);
       }
       return;
     }
@@ -310,7 +310,7 @@ export const WatchDashboard: React.FC<WatchDashboardProps> = ({ onBack, onExit }
         return;
       }
       if (lowerInput === 'r') {
-        void restartResource(selectedResource);
+        setConfirmRestart(true);
         return;
       }
     }
@@ -327,7 +327,7 @@ export const WatchDashboard: React.FC<WatchDashboardProps> = ({ onBack, onExit }
     return (
       <Box flexDirection="column" padding={1} borderStyle="round" borderColor="cyan">
         <Box justifyContent="space-between" marginBottom={1}>
-          <Text bold color="cyan"> Logs: {selectedResource?.name} [STREAMING] </Text>
+          <Text bold color="cyan"> Logs: {selectedResource?.name} [SNAPSHOT] </Text>
           <Text dimColor>Press [ESC/B] Back</Text>
         </Box>
         <Box borderStyle="single" borderColor="gray" minHeight={15} padding={1} flexDirection="column">
@@ -358,6 +358,11 @@ export const WatchDashboard: React.FC<WatchDashboardProps> = ({ onBack, onExit }
 
   return (
     <Box flexDirection="column" padding={1} borderStyle="round" borderColor="cyan">
+      {confirmRestart && selectedResource && (
+        <Box borderStyle="round" borderColor="yellow" paddingX={1} marginBottom={1}>
+          <Text color="yellow">Delete/restart {selectedResource.name}? Press Y to confirm or N/Esc to cancel.</Text>
+        </Box>
+      )}
       <Box marginBottom={1} flexDirection={columns < 50 ? 'column' : 'row'} justifyContent="space-between">
         <Box>
           <Text color="cyan" bold> KDM Split-Pane Monitoring Dashboard </Text>
