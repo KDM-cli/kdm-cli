@@ -113,14 +113,15 @@ export const registerFiltersCommand = (program: Command): void => {
     .command('filters')
     .alias('filter')
     .description('Manage active analyzers filters for kdm analyze')
-    .action(() => {
+    .action(async () => {
       if (!process.stdout.isTTY || !process.stdin.isTTY) {
         console.error('Interactive filters dashboard requires a TTY terminal.');
         process.exitCode = 1;
         return;
       }
       process.stdout.write('\x1Bc');
-      render(React.createElement(FiltersDashboard));
+      const app = render(React.createElement(FiltersDashboard));
+      await app?.waitUntilExit?.();
     });
 
   filters
