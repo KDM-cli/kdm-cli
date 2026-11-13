@@ -317,7 +317,7 @@ describe('AuthDashboard', () => {
     });
 
     await sendInputs(['a']);
-    await waitForFrameToContain({ mockStdout, substring: 'Provider "openai" is already configured. Use edit (E) instead.' });
+    await waitForFrameToContain({ mockStdout, substring: 'Provider "OpenAI" is already configured. Use edit (E) instead.' });
 
     await cleanupTest(unmount);
   });
