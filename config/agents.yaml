@@ -1,0 +1,19 @@
+# Multi-Agent Specialist Model Configuration — KDM v4.0.0
+# ========================================================
+# Configures dynamic LLM models per specialist agent role.
+# Different LLMs excel at different tasks:
+# - qwen2.5-coder: Manifest syntax, declarative configuration, and diff generation.
+# - llama3.1 / mistral: General SRE incident correlation and root cause synthesis.
+#
+# Priority resolution order:
+#   1. Global CLI override (--model=<model>)
+#   2. Per-role configuration mapping below
+#   3. Default model specification below
+#   4. Fallback default ("llama3.1")
+
+models:
+  default: "llama3.1"
+  runtime: "llama3.1"
+  config: "qwen2.5-coder"
+  resource: "llama3.1"
+  synthesizer: "llama3.1"

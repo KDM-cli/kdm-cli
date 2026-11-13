@@ -22,6 +22,7 @@
     "dist",
     "bin",
     "agents",
+    "config",
     "README.md",
     "LICENSE"
   ],
@@ -30,7 +31,10 @@
     "dev": "tsup src/index.ts --format esm --watch",
     "pretest": "npm run build",
     "test": "vitest run --pool=forks --maxWorkers=1",
-    "prepublishOnly": "npm run build"
+    "check:types": "tsc --noEmit",
+    "check:code": "npm run build && npm test",
+    "prepublishOnly": "npm run build",
+    "prepare": "husky"
   },
   "keywords": [
     "kubernetes",
@@ -62,6 +66,8 @@
     "@types/nodemailer": "^8.0.0",
     "@types/react": "^19.2.17",
     "@vitest/coverage-v8": "^4.1.7",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
     "tsup": "^9.0.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.6"

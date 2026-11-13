@@ -13,6 +13,7 @@ export interface AnalysisOptions {
   signal?: AbortSignal;
   explain?: boolean;
   backend?: string;
+  model?: string;
   language?: string;
   anonymize?: boolean;
   customHeaders?: Record<string, string>;
@@ -21,6 +22,18 @@ export interface AnalysisOptions {
   requestedFixes?: string[];
   /** When true, route analysis through the multi-agent engine (Phases 1–24). */
   multiAgent?: boolean;
+  /** Optional file path to export sanitized incident audit trail. */
+  exportAudit?: string;
+  /** Optional specific target workload string (e.g. deployment/checkout-api). */
+  targetResource?: string;
+  /** Optional target resource name parsed from targetResource. */
+  resourceName?: string;
+  /** Optional file path to export sanitized incident audit trail. */
+  exportAudit?: string;
+  /** Optional specific target workload string (e.g. 'deployment/checkout-api'). */
+  targetResource?: string;
+  /** Optional target resource name parsed from targetResource. */
+  resourceName?: string;
 }
 
 export interface AnalysisStats {

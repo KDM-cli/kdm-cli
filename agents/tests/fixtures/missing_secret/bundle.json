@@ -1,0 +1,86 @@
+{
+  "target": {
+    "workload_kind": "Pod",
+    "workload_name": "billing-worker",
+    "namespace": "production",
+    "container_name": "worker"
+  },
+  "collected_at": "2026-10-16T12:00:00Z",
+  "items": {
+    "ev.pod.container.status": {
+      "id": "ev.pod.container.status",
+      "source": "kubernetes_api",
+      "status": "available",
+      "timestamp": "2026-10-16T12:00:00Z",
+      "data": {
+        "name": "worker",
+        "restartCount": 0,
+        "lastState": {},
+        "state": {
+          "waiting": {
+            "reason": "CreateContainerConfigError",
+            "message": "secret \"stripe-api-key\" not found"
+          }
+        }
+      }
+    },
+    "ev.pod.spec": {
+      "id": "ev.pod.spec",
+      "source": "kubernetes_api",
+      "status": "available",
+      "timestamp": "2026-10-16T12:00:00Z",
+      "data": {
+        "containers": [
+          {
+            "name": "worker",
+            "image": "registry.example.com/billing/worker:v3.1.2",
+            "env": [
+              {
+                "name": "STRIPE_SECRET_KEY",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "name": "stripe-api-key",
+                    "key": "api_key"
+                  }
+                }
+              }
+            ],
+            "volumeMounts": [
+              {
+                "name": "stripe-secret-volume",
+                "mountPath": "/etc/secrets/stripe",
+                "readOnly": true
+              }
+            ]
+          }
+        ],
+        "volumes": [
+          {
+            "name": "stripe-secret-volume",
+            "secret": {
+              "secretName": "stripe-api-key"
+            }
+          }
+        ]
+      }
+    },
+    "ev.pod.events": {
+      "id": "ev.pod.events",
+      "source": "kubernetes_api",
+      "status": "available",
+      "timestamp": "2026-10-16T12:00:00Z",
+      "data": [
+        {
+          "type": "Warning",
+          "reason": "FailedMount",
+          "message": "MountVolume.SetUp failed for volume \"stripe-secret-volume\" : secret \"stripe-api-key\" not found"
+        },
+        {
+          "type": "Warning",
+          "reason": "Failed",
+          "message": "Error: secret \"stripe-api-key\" not found"
+        }
+      ]
+    }
+  }
+}

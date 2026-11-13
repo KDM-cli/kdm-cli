@@ -1,10 +1,16 @@
 """Specialist agents for diagnosing Kubernetes and Docker workload failures using Ollama Python SDK.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 import json
 import re
 import ollama
+
+DEFAULT_OLLAMA_OPTIONS: Dict[str, Any] = {
+    "num_ctx": 4096,
+    "temperature": 0.1,
+    "num_predict": 512,
+}
 
 
 def extract_json(raw: str) -> Dict[str, Any]:
@@ -47,6 +53,10 @@ def parse_k8s_failure(failure_text: str, context: Dict[str, Any]) -> Dict[str, A
     is_crash = bool(re.search(r'CrashLoopBackOff|Back-off restarting failed container|exit code 1(?!\d)', text, re.IGNORECASE))
     # Unschedulable / Nodes
     is_unschedulable = bool(re.search(r'0/\d+ nodes are available|FailedScheduling|Insufficient cpu|Insufficient memory|node\(s\) had untolerated taint', text, re.IGNORECASE))
+    # Node pressure / eviction
+    is_node_pressure = bool(re.search(r'MemoryPressure|DiskPressure|PIDPressure|evicted by kubelet|pod was evicted|NodeUnderMemoryPressure', text, re.IGNORECASE))
+    # Probe failure
+    is_probe_failure = bool(re.search(r'(?:liveness|readiness|startup)\s+probe\s+failed', text, re.IGNORECASE))
 
     return {
         "pod_name": pod_name,
@@ -59,6 +69,8 @@ def parse_k8s_failure(failure_text: str, context: Dict[str, Any]) -> Dict[str, A
         "is_oom": is_oom,
         "is_crash": is_crash,
         "is_unschedulable": is_unschedulable,
+        "is_node_pressure": is_node_pressure,
+        "is_probe_failure": is_probe_failure,
     }
 
 
@@ -76,13 +88,8 @@ class RuntimeLogAgent:
     def analyze(self, failure_text: str, context: Dict[str, Any]) -> Dict[str, Any]:
         system_prompt = (
             "You are a Senior Kubernetes & Docker Runtime Engineer specializing in container lifecycle, "
-            "Linux signals, exit codes (137 OOMKill, 1 Crash, 126 Permissions, 143 SIGTERM), "
-            "and application stderr/stdout stack traces.\n"
-            "Analyze the given failure text. Identify the immediate runtime or process-level trigger.\n"
-            "Return a clean JSON object with keys:\n"
-            '  "summary": concise diagnosis sentence naming the exact component or trigger,\n'
-            '  "evidence": list of 2-3 specific technical observations\n'
-            "Return ONLY valid JSON."
+            "exit codes (137 OOMKill, 1 Crash, 126 Permissions, 143 SIGTERM), and stderr/stdout logs.\n"
+            "Identify the runtime trigger. Return ONLY valid JSON with keys 'summary' and 'evidence'."
         )
 
         user_content = f"Workload Failure Information:\n{failure_text}\nContext: {json.dumps(context)}"
@@ -94,6 +101,7 @@ class RuntimeLogAgent:
                     {"role": "user", "content": user_content},
                 ],
                 format="json",
+                options=DEFAULT_OLLAMA_OPTIONS,
             )
             raw = response.message.content
             parsed = extract_json(raw)
@@ -174,12 +182,8 @@ class ConfigDependencyAgent:
     def analyze(self, failure_text: str, context: Dict[str, Any]) -> Dict[str, Any]:
         system_prompt = (
             "You are a Senior Kubernetes Configuration Specialist focusing on ConfigMaps, Secrets, "
-            "environment variables, volume mounts, service discovery, and liveness/readiness probe timeouts.\n"
-            "Analyze whether the failure stems from misconfiguration, missing dependencies, or probe thresholds.\n"
-            "Return a clean JSON object with keys:\n"
-            '  "summary": concise diagnosis sentence detailing the configuration gap,\n'
-            '  "evidence": list of 2-3 specific configuration observations\n'
-            "Return ONLY valid JSON."
+            "volume mounts, and probe timeouts.\n"
+            "Identify the declarative root cause. Return ONLY valid JSON with keys 'summary' and 'evidence'."
         )
 
         user_content = f"Workload Failure Information:\n{failure_text}\nContext: {json.dumps(context)}"
@@ -191,6 +195,7 @@ class ConfigDependencyAgent:
                     {"role": "user", "content": user_content},
                 ],
                 format="json",
+                options=DEFAULT_OLLAMA_OPTIONS,
             )
             raw = response.message.content
             parsed = extract_json(raw)
@@ -259,12 +264,8 @@ class ClusterResourceAgent:
     def analyze(self, failure_text: str, context: Dict[str, Any]) -> Dict[str, Any]:
         system_prompt = (
             "You are a Senior Kubernetes Capacity & Infrastructure Engineer focusing on node memory/disk pressure, "
-            "OOMKilled events, CPU throttling, cgroup memory limits, and QoS classes.\n"
-            "Analyze whether the workload failed due to quota exhaustion, cluster starvation, or improper sizing.\n"
-            "Return a clean JSON object with keys:\n"
-            '  "summary": concise diagnosis sentence evaluating node and cgroup capacity,\n'
-            '  "evidence": list of 2-3 technical resource observations\n'
-            "Return ONLY valid JSON."
+            "cgroup memory limits, OOMKilled events, and QoS classes.\n"
+            "Identify capacity and sizing constraints. Return ONLY valid JSON with keys 'summary' and 'evidence'."
         )
 
         user_content = f"Workload Failure Information:\n{failure_text}\nContext: {json.dumps(context)}"
@@ -276,6 +277,7 @@ class ClusterResourceAgent:
                     {"role": "user", "content": user_content},
                 ],
                 format="json",
+                options=DEFAULT_OLLAMA_OPTIONS,
             )
             raw = response.message.content
             parsed = extract_json(raw)
@@ -307,6 +309,12 @@ class ClusterResourceAgent:
                 evidence = [
                     "Node CPU, memory, and disk pressure levels remain healthy",
                     "Workload startup is gated solely by missing configuration objects",
+                ]
+            elif parsed_meta.get("is_node_pressure"):
+                summary = f"Node reported MemoryPressure condition triggering eviction of {parsed_meta['pod_name']}."
+                evidence = [
+                    "Kubelet evicted pod to relieve node memory pressure",
+                    "Node allocatable memory threshold breached",
                 ]
             elif parsed_meta["is_image_err"]:
                 summary = "Node compute resources normal; container execution blocked by image retrieval."
@@ -347,20 +355,9 @@ class SynthesizerAgent:
         context: Dict[str, Any],
     ) -> Dict[str, Any]:
         system_prompt = (
-            "You are the Lead SRE Incident Commander. You have received investigative reports from three "
-            "specialist agents: Runtime Agent, Config Agent, and Resource Agent.\n"
-            "Reconcile the findings, eliminate symptoms that are merely consequences, determine the true root cause, "
-            "and output the optimal step-by-step remediation plan with exact commands.\n"
-            "Return a clean JSON object with keys:\n"
-            '  "rootCause": concise statement of true root cause,\n'
-            '  "confidence": "high" | "medium" | "low",\n'
-            '  "bestSolution": {\n'
-            '    "actionTitle": specific actionable fix title,\n'
-            '    "steps": ["specific step 1", "specific step 2", ...],\n'
-            '    "commandToRun": "exact executable command like kubectl create secret or kubectl describe",\n'
-            '    "riskLevel": "low" | "medium" | "high"\n'
-            "  }\n"
-            "Return ONLY valid JSON."
+            "You are the Lead SRE Incident Commander synthesizing specialist findings into root cause consensus.\n"
+            "Return ONLY valid JSON with keys: rootCause, confidence (high|medium|low), and bestSolution "
+            "(actionTitle, steps, commandToRun, riskLevel)."
         )
 
         user_content = (
@@ -377,6 +374,7 @@ class SynthesizerAgent:
                     {"role": "user", "content": user_content},
                 ],
                 format="json",
+                options=DEFAULT_OLLAMA_OPTIONS,
             )
             raw = response.message.content
             parsed = extract_json(raw)
@@ -439,11 +437,11 @@ class SynthesizerAgent:
                     "confidence": "high",
                     "findings": findings,
                     "bestSolution": {
-                        "actionTitle": f"Correct Container Image Tag or Configure ImagePullSecrets",
+                        "actionTitle": "Correct Container Image Tag or Configure ImagePullSecrets",
                         "steps": [
                             f"Inspect exact pull failure: kubectl describe pod {pod} -n {ns}",
                             f"Ensure image '{img}' exists on registry with the specified tag",
-                            f"If private registry, verify imagePullSecrets are attached to the Pod or service account",
+                            "If private registry, verify imagePullSecrets are attached to the Pod or service account",
                         ],
                         "commandToRun": f"kubectl describe pod {pod} -n {ns}",
                         "riskLevel": "low",
@@ -480,6 +478,40 @@ class SynthesizerAgent:
                             "Add additional worker nodes or relax node affinity/taint constraints",
                         ],
                         "commandToRun": "kubectl describe nodes",
+                        "riskLevel": "low",
+                    },
+                }
+
+            if parsed_meta.get("is_node_pressure"):
+                return {
+                    "rootCause": f"Pod '{pod}' was evicted due to cluster node MemoryPressure condition.",
+                    "confidence": "high",
+                    "findings": findings,
+                    "bestSolution": {
+                        "actionTitle": "Relieve Node Memory Pressure or Reschedule Workload",
+                        "steps": [
+                            "Inspect node memory conditions: kubectl describe nodes",
+                            "Identify memory-intensive workloads on the node: kubectl top pods -A",
+                            "Scale node pool or adjust pod resource requests/limits",
+                        ],
+                        "commandToRun": "kubectl describe nodes",
+                        "riskLevel": "medium",
+                    },
+                }
+
+            if parsed_meta.get("is_probe_failure"):
+                return {
+                    "rootCause": f"Container in Pod '{pod}' failed health probes repeatedly and was terminated by kubelet.",
+                    "confidence": "high",
+                    "findings": findings,
+                    "bestSolution": {
+                        "actionTitle": f"Adjust Probe Thresholds or Resolve Health Check Failure for '{pod}'",
+                        "steps": [
+                            f"Inspect probe definitions: kubectl describe pod {pod} -n {ns}",
+                            f"Check container logs for probe timeouts or 5xx responses: kubectl logs {pod} -n {ns}",
+                            "Adjust initialDelaySeconds or failureThreshold in pod specification",
+                        ],
+                        "commandToRun": f"kubectl describe pod {pod} -n {ns}",
                         "riskLevel": "low",
                     },
                 }

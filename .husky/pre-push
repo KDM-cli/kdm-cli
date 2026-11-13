@@ -1,0 +1,110 @@
+#!/bin/sh
+
+# Highly optimized pre-push hook for KDM CLI
+# Ensures code quality, build integrity, and test coverage before commits are pushed to remote.
+
+# Allow bypassing via environment variables if explicitly desired
+if [ "${SKIP_PRE_PUSH}" = "1" ] || [ "${SKIP_HOOKS}" = "1" ]; then
+  echo "⏩ Skipping pre-push checks (SKIP_PRE_PUSH/SKIP_HOOKS enabled)"
+  exit 0
+fi
+
+z40="0000000000000000000000000000000000000000"
+
+has_pushable_commits=0
+run_ts_checks=0
+run_py_checks=0
+
+# Process standard input provided by git pre-push
+# Input lines format: <local_ref> <local_sha> <remote_ref> <remote_sha>
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # If local ref is deleted (local_sha is all zeros), skip checks
+  if [ "$local_sha" = "$z40" ] || [ -z "$local_sha" ]; then
+    continue
+  fi
+
+  has_pushable_commits=1
+
+  # Check what files changed between remote and local ref
+  if [ "$remote_sha" = "$z40" ]; then
+    # Pushing a new branch: compare against origin/v4.0.0, origin/main, or HEAD~1
+    base_ref=""
+    if git rev-parse --verify origin/v4.0.0 >/dev/null 2>&1; then
+      base_ref="origin/v4.0.0"
+    elif git rev-parse --verify origin/main >/dev/null 2>&1; then
+      base_ref="origin/main"
+    elif git rev-parse --verify upstream/v4.0.0 >/dev/null 2>&1; then
+      base_ref="upstream/v4.0.0"
+    fi
+
+    if [ -n "$base_ref" ]; then
+      changed_files=$(git diff --name-only "$base_ref...$local_sha" 2>/dev/null || git diff --name-only HEAD~1 2>/dev/null)
+    else
+      changed_files=$(git diff --name-only HEAD~1 2>/dev/null)
+    fi
+  else
+    # Updating an existing branch: compare commits being pushed
+    changed_files=$(git diff --name-only "$remote_sha" "$local_sha" 2>/dev/null)
+  fi
+
+  # Fallback: if we cannot compute changed files, conservatively check everything
+  if [ -z "$changed_files" ]; then
+    run_ts_checks=1
+    run_py_checks=1
+    break
+  fi
+
+  # Check for TypeScript / CLI codebase changes
+  if echo "$changed_files" | grep -qE '^(src/|bin/|package\.json|tsconfig\.json|tsup\.config|\.lintstagedrc)'; then
+    run_ts_checks=1
+  fi
+
+  # Check for Python agent codebase changes
+  if echo "$changed_files" | grep -qE '^agents/'; then
+    run_py_checks=1
+  fi
+done
+
+# If no pushable commits (e.g. branch deletion), exit immediately
+if [ "$has_pushable_commits" = "0" ]; then
+  exit 0
+fi
+
+# Optimization: If only non-code files changed (docs, markdown, yaml configs), skip heavy checks
+if [ "$run_ts_checks" = "0" ] && [ "$run_py_checks" = "0" ]; then
+  echo "⚡ [pre-push] Only non-code/documentation changes detected. Skipping full build & test suite."
+  exit 0
+fi
+
+echo "🛡️  [pre-push] Running code quality verification before push..."
+
+# TypeScript / CLI quality checks
+if [ "$run_ts_checks" = "1" ]; then
+  echo "📦 [1/2] Verifying TypeScript build and type declaration generation..."
+  npm run build || {
+    echo "❌ [pre-push] Build failed ('npm run build'). Please fix compilation or type errors before pushing." >&2
+    exit 1
+  }
+
+  echo "🧪 [2/2] Running Vitest test suite..."
+  npm test || {
+    echo "❌ [pre-push] Unit tests failed ('npm test'). Please fix failing tests before pushing." >&2
+    exit 1
+  }
+fi
+
+# Python agent tests
+if [ "$run_py_checks" = "1" ]; then
+  if command -v pytest >/dev/null 2>&1; then
+    echo "🐍 Running Python agent tests (pytest agents/)..."
+    pytest agents/ || {
+      echo "❌ [pre-push] Python agent tests failed ('pytest agents/'). Please fix agent tests before pushing." >&2
+      exit 1
+    }
+  else
+    echo "ℹ️  [pre-push] pytest not found in PATH; skipping Python agent test suite."
+  fi
+fi
+
+echo "✅ [pre-push] All automated code quality checks passed! Pushing to remote..."
+exit 0

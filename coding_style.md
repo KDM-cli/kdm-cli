@@ -144,14 +144,26 @@ it.each([
 ---
 
 ## 📈 Verification Checklist Before Pushing
-Always execute the following checks before committing code:
+Automated quality checks are enforced via **Husky** and **lint-staged**:
+- **Pre-commit**: Validates staged files (`tsc --noEmit` type checks on staged TypeScript, targeted Vitest runs on staged tests, and `python3 -m py_compile` on staged agent files).
+- **Pre-push**: Enforces `npm run build`, `npm test`, and `pytest agents/` before code leaves your local branch.
 
-1. **Build Checklist**: Ensure type compiling is clean:
+You can also run verification commands manually at any time:
+
+1. **Build Checklist**: Ensure type compiling and declaration generation are clean:
    ```bash
    npm run build
    ```
-2. **Test Checklist**: Ensure zero test regressions:
+2. **Type Check**:
+   ```bash
+   npm run check:types
+   ```
+3. **Test Checklist**: Ensure zero test regressions:
    ```bash
    npm run test
    ```
-3. **Complexity Checklist**: Do a mental dry-run of modified functions to check that cyclomatic complexity is `< 9`.
+4. **Full Quality Check**:
+   ```bash
+   npm run check:code
+   ```
+5. **Complexity Checklist**: Do a mental dry-run of modified functions to check that cyclomatic complexity is `< 9`.

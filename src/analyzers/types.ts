@@ -19,6 +19,10 @@ export interface AnalyzerResult {
   parentObject?: string;
   errors: Failure[];
   details?: string;
+  fallbackBadge?: string;
+  fallbackReason?: string;
+  fallbackStep?: 'council' | 'rule_engine' | 'legacy_ai' | 'raw_summary';
+  ruleMatch?: any;
 }
 
 export interface Failure {

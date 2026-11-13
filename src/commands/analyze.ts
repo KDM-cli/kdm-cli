@@ -5,6 +5,7 @@ import { formatJsonOutput, formatTextOutput } from '../analysis/output';
 import type { AnalysisOptions } from '../analysis/types';
 import { createSpinner } from '../ui/spinner';
 import { logger } from '../utils/logger';
+import { exportIncidentAudit, type IncidentAuditSession } from '../utils/audit-exporter';
 import { AnalyzeDashboard } from '../ui/AnalyzeDashboard';
 import { render } from 'ink';
 import React from 'react';
@@ -68,11 +69,20 @@ const buildAnalysisOptions = (options: any, signal: AbortSignal): AnalysisOption
   signal,
   explain: Boolean(options.explain),
   backend: options.backend,
+  model: options.model,
   language: options.language,
   anonymize: Boolean(options.anonymize),
   customHeaders: options.customHeaders,
   noCache: Boolean(options.noCache),
+  exportAudit: options.exportAudit,
+  multiAgent: options.multiAgent ? Boolean(options.multiAgent) : undefined,
+  targetResource: options.targetResource,
+  resourceName: options.resourceName,
   interactive: options.interactive !== false && options.output !== 'json' && Boolean(process.stdout.isTTY && process.stdin.isTTY),
+  exportAudit: options.exportAudit,
+  multiAgent: options.multiAgent ? Boolean(options.multiAgent) : undefined,
+  targetResource: options.targetResource,
+  resourceName: options.resourceName,
 });
 
 /**
@@ -87,6 +97,65 @@ const printAnalysisResult = (result: any, output: AnalysisOptions['output']): vo
     console.log(formatTextOutput(result));
   }
 };
+
+/**
+ * Resolves target workload descriptor from primary analysis result or options.
+ */
+function resolveIncidentTarget(primaryResult: any, runOpts: AnalysisOptions) {
+  const kindFromResource = runOpts.targetResource?.includes('/')
+    ? runOpts.targetResource.split('/')[0]
+    : undefined;
+  return {
+    kind: primaryResult?.kind || kindFromResource || 'Workload',
+    name: primaryResult?.name || runOpts.resourceName || runOpts.labelSelector || runOpts.namespace || 'all',
+    namespace: primaryResult?.namespace || runOpts.namespace || 'default',
+  };
+}
+
+/**
+ * Resolves consensus diagnosis or fallback diagnostic problem summary.
+ */
+function resolveConsensus(primaryResult: any, problems: number) {
+  if (primaryResult?.consensus) return primaryResult.consensus;
+  if (problems > 0) {
+    return {
+      rootCause: primaryResult?.message || 'Workload problem detected',
+      confidence: 'high',
+    };
+  }
+  return {
+    rootCause: 'No problems detected',
+    confidence: 'high',
+  };
+}
+
+/**
+ * Exports a structured, sanitized incident audit session file if requested.
+ * @param exportPath Destination JSON file path.
+ * @param runOpts Configured analysis options.
+ * @param result Analysis output results.
+ */
+async function handleExportAudit(
+  exportPath: string,
+  runOpts: AnalysisOptions,
+  result: any,
+): Promise<void> {
+  const primaryResult = result.results?.[0];
+  const target = resolveIncidentTarget(primaryResult, runOpts);
+  const consensus = resolveConsensus(primaryResult, result.problems || 0);
+
+  const session: IncidentAuditSession = {
+    sessionId: `an-${Date.now()}`,
+    cliVersion: '4.0.0',
+    target,
+    evidence: result.results?.flatMap((r: any) => r.evidence || []) || {},
+    toolCalls: result.toolCalls || [],
+    consensus,
+  };
+
+  await exportIncidentAudit(exportPath, session);
+  logger.success(`Incident audit exported to ${exportPath}`);
+}
 
 /**
  * Handles errors occurred during the analysis run, logging them and setting process exit code.
@@ -110,10 +179,41 @@ const handleAnalysisError = (
 };
 
 /**
- * Handler for the analyze CLI command execution.
- * @param options CLI parsed options configuration.
+ * Normalizes workload resource argument and filter options.
  */
-async function handleAnalyze(options: any): Promise<void> {
+function normalizeResourceOptions(resourceOrOptions: any, optionsOrCommand?: any): Record<string, any> {
+  const isResource = typeof resourceOrOptions === 'string';
+  const rawOptions = isResource
+    ? { ...(optionsOrCommand || {}), resource: resourceOrOptions }
+    : { ...(resourceOrOptions || optionsOrCommand || {}) };
+
+  const res = rawOptions.resource;
+  if (typeof res === 'string' && res.trim()) {
+    const trimmed = res.trim();
+    rawOptions.targetResource = trimmed;
+    const parts = trimmed.split('/');
+    if (parts.length === 2) {
+      const rawKind = parts[0];
+      const kind = rawKind.charAt(0).toUpperCase() + rawKind.slice(1).toLowerCase();
+      rawOptions.filter = rawOptions.filter || [];
+      if (!rawOptions.filter.includes(kind)) {
+        rawOptions.filter.push(kind);
+      }
+      rawOptions.resourceName = parts[1];
+    } else {
+      rawOptions.resourceName = trimmed;
+    }
+  }
+
+  return rawOptions;
+}
+
+/**
+ * Handler for the analyze CLI command execution.
+ * @param resourceOrOptions CLI parsed resource argument or options configuration.
+ * @param optionsOrCommand CLI options when resource argument is provided.
+ */
+async function handleAnalyze(resourceOrOptions: any, optionsOrCommand?: any): Promise<void> {
   let output: AnalysisOptions['output'] = 'text';
   let spinner: ReturnType<typeof createSpinner> | null = null;
 
@@ -126,22 +226,25 @@ async function handleAnalyze(options: any): Promise<void> {
   process.on('SIGINT', onSigint);
 
   try {
+    const options = normalizeResourceOptions(resourceOrOptions, optionsOrCommand);
     output = parseOutput(options.output);
     const runOpts = buildAnalysisOptions(options, abortController.signal);
 
     if (output === 'json') {
       const result = await runAnalysis(runOpts);
+      if (options.exportAudit) {
+        await handleExportAudit(options.exportAudit, runOpts, result);
+      }
       printAnalysisResult(result, 'json');
       return;
     }
 
-    if (runOpts.interactive) spinner = createSpinner('Analyzing Kubernetes resources...').start();
+    spinner = createSpinner('Analyzing Kubernetes resources...').start();
     const result = await runAnalysis(runOpts);
-    spinner?.stop('Analysis complete');
+    spinner.stop('Analysis complete');
 
-    if (!runOpts.interactive) {
-      printAnalysisResult(result, 'text');
-      return;
+    if (options.exportAudit) {
+      await handleExportAudit(options.exportAudit, runOpts, result);
     }
 
     process.stdout.write('\x1Bc');
@@ -160,14 +263,13 @@ async function handleAnalyze(options: any): Promise<void> {
  */
 export const registerAnalyzeCommand = (program: Command) => {
   program
-    .command('analyze')
+    .command('analyze [resource]')
     .alias('analyse')
     .description('Analyze Kubernetes resources for common workload problems')
     .option('-n, --namespace <namespace>', 'Namespace to analyze')
     .option('-L, --selector <selector>', 'Label selector to filter Kubernetes resources')
     .option('-f, --filter <filter>', 'Analyzer filter to run, such as Pod or Deployment', collectFilter, [])
     .option('-o, --output <format>', 'Output format: text or json', 'text')
-    .option('--no-interactive', 'Print text output without launching the interactive dashboard')
     .option('-m, --max-concurrency <number>', 'Maximum number of analyzers to run concurrently', '10')
     .option('-s, --with-stat', 'Print analyzer execution stats')
     .option('--with-doc', 'Reserve Kubernetes documentation lookup for analyzer output')
@@ -175,9 +277,12 @@ export const registerAnalyzeCommand = (program: Command) => {
     .option('--kubecontext <context>', 'Kubernetes context to use')
     .option('-e, --explain', 'Enable AI-powered explanations for detected problems')
     .option('-b, --backend <backend>', 'AI backend provider to use (e.g. openai, ollama, noop)')
+    .option('--model <model>', 'Target AI model name (e.g. llama3.1, qwen2.5-coder)')
     .option('-l, --language <lang>', 'Language for AI responses', 'english')
     .option('-a, --anonymize', 'Anonymize sensitive resource names in AI prompts')
     .option('-r, --custom-headers <headers>', 'Custom HTTP headers (Key:Value,Key2:Value2)', parseCustomHeaders, {})
     .option('-c, --no-cache', 'Skip cache for AI explanations')
+    .option('--export-audit <path>', 'Export sanitized incident audit trail to a JSON file')
+    .option('--multi-agent', 'Enable experimental multi-agent SRE council')
     .action(handleAnalyze);
 };

@@ -1,0 +1,109 @@
+{
+  "target": {
+    "workload_kind": "Pod",
+    "workload_name": "analytics-batch",
+    "namespace": "data-platform",
+    "container_name": "spark-executor"
+  },
+  "collected_at": "2026-10-16T12:00:00Z",
+  "items": {
+    "ev.node.conditions": {
+      "id": "ev.node.conditions",
+      "source": "kubernetes_api",
+      "status": "available",
+      "timestamp": "2026-10-16T12:00:00Z",
+      "data": [
+        {
+          "type": "MemoryPressure",
+          "status": "True",
+          "reason": "KubeletHasMemoryPressure",
+          "message": "kubelet has memory pressure, allocatable node memory exhausted"
+        },
+        {
+          "type": "DiskPressure",
+          "status": "False",
+          "reason": "KubeletHasNoDiskPressure",
+          "message": "kubelet has no disk pressure"
+        },
+        {
+          "type": "Ready",
+          "status": "True",
+          "reason": "KubeletReady",
+          "message": "kubelet is posting ready status"
+        }
+      ]
+    },
+    "ev.pod.status": {
+      "id": "ev.pod.status",
+      "source": "kubernetes_api",
+      "status": "available",
+      "timestamp": "2026-10-16T12:00:00Z",
+      "data": {
+        "phase": "Failed",
+        "reason": "Evicted",
+        "message": "The node had condition: [MemoryPressure]. Pod was evicted to reclaim memory capacity."
+      }
+    },
+    "ev.pod.container.status": {
+      "id": "ev.pod.container.status",
+      "source": "kubernetes_api",
+      "status": "available",
+      "timestamp": "2026-10-16T12:00:00Z",
+      "data": {
+        "name": "spark-executor",
+        "restartCount": 0,
+        "lastState": {},
+        "state": {
+          "terminated": {
+            "exitCode": 137,
+            "reason": "Evicted",
+            "message": "The node had condition: [MemoryPressure]. Container terminated."
+          }
+        }
+      }
+    },
+    "ev.pod.spec": {
+      "id": "ev.pod.spec",
+      "source": "kubernetes_api",
+      "status": "available",
+      "timestamp": "2026-10-16T12:00:00Z",
+      "data": {
+        "nodeName": "node-pool-compute-9a",
+        "containers": [
+          {
+            "name": "spark-executor",
+            "image": "registry.example.com/data/spark:v3.5.0",
+            "resources": {
+              "requests": {
+                "cpu": "500m",
+                "memory": "512Mi"
+              },
+              "limits": {
+                "cpu": "2000m",
+                "memory": "2048Mi"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "ev.pod.events": {
+      "id": "ev.pod.events",
+      "source": "kubernetes_api",
+      "status": "available",
+      "timestamp": "2026-10-16T12:00:00Z",
+      "data": [
+        {
+          "type": "Warning",
+          "reason": "Evicted",
+          "message": "The node had condition: [MemoryPressure]. Pod was evicted by kubelet."
+        },
+        {
+          "type": "Warning",
+          "reason": "NodeMemoryPressure",
+          "message": "Node node-pool-compute-9a status is now: NodeUnderMemoryPressure"
+        }
+      ]
+    }
+  }
+}

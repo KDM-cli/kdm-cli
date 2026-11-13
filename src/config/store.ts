@@ -28,6 +28,7 @@ const withDefaults = (stored: StoredKDMConfig): KDMConfig => ({
     ...stored.output,
   },
   activeFilters: stored.activeFilters ?? defaultKDMConfig.activeFilters,
+  multi_agent: stored.multi_agent ?? false,
 });
 
 export const getConfig = (): KDMConfig => withDefaults(config.store);
@@ -71,6 +72,9 @@ export const setNotificationConfig = (notifications: NotificationConfig) =>
     emailPassword: undefined,
   });
 
+export const getMultiAgentConfig = (): boolean => Boolean(getConfig().multi_agent);
+export const setMultiAgentConfig = (enabled: boolean) => setConfigValue('multi_agent', enabled);
+
 export const getLegacyConfig = (): LegacyNotificationConfig => {
   const notifications = getNotificationConfig();
   return {
@@ -83,6 +87,7 @@ export const getLegacyConfig = (): LegacyNotificationConfig => {
     // SMTP password must come from KDM_SMTP_PASSWORD env var only.
     email_password: undefined,
     alert_cooldown: notifications.alertCooldown,
+    multi_agent: config.get('multi_agent'),
   };
 };
 

@@ -1,16 +1,30 @@
-import { AnalysisOptions, AnalysisOutput, AnalysisStats } from './types';
+import type { AnalysisOptions, AnalysisOutput, AnalysisStats, SuggestedFix } from './types';
 import { registry } from '../analyzers';
 import { measureDuration } from './stats';
-import { getActiveFilters, getAIConfig, getCacheConfig } from '../config/store';
-import { Analyzer, AnalyzerResult } from '../analyzers/types';
+import { getActiveFilters, getAIConfig, getCacheConfig, getConfig } from '../config/store';
+import type { Analyzer, AnalyzerResult } from '../analyzers/types';
 import { createAIClient } from '../ai/factory';
 import { buildPrompt } from '../ai/prompts';
 import { anonymize, deanonymize } from '../utils/text';
 import { createCacheProvider } from '../cache';
 import { logger } from '../utils/logger';
-import type { SuggestedFix } from './types';
-import { runPythonAgentCouncil, isPythonAgentAvailable } from '../agent/python-bridge';
-import type { ConsensusDiagnosis, AgentProgressEvent } from '../agent/types';
+import {
+  runPythonAgentCouncil,
+  runAgentCouncilProcess,
+  isPythonAgentAvailable,
+} from '../agent/python-bridge';
+import type { ConsensusDiagnosis, AgentProgressEvent, NDJSONEvent } from '../agent/types';
+import {
+  checkCouncilDependencies,
+  resolveOllamaBaseUrl,
+} from './probes';
+import {
+  applyRuleEngineFallback,
+  applyLegacyAiFallback,
+  applyRawSummaryFallback,
+  formatRawKubernetesSummary,
+  type FallbackContext,
+} from './fallback';
 
 const DEFAULT_FILTERS = ['Pod', 'Deployment', 'Service', 'PersistentVolumeClaim', 'Node'];
 const MAX_ALLOWED_CONCURRENCY = 100;
@@ -157,12 +171,14 @@ async function tryStoreToCache(cacheKey: string, data: string): Promise<void> {
 export interface ExplainSingleParams {
   result: AnalyzerResult;
   backend: string;
+  model?: string;
   language: string;
   shouldAnonymize: boolean;
   noCache: boolean;
   customHeaders?: Record<string, string>;
   baseUrl?: string;
   onAgentProgress?: (event: AgentProgressEvent) => void;
+  onEvent?: (event: NDJSONEvent) => void;
 }
 
 /**
@@ -204,7 +220,8 @@ export function formatConsensusExplanation(consensus: ConsensusDiagnosis): strin
 async function tryRunAgentCouncil(
   params: ExplainSingleParams,
   promptText: string,
-  model: string
+  model: string,
+  baseUrl: string = resolveOllamaBaseUrl()
 ): Promise<string | null> {
   if (params.backend !== 'ollama') return null;
 
@@ -219,10 +236,13 @@ async function tryRunAgentCouncil(
         name: params.result.name,
         namespace: params.result.namespace,
       },
-      model: model || 'gemma:2b',
-      baseUrl: params.baseUrl,
+      model: params.model || model,
+      baseUrl: params.baseUrl || baseUrl,
       onProgress: params.onAgentProgress,
+      onEvent: params.onEvent,
     });
+    (params.result as any).consensus = consensus;
+    params.result.fallbackStep = 'council';
     return formatConsensusExplanation(consensus);
   } catch (err) {
     logger.warn(`Multi-agent council failed, using direct completion: ${(err as Error).message}`);
@@ -230,21 +250,120 @@ async function tryRunAgentCouncil(
   }
 }
 
+interface PrimaryExecutionResult {
+  success: boolean;
+  response?: string;
+  degradationReason?: string;
+}
+
+function preparePromptMapping(
+  failureText: string,
+  shouldAnonymize?: boolean
+): { promptText: string; mapping: { original: string; placeholder: string }[] } {
+  if (!shouldAnonymize) {
+    return { promptText: failureText, mapping: [] };
+  }
+  const anonymized = anonymize(failureText);
+  return { promptText: anonymized.text, mapping: anonymized.mapping };
+}
+
+function applyAnonymization(
+  text: string,
+  mapping: { original: string; placeholder: string }[],
+  shouldAnonymize?: boolean
+): string {
+  return shouldAnonymize ? deanonymize(text, mapping) : text;
+}
+
+async function attemptPrimaryCouncil(
+  params: ExplainSingleParams,
+  promptText: string,
+  model: string
+): Promise<PrimaryExecutionResult> {
+  const baseUrl = resolveOllamaBaseUrl();
+  const deps = await checkCouncilDependencies(baseUrl);
+  if (!deps.canRunCouncil) {
+    return { success: false, degradationReason: deps.degradationReason };
+  }
+
+  const agentResponse = await tryRunAgentCouncil(params, promptText, model, baseUrl);
+  if (agentResponse) {
+    return { success: true, response: agentResponse };
+  }
+  return { success: false, degradationReason: 'Multi-agent council execution failed' };
+}
+
+async function attemptPrimaryClient(
+  backend: string,
+  prompt: string
+): Promise<PrimaryExecutionResult> {
+  try {
+    const client = await createAIClient(backend);
+    const rawResponse = await client.getCompletion(prompt);
+    if (rawResponse) {
+      return { success: true, response: rawResponse };
+    }
+    return { success: false, degradationReason: `Primary AI backend '${backend}' empty response` };
+  } catch (err) {
+    logger.warn(`Primary AI backend '${backend}' failed: ${(err as Error).message}`);
+    return { success: false, degradationReason: `Primary AI backend '${backend}' failed` };
+  }
+}
+
+async function executePrimaryStep(
+  params: ExplainSingleParams,
+  promptText: string,
+  prompt: string,
+  model: string
+): Promise<PrimaryExecutionResult> {
+  if (params.backend.toLowerCase() === 'ollama') {
+    return attemptPrimaryCouncil(params, promptText, model);
+  }
+  return attemptPrimaryClient(params.backend, prompt);
+}
+
+async function executeFallbackSteps(
+  ctx: FallbackContext,
+  params: ExplainSingleParams,
+  cacheKey: string,
+  mapping: { original: string; placeholder: string }[]
+): Promise<void> {
+  if (applyRuleEngineFallback(ctx)) {
+    params.result.details = applyAnonymization(params.result.details || '', mapping, params.shouldAnonymize);
+    if (!params.noCache && params.result.details) {
+      await tryStoreToCache(cacheKey, params.result.details);
+    }
+    return;
+  }
+
+  const legacyResponse = await applyLegacyAiFallback(ctx);
+  if (legacyResponse) {
+    params.result.details = applyAnonymization(legacyResponse, mapping, params.shouldAnonymize);
+    if (!params.noCache) {
+      await tryStoreToCache(cacheKey, legacyResponse);
+    }
+    return;
+  }
+
+  applyRawSummaryFallback(ctx);
+  params.result.details = applyAnonymization(params.result.details || '', mapping, params.shouldAnonymize);
+}
+
 /**
  * Explains a single analyzer result by building a prompt, calling the AI provider,
  * and attaching the response to the result's details field.
+ *
+ * Implements the 4-Step Fallback Ladder (Phase 18, Issue #289):
+ *   Step 1: Multi-Agent Council (Python + Ollama)
+ *   Step 2: Deterministic Rule Engine (Synchronous, zero LLM overhead)
+ *   Step 3: Legacy AI Client (OpenAI/Claude cloud backends)
+ *   Step 4: Raw Kubernetes event and log summary
+ *
  * @param params Parameters for the explain operation.
  */
 export async function explainSingleResult(params: ExplainSingleParams): Promise<void> {
   const failureText = params.result.errors.map((e) => e.text).join('\n');
-  let promptText = failureText;
-  let mapping: { original: string; placeholder: string }[] = [];
-
-  if (params.shouldAnonymize) {
-    const anonymized = anonymize(failureText);
-    promptText = anonymized.text;
-    mapping = anonymized.mapping;
-  }
+  const { promptText, mapping } = preparePromptMapping(failureText, params.shouldAnonymize);
 
   const prompt = buildPrompt({
     failureText: promptText,
@@ -253,7 +372,7 @@ export async function explainSingleResult(params: ExplainSingleParams): Promise<
   });
 
   const client = await createAIClient(params.backend);
-  const model = (client as any).model ?? '';
+  const model = params.model || ((client as any).model ?? '');
 
   const cacheKey = await buildCacheKey({
     provider: params.backend,
@@ -264,18 +383,29 @@ export async function explainSingleResult(params: ExplainSingleParams): Promise<
 
   const cached = await tryLoadFromCache(cacheKey, params.noCache);
   if (cached) {
-    params.result.details = params.shouldAnonymize ? deanonymize(cached, mapping) : cached;
+    params.result.details = applyAnonymization(cached, mapping, params.shouldAnonymize);
     return;
   }
 
-  const agentResponse = await tryRunAgentCouncil(params, promptText, model);
-  const rawResponse = agentResponse || (await client.getCompletion(prompt));
-  const explanation = params.shouldAnonymize ? deanonymize(rawResponse, mapping) : rawResponse;
-  params.result.details = explanation;
-
-  if (!params.noCache) {
-    await tryStoreToCache(cacheKey, rawResponse);
+  const primary = await executePrimaryStep(params, promptText, prompt, model);
+  if (primary.success && primary.response) {
+    params.result.details = applyAnonymization(primary.response, mapping, params.shouldAnonymize);
+    if (!params.noCache) {
+      await tryStoreToCache(cacheKey, primary.response);
+    }
+    return;
   }
+
+  const fallbackCtx: FallbackContext = {
+    result: params.result,
+    backend: params.backend,
+    failureText: promptText,
+    prompt,
+    degradationReason: primary.degradationReason,
+    customHeaders: params.customHeaders,
+  };
+
+  await executeFallbackSteps(fallbackCtx, params, cacheKey, mapping);
 }
 
 /**
@@ -287,7 +417,7 @@ export function buildSuggestedFixes(results: AnalyzerResult[]): SuggestedFix[] {
   return results.flatMap((result, index) =>
     result.errors.map((failure, failureIndex) => ({
       id: `${result.kind.toLowerCase()}-${index}-${failureIndex}`,
-      title: `Review ${result.kind} ${result.name}`,
+      title: (result as any).consensus?.bestSolution?.actionTitle || `Review ${result.kind} ${result.name}`,
       description: failure.text,
       namespace: result.namespace,
       kind: result.kind,
@@ -316,11 +446,11 @@ async function explainResults(results: AnalyzerResult[], options: AnalysisOption
     await explainSingleResult({
       result,
       backend,
+      model: options.model,
       language,
       shouldAnonymize,
       noCache,
       customHeaders: options.customHeaders,
-      baseUrl: getAIConfig().providers.find((provider) => provider.name.toLowerCase() === backend.toLowerCase())?.baseUrl,
     });
   }
 }
@@ -356,47 +486,42 @@ async function runSingleAnalyzer(params: RunSingleParams): Promise<void> {
 }
 
 /**
- * Executes a full Kubernetes analysis run across selected analyzers in parallel,
- * respecting concurrency limits and monitoring cancellation signals.
- * @param options Options configuration directing namespace, filters, context, and stats.
- * @returns Aggregated analysis results containing status, problems, and stats.
+ * Checks whether the multi-agent council execution mode is requested via CLI flag,
+ * environment variable, or persistent configuration setting.
+ *
+ * @param options Analysis options provided to the execution run.
+ * @returns True if multi-agent council mode is enabled.
  */
-export async function runAnalysis(options: AnalysisOptions): Promise<AnalysisOutput> {
-  // ─── Feature Flag Gate (Phase 0 scaffolding) ───────────────────────────────
-  // When KDM_MULTI_AGENT is enabled, route to the multi-agent engine (Phases 1–24).
-  // For now, the multi-agent path is a no-op placeholder that falls through to legacy.
-  const useMultiAgent = process.env.KDM_MULTI_AGENT === 'true' || options.multiAgent === true;
-
-  if (useMultiAgent) {
-    // TODO(Phase 1+): Route to Multi-Agent Engine
-    // For now, log and fall through to the legacy pipeline.
-    logger.warn('KDM_MULTI_AGENT is enabled but multi-agent engine is not yet implemented. Falling through to legacy pipeline.');
+function isMultiAgentRequested(options: AnalysisOptions): boolean {
+  if (options.multiAgent === true) return true;
+  if (process.env.KDM_MULTI_AGENT === 'true') return true;
+  try {
+    const config = getConfig();
+    if (config?.multi_agent === true) return true;
+  } catch {
+    // Fail-safe if store fails to read
   }
+  return false;
+}
 
-  // ─── Legacy Pipeline (Frozen Baseline) ─────────────────────────────────────
-  const errors: string[] = [];
-  const results: AnalyzerResult[] = [];
-  const stats: AnalysisStats[] = [];
-
-  const filters = resolveFilters(options);
-  const analyzersToRun = resolveAnalyzers(filters, errors);
+/**
+ * Executes the selected analyzers concurrently up to the configured concurrency limit.
+ */
+async function executeAnalyzersConcurrently(
+  analyzers: Analyzer[],
+  options: AnalysisOptions,
+  context: any,
+  results: AnalyzerResult[],
+  errors: string[],
+  stats: AnalysisStats[],
+): Promise<void> {
   const limit = resolveConcurrencyLimit(options.maxConcurrency);
-
-  const context = {
-    namespace: options.namespace,
-    labelSelector: options.labelSelector,
-    kubeconfig: options.kubeconfig,
-    kubecontext: options.kubecontext,
-    withDocs: options.withDocs,
-    signal: options.signal,
-  };
-
   let index = 0;
-  const workers = Array.from({ length: Math.min(limit, analyzersToRun.length) }, async () => {
-    while (index < analyzersToRun.length) {
+  const workers = Array.from({ length: Math.min(limit, analyzers.length) }, async () => {
+    while (index < analyzers.length) {
       if (options.signal?.aborted) break;
       const currentIndex = index++;
-      const analyzer = analyzersToRun[currentIndex];
+      const analyzer = analyzers[currentIndex];
 
       await runSingleAnalyzer({
         analyzer,
@@ -410,9 +535,17 @@ export async function runAnalysis(options: AnalysisOptions): Promise<AnalysisOut
   });
 
   await Promise.all(workers);
+}
 
-  await explainResults(results, options);
-
+/**
+ * Packages analyzer results into an aggregated AnalysisOutput payload.
+ */
+function buildAnalysisOutput(
+  results: AnalyzerResult[],
+  errors: string[],
+  stats: AnalysisStats[],
+  options: AnalysisOptions,
+): AnalysisOutput {
   const problems = results.reduce((acc, curr) => acc + curr.errors.length, 0);
   const suggestedFixes = options.interactive ? buildSuggestedFixes(results) : undefined;
 
@@ -426,6 +559,152 @@ export async function runAnalysis(options: AnalysisOptions): Promise<AnalysisOut
   };
 
   tryAttachProvider(output);
-
   return output;
 }
+
+/**
+ * Delegates detected failures or target workload diagnostics to the Python Multi-Agent Council bridge.
+ * Sets consensus diagnosis on the primary result or safely degrades on bridge failures.
+ *
+ * @param results Detected analyzer results.
+ * @param options Analysis execution options.
+ */
+async function executeCouncilForResults(
+  results: AnalyzerResult[],
+  options: AnalysisOptions,
+): Promise<void> {
+  const primaryResult = results[0];
+  const failureText = results
+    .flatMap((r) => r.errors.map((e) => e.text))
+    .join('\n') || (options.targetResource ? `Workload ${options.targetResource} failure` : options.labelSelector ? `Workload matching selector ${options.labelSelector} failure` : 'Cluster workload failure');
+
+  const targetKind = primaryResult?.kind || (options.targetResource?.includes('/') ? options.targetResource.split('/')[0] : 'Workload');
+  const targetName = primaryResult?.name || options.resourceName || options.labelSelector || 'cluster';
+
+  const targetContext = {
+    namespace: primaryResult?.namespace || options.namespace,
+    kind: targetKind,
+    name: targetName,
+  };
+
+  try {
+    const runner = runAgentCouncilProcess || runPythonAgentCouncil;
+    const consensus = await runner({
+      failureText,
+      context: targetContext,
+      model: options.model,
+      baseUrl: getAIConfig().providers.find((provider) => provider.name.toLowerCase() === 'ollama')?.baseUrl || resolveOllamaBaseUrl(),
+    });
+
+    if (consensus) {
+      if (primaryResult) {
+        (primaryResult as any).consensus = consensus;
+        primaryResult.details = formatConsensusExplanation(consensus);
+        primaryResult.fallbackStep = 'council';
+      } else {
+        results.push({
+          kind: targetContext.kind,
+          name: targetContext.name,
+          namespace: targetContext.namespace || 'default',
+          errors: [{ text: failureText }],
+          details: formatConsensusExplanation(consensus),
+          consensus,
+          fallbackStep: 'council',
+        } as any);
+      }
+      return;
+    }
+  } catch (err) {
+    logger.warn(`Multi-agent council bridge failed: ${(err as Error).message}. Falling back to legacy pipeline.`);
+  }
+
+  await explainResults(results, options);
+}
+
+/**
+ * Runs the Multi-Agent Council pipeline (Phases 1–24) for workload analysis.
+ * Concurrently evaluates analyzers and delegates to the Python agent council bridge.
+ *
+ * @param options Analysis options directing analyzers and multi-agent execution.
+ * @returns Aggregated analysis output with council consensus.
+ */
+async function runMultiAgentPipeline(options: AnalysisOptions): Promise<AnalysisOutput> {
+  const errors: string[] = [];
+  const results: AnalyzerResult[] = [];
+  const stats: AnalysisStats[] = [];
+
+  const filters = resolveFilters(options);
+  const analyzersToRun = resolveAnalyzers(filters, errors);
+  const context = {
+    namespace: options.namespace,
+    labelSelector: options.labelSelector,
+    kubeconfig: options.kubeconfig,
+    kubecontext: options.kubecontext,
+    withDocs: options.withDocs,
+    signal: options.signal,
+  };
+
+  await executeAnalyzersConcurrently(analyzersToRun, options, context, results, errors, stats);
+  await executeCouncilForResults(results, options);
+
+  return buildAnalysisOutput(results, errors, stats, options);
+}
+
+/**
+ * Executes the frozen legacy baseline analysis pipeline (Phase 0).
+ * Runs analyzers and delegates to single-prompt cloud or local AI completions.
+ *
+ * @param options Analysis execution options.
+ * @returns Aggregated analysis output.
+ */
+async function runLegacyPipeline(options: AnalysisOptions): Promise<AnalysisOutput> {
+  const errors: string[] = [];
+  const results: AnalyzerResult[] = [];
+  const stats: AnalysisStats[] = [];
+
+  const filters = resolveFilters(options);
+  const analyzersToRun = resolveAnalyzers(filters, errors);
+  const context = {
+    namespace: options.namespace,
+    labelSelector: options.labelSelector,
+    kubeconfig: options.kubeconfig,
+    kubecontext: options.kubecontext,
+    withDocs: options.withDocs,
+    signal: options.signal,
+  };
+
+  await executeAnalyzersConcurrently(analyzersToRun, options, context, results, errors, stats);
+  await explainResults(results, options);
+
+  return buildAnalysisOutput(results, errors, stats, options);
+}
+
+/**
+ * Executes a full Kubernetes analysis run across selected analyzers,
+ * routing to either the experimental Multi-Agent Council or the legacy pipeline.
+ *
+ * @param options Options configuration directing namespace, filters, context, and stats.
+ * @returns Aggregated analysis results containing status, problems, and stats.
+ */
+export async function runAnalysis(options: AnalysisOptions): Promise<AnalysisOutput> {
+  if (isMultiAgentRequested(options)) {
+    return runMultiAgentPipeline(options);
+  }
+
+  logger.warn('Legacy single-prompt mode will be deprecated in v4.1.0.');
+  return runLegacyPipeline(options);
+}
+
+export {
+  isOllamaAvailable,
+  checkCouncilDependencies,
+  resolveOllamaBaseUrl,
+} from './probes';
+export { RuleEngine } from '../rules';
+export type { RuleMatch } from '../rules/types';
+export {
+  applyRuleEngineFallback,
+  applyLegacyAiFallback,
+  applyRawSummaryFallback,
+  formatRawKubernetesSummary,
+};
