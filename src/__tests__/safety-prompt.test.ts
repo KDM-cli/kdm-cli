@@ -91,6 +91,7 @@ async function setupPromptHarness(
     {
       stdout: stdout as any,
       stdin: stdin as any,
+      interactive: true,
     }
   );
 
@@ -119,6 +120,7 @@ describe('SafetyPrompt Component & Interactive Safety Gate', () => {
       {
         stdout: mockStdout as any,
         stdin: mockStdin as any,
+        interactive: true,
       }
     );
 
@@ -152,6 +154,7 @@ describe('SafetyPrompt Component & Interactive Safety Gate', () => {
       {
         stdout: mockStdout as any,
         stdin: mockStdin as any,
+        interactive: true,
       }
     );
 
@@ -241,6 +244,7 @@ describe('SafetyPrompt Component & Interactive Safety Gate', () => {
     const promise = promptSafetyConfirmation(SAMPLE_PROPOSAL, {
       stdin: mockStdin as any,
       stdout: mockStdout as any,
+      interactive: true,
     });
 
     await waitForFrame(mockStdout, 'Apply this remediation to the cluster?');
@@ -254,6 +258,7 @@ describe('SafetyPrompt Component & Interactive Safety Gate', () => {
     const promise = promptSafetyConfirmation(SAMPLE_PROPOSAL, {
       stdin: mockStdin as any,
       stdout: mockStdout as any,
+      interactive: true,
     });
 
     await waitForFrame(mockStdout, 'Apply this remediation to the cluster?');

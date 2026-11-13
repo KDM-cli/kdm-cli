@@ -185,7 +185,7 @@ describe('Phase 13: Live NDJSON Streaming UI Components', () => {
       ({ role, name, status, message, expectedIcon, expectedRoleIcon }) => {
         const { unmount } = render(
           <AgentCard role={role} name={name} status={status} message={message} />,
-          { stdout: mockStdout as any }
+          { stdout: mockStdout as any, interactive: true }
         );
 
         const output = mockStdout.frames.join('\n');
@@ -202,6 +202,7 @@ describe('Phase 13: Live NDJSON Streaming UI Components', () => {
     it('returns null when no active tool is executing', () => {
       const { unmount } = render(<ActiveToolPanel tool={null} />, {
         stdout: mockStdout as any,
+        interactive: true,
       });
 
       const output = mockStdout.frames.join('\n');
@@ -212,6 +213,7 @@ describe('Phase 13: Live NDJSON Streaming UI Components', () => {
     it('displays idle message when showIdle is enabled and tool is null', () => {
       const { unmount } = render(<ActiveToolPanel tool={null} showIdle={true} />, {
         stdout: mockStdout as any,
+        interactive: true,
       });
 
       const output = mockStdout.frames.join('\n');
@@ -230,7 +232,7 @@ describe('Phase 13: Live NDJSON Streaming UI Components', () => {
             status: 'running',
           }}
         />,
-        { stdout: mockStdout as any }
+        { stdout: mockStdout as any, interactive: true }
       );
 
       const output = mockStdout.frames.join('\n');
@@ -252,7 +254,7 @@ describe('Phase 13: Live NDJSON Streaming UI Components', () => {
             status: 'completed',
           }}
         />,
-        { stdout: mockStdout as any }
+        { stdout: mockStdout as any, interactive: true }
       );
 
       const output = mockStdout.frames.join('\n');
@@ -268,7 +270,7 @@ describe('Phase 13: Live NDJSON Streaming UI Components', () => {
     it('renders structured consensus with root cause, confidence badge, findings, and fix command', () => {
       const { unmount } = render(
         <ConsensusDiagnosisView consensus={mockConsensus} />,
-        { stdout: mockStdout as any }
+        { stdout: mockStdout as any, interactive: true }
       );
 
       const output = mockStdout.frames.join('\n');
@@ -290,7 +292,7 @@ describe('Phase 13: Live NDJSON Streaming UI Components', () => {
       const detailsText = 'Root Cause (HIGH confidence):\n  Node pressure\nRecommended Remediation:\n  Scale up node pool';
       const { unmount } = render(
         <ConsensusDiagnosisView details={detailsText} />,
-        { stdout: mockStdout as any }
+        { stdout: mockStdout as any, interactive: true }
       );
 
       const output = mockStdout.frames.join('\n');

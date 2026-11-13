@@ -34,6 +34,7 @@ export interface SafetyPromptProps {
 export interface PromptSafetyOptions {
   stdin?: NodeJS.ReadableStream;
   stdout?: NodeJS.WritableStream;
+  interactive?: boolean;
 }
 
 interface NormalizedPromptState {
@@ -322,10 +323,10 @@ function createPromptProps(
 /**
  * Resolves standard or mocked stdin/stdout streams.
  */
-function resolveIOOptions(options?: PromptSafetyOptions): { stdin: any; stdout: any } {
+function resolveIOOptions(options?: PromptSafetyOptions): { stdin: any; stdout: any; interactive?: boolean } {
   const stdin = options && options.stdin ? options.stdin : process.stdin;
   const stdout = options && options.stdout ? options.stdout : process.stdout;
-  return { stdin, stdout };
+  return { stdin, stdout, interactive: options?.interactive };
 }
 
 /**
