@@ -78,6 +78,11 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({ columns, rows, sel
     );
   }
 
+  // Reserve room for the dashboard tabs, table header, search bar, and help bar.
+  const pageSize = Math.max(1, (process.stdout.rows || 24) - 9);
+  const start = Math.min(Math.max(0, selectedIndex - pageSize + 1), Math.max(0, rows.length - pageSize));
+  const visibleRows = rows.slice(start, start + pageSize);
+
   return (
     <Box flexDirection="column">
       <Box flexDirection="row" paddingX={1} marginBottom={1}>
@@ -88,7 +93,8 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({ columns, rows, sel
         ))}
       </Box>
 
-      {rows.map((row, index) => {
+      {visibleRows.map((row, visibleIndex) => {
+        const index = start + visibleIndex;
         const isSelected = index === selectedIndex;
         const cells = formatRowCells(row, columns);
         return (
@@ -108,6 +114,11 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({ columns, rows, sel
           </Box>
         );
       })}
+      {rows.length > pageSize && (
+        <Box paddingX={1}>
+          <Text dimColor>Showing {start + 1}-{Math.min(start + pageSize, rows.length)} of {rows.length}</Text>
+        </Box>
+      )}
     </Box>
   );
 };
