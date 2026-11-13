@@ -72,7 +72,7 @@ const buildAnalysisOptions = (options: any, signal: AbortSignal): AnalysisOption
   anonymize: Boolean(options.anonymize),
   customHeaders: options.customHeaders,
   noCache: Boolean(options.noCache),
-  interactive: options.output !== 'json',
+  interactive: options.interactive !== false && options.output !== 'json' && Boolean(process.stdout.isTTY && process.stdin.isTTY),
 });
 
 /**
@@ -135,9 +135,14 @@ async function handleAnalyze(options: any): Promise<void> {
       return;
     }
 
-    spinner = createSpinner('Analyzing Kubernetes resources...').start();
+    if (runOpts.interactive) spinner = createSpinner('Analyzing Kubernetes resources...').start();
     const result = await runAnalysis(runOpts);
-    spinner.stop('Analysis complete');
+    spinner?.stop('Analysis complete');
+
+    if (!runOpts.interactive) {
+      printAnalysisResult(result, 'text');
+      return;
+    }
 
     process.stdout.write('\x1Bc');
     const app = render(React.createElement(AnalyzeDashboard, { initialOptions: runOpts, initialResult: result }));
@@ -162,6 +167,7 @@ export const registerAnalyzeCommand = (program: Command) => {
     .option('-L, --selector <selector>', 'Label selector to filter Kubernetes resources')
     .option('-f, --filter <filter>', 'Analyzer filter to run, such as Pod or Deployment', collectFilter, [])
     .option('-o, --output <format>', 'Output format: text or json', 'text')
+    .option('--no-interactive', 'Print text output without launching the interactive dashboard')
     .option('-m, --max-concurrency <number>', 'Maximum number of analyzers to run concurrently', '10')
     .option('-s, --with-stat', 'Print analyzer execution stats')
     .option('--with-doc', 'Reserve Kubernetes documentation lookup for analyzer output')
