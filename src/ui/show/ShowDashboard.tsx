@@ -265,10 +265,14 @@ export const ShowDashboard: React.FC<ShowDashboardProps> = ({ onBack, onExit }) 
     }
 
     if (showSearch) {
-      if (key.escape) {
+      if (key.escape || key.return) {
         setShowSearch(false);
-        setSearchQuery('');
       }
+      return;
+    }
+
+    if (key.escape && searchQuery) {
+      setSearchQuery('');
       return;
     }
 
@@ -331,10 +335,6 @@ export const ShowDashboard: React.FC<ShowDashboardProps> = ({ onBack, onExit }) 
       return;
     }
 
-    if (key.escape && showSearch) {
-      setShowSearch(false);
-      setSearchQuery('');
-    }
   });
 
   const currentData = getTabData(activeTab);
