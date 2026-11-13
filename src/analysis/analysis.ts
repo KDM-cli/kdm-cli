@@ -177,6 +177,7 @@ export interface ExplainSingleParams {
   noCache: boolean;
   customHeaders?: Record<string, string>;
   baseUrl?: string;
+  timeoutMs?: number;
   onAgentProgress?: (event: AgentProgressEvent) => void;
   onEvent?: (event: NDJSONEvent) => void;
 }
@@ -238,6 +239,7 @@ async function tryRunAgentCouncil(
       },
       model: params.model || model,
       baseUrl: params.baseUrl || baseUrl,
+      timeoutMs: params.timeoutMs,
       onProgress: params.onAgentProgress,
       onEvent: params.onEvent,
     });
@@ -451,6 +453,7 @@ async function explainResults(results: AnalyzerResult[], options: AnalysisOption
       shouldAnonymize,
       noCache,
       customHeaders: options.customHeaders,
+      timeoutMs: options.councilTimeoutMs,
     });
   }
 }
@@ -573,8 +576,6 @@ async function executeCouncilForResults(
   results: AnalyzerResult[],
   options: AnalysisOptions,
 ): Promise<void> {
-  if (results.every((result) => result.errors.length === 0)) return;
-
   const primaryResult = results.find((result) => result.errors.length > 0) || results[0];
   const failureText = results
     .flatMap((r) => r.errors.map((e) => e.text))
@@ -605,9 +606,21 @@ async function executeCouncilForResults(
       timeoutMs: options.councilTimeoutMs,
     });
 
-    (primaryResult as any).consensus = consensus;
-    primaryResult.details = formatConsensusExplanation(consensus);
-    primaryResult.fallbackStep = 'council';
+    if (primaryResult) {
+      (primaryResult as any).consensus = consensus;
+      primaryResult.details = formatConsensusExplanation(consensus);
+      primaryResult.fallbackStep = 'council';
+    } else {
+      results.push({
+        kind: targetContext.kind,
+        name: targetContext.name,
+        namespace: targetContext.namespace || 'default',
+        errors: [{ text: failureText }],
+        details: formatConsensusExplanation(consensus),
+        consensus,
+        fallbackStep: 'council',
+      } as any);
+    }
   } catch (err) {
     const degradationReason = (err as Error).message;
     logger.warn(`Multi-agent council bridge failed: ${degradationReason}. Falling back to diagnostics.`);

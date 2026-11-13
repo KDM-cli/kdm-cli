@@ -13,6 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { runAnalysis, explainSingleResult, resolveBackend } from '../analysis';
 import { clearConfig, setAIConfig } from '../../config/store';
 import { isPythonAgentAvailable, runPythonAgentCouncil } from '../../agent/python-bridge';
+import * as probesModule from '../probes';
 import {
   registry,
   PodAnalyzer,
@@ -108,6 +109,11 @@ let originalMultiAgentEnv: string | undefined;
 
 describe('Baseline Pipeline Regression Tests', () => {
   beforeEach(() => {
+    vi.spyOn(probesModule, 'checkCouncilDependencies').mockResolvedValue({
+      pythonAvailable: true,
+      ollamaAvailable: true,
+      canRunCouncil: true,
+    });
     clearConfig();
     registry.clear();
     registry.register(PodAnalyzer);
