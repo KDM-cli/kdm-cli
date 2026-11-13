@@ -81,8 +81,13 @@ const checkSingleContainerState = (status: k8s.V1ContainerStatus): Failure[] => 
  * @param pod The Pod object.
  * @returns Array of container validation failures.
  */
-const checkContainerStates = (pod: k8s.V1Pod): Failure[] =>
-  (pod.status?.containerStatuses ?? []).flatMap(checkSingleContainerState);
+const checkContainerStates = (pod: k8s.V1Pod): Failure[] => {
+  if (pod.status?.phase === 'Succeeded') return [];
+  return [
+    ...(pod.status?.initContainerStatuses ?? []),
+    ...(pod.status?.containerStatuses ?? []),
+  ].flatMap(checkSingleContainerState);
+};
 
 /**
  * Aggregates all Pod related validation checks: phase, scheduling, and container states.
