@@ -33,13 +33,10 @@ export const CustomAnalyzerDashboard: React.FC<CustomAnalyzerDashboardProps> = (
   const { exit } = useApp();
 
   const handleExit = () => {
-    if (onBack) {
-      onBack();
-    } else {
-      onExit?.();
-      exit();
-    }
+    onExit?.();
+    exit();
   };
+  const handleBack = () => onBack ? onBack() : exit();
   const [rules, setRules] = useState(analyzers);
   const [selected, setSelected] = useState(0);
   const [step, setStep] = useState<WizardStep | null>(null);
@@ -107,7 +104,15 @@ export const CustomAnalyzerDashboard: React.FC<CustomAnalyzerDashboardProps> = (
     }
     if (key.escape) {
       if (step !== null) cancelWizard();
-      else handleExit();
+      else handleBack();
+      return;
+    }
+    if (input.toLowerCase() === 'b' && step === null) {
+      handleBack();
+      return;
+    }
+    if ((input.toLowerCase() === 'q' || (key.ctrl && input === 'c')) && step === null) {
+      handleExit();
       return;
     }
     if (step !== null) {

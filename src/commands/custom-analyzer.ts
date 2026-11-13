@@ -84,6 +84,7 @@ async function handleRemove(name: string): Promise<void> {
     return;
   }
   saveCustomAnalyzers(filtered);
+  registry.unregister(name);
   logger.success(`Custom analyzer '${name}' removed`);
 }
 
@@ -114,6 +115,7 @@ export const registerCustomAnalyzerCommand = (program: Command) => {
             },
             onRemove: (name) => {
               saveCustomAnalyzers(getCustomAnalyzers().filter((analyzer) => analyzer.name !== name));
+              registry.unregister(name);
             },
           }),
         );
