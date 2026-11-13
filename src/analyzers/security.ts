@@ -68,7 +68,7 @@ export const SecurityAnalyzer: Analyzer = {
       }
       if (!allErrors.length) return [];
       return [{
-        kind: 'Security',
+        kind: 'Pod',
         name: pod.metadata?.name ?? 'unknown-pod',
         namespace: pod.metadata?.namespace ?? 'default',
         errors: allErrors,
