@@ -194,13 +194,18 @@ describe('AuthDashboard', () => {
 
     await enterAddWizard();
 
-    await sendInputs([{ key: 'return' }, { key: 'return' }, 'secret-api-key', { key: 'return' }, { key: 'return' }, { key: 'return' }, { key: 'return' }]);
+    await sendInputs([
+      { key: 'return' }, { key: 'return' }, 'secret-api-key', { key: 'return' }, { key: 'return' },
+      'http://ollama.example:11434', { key: 'return' }, '{"X-Test":"yes"}', { key: 'return' },
+    ]);
     await waitForFrameToContain({ mockStdout, substring: 'Successfully added AI provider "OpenAI"' });
 
     expect(mockStore.providers).toHaveLength(1);
     expect(mockStore.providers[0].name).toBe('openai');
     expect(mockStore.providers[0].model).toBe('gpt-4o');
     expect(mockStore.providers[0].password).toBe('secret-api-key');
+    expect(mockStore.providers[0].baseUrl).toBe('http://ollama.example:11434');
+    expect(mockStore.providers[0].customHeaders).toEqual({ 'X-Test': 'yes' });
 
     await cleanupTest(unmount);
   });
@@ -208,7 +213,7 @@ describe('AuthDashboard', () => {
   it('performs Edit Provider Wizard flow successfully', async () => {
     const { unmount } = await setupDashboardTest({
       initialProviders: [
-        { name: 'openai', model: 'gpt-4o', password: 'old-key', temperature: 0.7 },
+        { name: 'openai', model: 'gpt-4o', password: 'old-key', temperature: 0.7, baseUrl: 'https://proxy.example/v1', customHeaders: { 'X-Org': 'kdm' } },
         { name: 'ollama', model: 'llama3.1', password: 'ollama-key', temperature: 0.7 },
       ],
     });
@@ -220,6 +225,8 @@ describe('AuthDashboard', () => {
 
     expect(mockStore.providers[0].model).toBe('gpt-4-turbo');
     expect(mockStore.providers[0].password).toBe('new-key');
+    expect(mockStore.providers[0].baseUrl).toBe('https://proxy.example/v1');
+    expect(mockStore.providers[0].customHeaders).toEqual({ 'X-Org': 'kdm' });
 
     await cleanupTest(unmount);
   });
