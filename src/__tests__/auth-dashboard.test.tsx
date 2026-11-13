@@ -196,7 +196,8 @@ describe('AuthDashboard', () => {
 
     await sendInputs([
       { key: 'return' }, { key: 'return' }, 'secret-api-key', { key: 'return' }, { key: 'return' },
-      'http://ollama.example:11434', { key: 'return' }, '{"X-Test":"yes"}', { key: 'return' },
+      'http://ollama.example:11434', { key: 'return' }, { key: 'backspace' }, { key: 'backspace' },
+      '{"X-Test":"yes"}', { key: 'return' },
     ]);
     await waitForFrameToContain({ mockStdout, substring: 'Successfully added AI provider "OpenAI"' });
 
