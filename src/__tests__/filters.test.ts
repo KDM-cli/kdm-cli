@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
 import { registerFiltersCommand } from '../commands/filters';
 import { getActiveFilters, setActiveFilters } from '../config/store';
+import * as Ink from 'ink';
 
 vi.mock('../config/store', () => ({
   getActiveFilters: vi.fn(() => []),
@@ -23,6 +24,7 @@ describe('filters command', () => {
 
   afterEach(() => {
     process.exitCode = undefined;
+    vi.restoreAllMocks();
   });
 
   it('lists active and available but inactive filters with empty activeFilters', async () => {
@@ -122,6 +124,23 @@ describe('filters command', () => {
         expect.stringContaining('Interactive filters dashboard requires a TTY terminal.'),
       );
       expect(process.exitCode).toBe(1);
+    } finally {
+      process.stdout.isTTY = origStdoutTTY;
+      process.stdin.isTTY = origStdinTTY;
+    }
+  });
+
+  it('waits for the interactive dashboard to exit', async () => {
+    const origStdoutTTY = process.stdout.isTTY;
+    const origStdinTTY = process.stdin.isTTY;
+    process.stdout.isTTY = true as any;
+    process.stdin.isTTY = true as any;
+    const waitUntilExit = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(Ink, 'render').mockReturnValue({ waitUntilExit } as any);
+
+    try {
+      await program.parseAsync(['node', 'test', 'filters']);
+      expect(waitUntilExit).toHaveBeenCalledOnce();
     } finally {
       process.stdout.isTTY = origStdoutTTY;
       process.stdin.isTTY = origStdinTTY;
