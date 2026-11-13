@@ -72,6 +72,42 @@ describe('Kubernetes analyzers', () => {
     await expect(PodAnalyzer.analyze({})).resolves.toEqual([]);
   });
 
+  it('does not flag successfully completed batch pods as unready', async () => {
+    vi.mocked(listPods).mockResolvedValueOnce([
+      {
+        metadata: { name: 'completed-job', namespace: 'default' },
+        status: {
+          phase: 'Succeeded',
+          containerStatuses: [{ name: 'job', ready: false, restartCount: 0, state: { terminated: { reason: 'Completed' } } }],
+        },
+      } as any,
+    ]);
+
+    await expect(PodAnalyzer.analyze({})).resolves.toEqual([]);
+  });
+
+  it('reports failures in init container statuses', async () => {
+    vi.mocked(listPods).mockResolvedValueOnce([
+      {
+        metadata: { name: 'api', namespace: 'default' },
+        status: {
+          phase: 'Pending',
+          initContainerStatuses: [{
+            name: 'init-config',
+            ready: false,
+            restartCount: 1,
+            state: { waiting: { reason: 'ImagePullBackOff' } },
+          }],
+        },
+      } as any,
+    ]);
+
+    const results = await PodAnalyzer.analyze({});
+    expect(results).toHaveLength(1);
+    expect(results[0].errors.map((error) => error.text).join('\n')).toContain('init-config');
+    expect(results[0].errors.map((error) => error.text).join('\n')).toContain('ImagePullBackOff');
+  });
+
   it('detects deployments with unavailable replicas and progress deadline failures', async () => {
     vi.mocked(listDeployments).mockResolvedValueOnce([
       {

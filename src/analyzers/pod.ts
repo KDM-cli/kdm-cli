@@ -65,7 +65,7 @@ const checkSingleContainerState = (status: k8s.V1ContainerStatus): Failure[] => 
     });
   }
 
-  if (!status.ready && status.state?.terminated?.reason !== 'Completed') {
+  if (!status.ready) {
     failures.push({ text: `Container ${status.name} is not ready` });
   }
 
