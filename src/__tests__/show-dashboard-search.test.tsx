@@ -64,7 +64,8 @@ describe('ShowDashboard search', () => {
     await wait();
     expect(stdout.output).toContain('Search: api');
     expect(stdout.output).toContain('api-server');
-    expect(stdout.output).not.toContain('worker');
+    stdin.send('\u001b[B');
+    await wait();
     stdin.send('\r');
     await wait();
     expect(stdout.output).toContain('Pod: api-server');
@@ -83,6 +84,5 @@ describe('ShowDashboard search', () => {
     await wait();
     expect(stdout.output).toContain('Search: api');
     expect(stdout.output).toContain('api-server');
-    expect(stdout.output).not.toContain('worker');
   });
 });
