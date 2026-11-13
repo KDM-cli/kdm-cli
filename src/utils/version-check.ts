@@ -52,7 +52,7 @@ export async function checkForUpdates(): Promise<void> {
     arg === '--output=json' || (arg === '--output' && args[index + 1] === 'json') ||
     (arg === '-o' && args[index + 1] === 'json') || arg === '-ojson'
   );
-  if (!process.stdout.isTTY || jsonOutput) return;
+  if (process.stdout.isTTY === false || jsonOutput) return;
 
   try {
     const response = await fetch('https://registry.npmjs.org/kdm-cli/latest', {
