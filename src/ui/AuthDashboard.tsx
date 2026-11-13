@@ -273,6 +273,8 @@ export const AuthDashboard: React.FC<AuthDashboardProps> = ({ onBack, onExit }) 
     model: '',
     apiKey: '',
     temp: '0.7',
+    baseUrl: '',
+    customHeaders: '{}',
   });
 
   const selectedBackend = VALID_BACKENDS[selectedIndex];
@@ -334,7 +336,7 @@ export const AuthDashboard: React.FC<AuthDashboardProps> = ({ onBack, onExit }) 
   };
 
   const handleAddReturn = () => {
-    if (wizardStep < 3) {
+    if (wizardStep < 5) {
       if (wizardStep === 0) {
         const prov = wizardValues.provider.trim().toLowerCase();
         if (!VALID_BACKENDS.includes(prov)) {
@@ -361,6 +363,17 @@ export const AuthDashboard: React.FC<AuthDashboardProps> = ({ onBack, onExit }) 
       return;
     }
 
+    let customHeaders: Record<string, string>;
+    try {
+      const parsed: unknown = JSON.parse(wizardValues.customHeaders || '{}');
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) ||
+          Object.values(parsed).some((value) => typeof value !== 'string')) throw new Error();
+      customHeaders = parsed as Record<string, string>;
+    } catch {
+      setErrorMsg('Custom headers must be a JSON object with string values.');
+      return;
+    }
+
     const tempFloat = parseTemperature(wizardValues.temp);
     if (tempFloat === null) {
       setErrorMsg('Temperature must be a valid number.');
@@ -372,6 +385,8 @@ export const AuthDashboard: React.FC<AuthDashboardProps> = ({ onBack, onExit }) 
       model: wizardValues.model.trim() || DEFAULT_MODELS[prov] || 'default',
       password: wizardValues.apiKey.trim() || undefined,
       temperature: tempFloat,
+      baseUrl: wizardValues.baseUrl.trim() || undefined,
+      customHeaders,
     };
 
     const newProviders = [...currentProviders, newProvider];
@@ -387,7 +402,7 @@ export const AuthDashboard: React.FC<AuthDashboardProps> = ({ onBack, onExit }) 
   };
 
   const handleEditReturn = () => {
-    if (wizardStep < 2) {
+    if (wizardStep < 4) {
       setWizardStep((prev) => prev + 1);
       return;
     }
@@ -398,6 +413,17 @@ export const AuthDashboard: React.FC<AuthDashboardProps> = ({ onBack, onExit }) 
       return;
     }
 
+    let customHeaders: Record<string, string> | undefined;
+    try {
+      const parsed: unknown = JSON.parse(wizardValues.customHeaders || '{}');
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) ||
+          Object.values(parsed).some((value) => typeof value !== 'string')) throw new Error();
+      customHeaders = parsed as Record<string, string>;
+    } catch {
+      setErrorMsg('Custom headers must be a JSON object with string values.');
+      return;
+    }
+
     const updatedProviders = currentProviders.map((p) => {
       if (p.name.toLowerCase() === selectedBackend.toLowerCase()) {
         return {
@@ -405,6 +431,8 @@ export const AuthDashboard: React.FC<AuthDashboardProps> = ({ onBack, onExit }) 
           model: wizardValues.model.trim() || p.model,
           password: wizardValues.apiKey.trim() ? wizardValues.apiKey.trim() : p.password,
           temperature: tempFloat,
+          baseUrl: wizardValues.baseUrl.trim() || undefined,
+          customHeaders,
         };
       }
       return p;
@@ -422,12 +450,18 @@ export const AuthDashboard: React.FC<AuthDashboardProps> = ({ onBack, onExit }) 
   };
 
   const selectAddProvider = () => {
+    if (selectedConfig) {
+      setErrorMsg(`Provider "${selectedProviderName}" is already configured. Use edit (E) instead.`);
+      return;
+    }
     const defaultModel = DEFAULT_MODELS[selectedBackend] || 'default';
     setWizardValues({
       provider: selectedBackend,
       model: defaultModel,
       apiKey: '',
       temp: '0.7',
+      baseUrl: '',
+      customHeaders: '{}',
     });
     setWizardStep(0);
     setMode('add');
@@ -443,6 +477,8 @@ export const AuthDashboard: React.FC<AuthDashboardProps> = ({ onBack, onExit }) 
       model: selectedConfig.model || '',
       apiKey: '',
       temp: selectedConfig.temperature !== undefined ? String(selectedConfig.temperature) : '0.7',
+      baseUrl: selectedConfig.baseUrl ?? '',
+      customHeaders: JSON.stringify(selectedConfig.customHeaders ?? {}),
     });
     setWizardStep(0);
     setMode('edit');
@@ -514,7 +550,7 @@ export const AuthDashboard: React.FC<AuthDashboardProps> = ({ onBack, onExit }) 
       return;
     }
     if (key.downArrow) {
-      setWizardStep((prev) => Math.min(3, prev + 1));
+      setWizardStep((prev) => Math.min(5, prev + 1));
       return;
     }
 
@@ -523,7 +559,7 @@ export const AuthDashboard: React.FC<AuthDashboardProps> = ({ onBack, onExit }) 
       return;
     }
 
-    handleTyping({ input, key, fields: ['provider', 'model', 'apiKey', 'temp'], activeStep: wizardStep });
+    handleTyping({ input, key, fields: ['provider', 'model', 'apiKey', 'temp', 'baseUrl', 'customHeaders'], activeStep: wizardStep });
   };
 
   const handleEditInput = ({ input, key }: { input: string; key: any }) => {
@@ -537,7 +573,7 @@ export const AuthDashboard: React.FC<AuthDashboardProps> = ({ onBack, onExit }) 
       return;
     }
     if (key.downArrow) {
-      setWizardStep((prev) => Math.min(2, prev + 1));
+      setWizardStep((prev) => Math.min(4, prev + 1));
       return;
     }
 
@@ -546,7 +582,7 @@ export const AuthDashboard: React.FC<AuthDashboardProps> = ({ onBack, onExit }) 
       return;
     }
 
-    handleTyping({ input, key, fields: ['model', 'apiKey', 'temp'], activeStep: wizardStep });
+    handleTyping({ input, key, fields: ['model', 'apiKey', 'temp', 'baseUrl', 'customHeaders'], activeStep: wizardStep });
   };
 
   const handleRemoveConfirmInput = ({ input, key }: { input: string; key: any }) => {
@@ -609,6 +645,8 @@ export const AuthDashboard: React.FC<AuthDashboardProps> = ({ onBack, onExit }) 
             { label: 'Model:     ', value: wizardValues.model },
             { label: 'API Key:   ', value: '*'.repeat(wizardValues.apiKey.length) },
             { label: 'Temp:      ', value: wizardValues.temp },
+            { label: 'Base URL:  ', value: wizardValues.baseUrl || '(provider default)' },
+            { label: 'Headers:   ', value: wizardValues.customHeaders },
           ]}
           activeStep={wizardStep}
           errorMsg={errorMsg}
@@ -627,6 +665,8 @@ export const AuthDashboard: React.FC<AuthDashboardProps> = ({ onBack, onExit }) 
                 : '(leave empty to keep existing)',
             },
             { label: 'Temp:      ', value: wizardValues.temp },
+            { label: 'Base URL:  ', value: wizardValues.baseUrl || '(provider default)' },
+            { label: 'Headers:   ', value: wizardValues.customHeaders },
           ]}
           activeStep={wizardStep}
           errorMsg={errorMsg}
