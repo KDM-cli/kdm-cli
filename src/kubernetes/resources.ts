@@ -352,10 +352,11 @@ const GATEWAY_API_VERSION = 'v1';
 const listGatewayResources = async (
   plural: string,
   options: KubernetesResourceOptions = {},
+  clusterScoped = false,
 ): Promise<any[]> => {
   const api = getCustomObjectsApi(options);
   try {
-    const response = options.namespace
+    const response = options.namespace && !clusterScoped
       ? await api.listNamespacedCustomObject({ group: GATEWAY_API_GROUP, version: GATEWAY_API_VERSION, namespace: options.namespace, plural })
       : await api.listClusterCustomObject({ group: GATEWAY_API_GROUP, version: GATEWAY_API_VERSION, plural });
     return (response as any)?.items ?? [];
@@ -371,7 +372,7 @@ const listGatewayResources = async (
  * @returns List of GatewayClass resources.
  */
 export const listGatewayClasses = async (options: KubernetesResourceOptions = {}): Promise<any[]> =>
-  listGatewayResources('gatewayclasses', options);
+  listGatewayResources('gatewayclasses', options, true);
 
 /**
  * Queries the cluster for Gateway resources.
