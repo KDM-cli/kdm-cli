@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 import type { CustomAnalyzerConfig } from '../analyzers/custom';
+import { registry } from '../analyzers';
 
 type WizardStep = 1 | 2 | 3;
 type AnalyzerType = 'command' | 'url';
@@ -63,6 +64,10 @@ export const CustomAnalyzerDashboard: React.FC<CustomAnalyzerDashboardProps> = (
       }
       if (rules.some((analyzer) => analyzer.name === trimmed)) {
         setError(`Rule "${trimmed}" already exists.`);
+        return;
+      }
+      if (registry.isBuiltIn(trimmed)) {
+        setError(`Rule name "${trimmed}" conflicts with a built-in analyzer.`);
         return;
       }
       setName(trimmed);

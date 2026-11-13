@@ -29,6 +29,11 @@ const saveCustomAnalyzers = (analyzers: CustomAnalyzerConfig[]): void => {
  * @param options CLI parsed options.
  */
 async function handleAdd(name: string, options: any): Promise<void> {
+  if (registry.isBuiltIn(name)) {
+    logger.error(`Custom analyzer '${name}' conflicts with a built-in analyzer`);
+    process.exitCode = 1;
+    return;
+  }
   const existing = getCustomAnalyzers();
   if (existing.find((a) => a.name === name)) {
     logger.error(`Custom analyzer '${name}' already exists`);
