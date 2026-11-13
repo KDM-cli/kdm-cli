@@ -191,10 +191,15 @@ export const checkK8sConnection = async (): Promise<{ connected: boolean; podCou
       podCount: runningPods.length,
     };
   } catch (error) {
-    return {
-      connected: false,
-      podCount: 0,
-    };
+    // Cluster-wide pod listing requires a ClusterRole. A successful Kubernetes
+    // version request still proves connectivity without requiring pod permissions.
+    try {
+      const config = getKubeConfig();
+      await config.makeApiClient(k8s.VersionApi).getCode();
+      return { connected: true, podCount: 0 };
+    } catch {
+      return { connected: false, podCount: 0 };
+    }
   }
 };
 
