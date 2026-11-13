@@ -148,7 +148,7 @@ describe('AuthDashboard', () => {
 
   const enterAddWizard = async () => {
     await sendInputs(['a']);
-    await waitForFrameToContain({ mockStdout, substring: 'Step 1/4 — Provider:' });
+    await waitForFrameToContain({ mockStdout, substring: 'Step 1/6 — Provider:' });
     await sleep(50);
   };
 
@@ -194,7 +194,7 @@ describe('AuthDashboard', () => {
 
     await enterAddWizard();
 
-    await sendInputs([{ key: 'return' }, { key: 'return' }, 'secret-api-key', { key: 'return' }, { key: 'return' }]);
+    await sendInputs([{ key: 'return' }, { key: 'return' }, 'secret-api-key', { key: 'return' }, { key: 'return' }, { key: 'return' }, { key: 'return' }]);
     await waitForFrameToContain({ mockStdout, substring: 'Successfully added AI provider "OpenAI"' });
 
     expect(mockStore.providers).toHaveLength(1);
@@ -215,7 +215,7 @@ describe('AuthDashboard', () => {
 
     await enterEditWizard();
 
-    await sendInputs([{ key: 'backspace' }, '-turbo', { key: 'return' }, 'new-key', { key: 'return' }, { key: 'return' }]);
+    await sendInputs([{ key: 'backspace' }, '-turbo', { key: 'return' }, 'new-key', { key: 'return' }, { key: 'return' }, { key: 'return' }, { key: 'return' }]);
     await waitForFrameToContain({ mockStdout, substring: 'Successfully updated AI provider "OpenAI"' });
 
     expect(mockStore.providers[0].model).toBe('gpt-4-turbo');
@@ -300,6 +300,8 @@ describe('AuthDashboard', () => {
       { key: 'backspace' },
       { key: 'backspace' },
       '0.7abc',
+      { key: 'return' },
+      { key: 'return' },
       { key: 'return' }
     ]);
     await waitForFrameToContain({ mockStdout, substring: 'Temperature must be a valid number.' });
@@ -314,9 +316,7 @@ describe('AuthDashboard', () => {
       ],
     });
 
-    await enterAddWizard();
-
-    await sendInputs([{ key: 'return' }, { key: 'return' }, { key: 'return' }, { key: 'return' }]);
+    await sendInputs(['a']);
     await waitForFrameToContain({ mockStdout, substring: 'Provider "openai" is already configured. Use edit (E) instead.' });
 
     await cleanupTest(unmount);
@@ -338,6 +338,8 @@ describe('AuthDashboard', () => {
       { key: 'backspace' },
       { key: 'backspace' },
       'invalidtemp',
+      { key: 'return' },
+      { key: 'return' },
       { key: 'return' }
     ]);
     await waitForFrameToContain({ mockStdout, substring: 'Temperature must be a valid number.' });
@@ -374,7 +376,7 @@ describe('AuthDashboard', () => {
     await sendInputs([{ key: 'escape' }]);
     const lastRendered = [...mockStdout.frames].reverse().find((f) => f.includes('AI Provider Manager'));
     expect(lastRendered).toBeDefined();
-    expect(lastRendered).not.toContain('Step 1/4');
+    expect(lastRendered).not.toContain('Step 1/6');
 
     await cleanupTest(unmount);
   });
