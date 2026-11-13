@@ -54,5 +54,7 @@ export const mergeLegacyConfig = (stored: StoredKDMConfig): KDMConfig => {
     cache: stored.cache,
     output: stored.output,
     notifications: mergedNotifications,
+    integrations: stored.integrations,
+    customAnalyzers: stored.customAnalyzers,
   };
 };
