@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { parseNDJSONLine } from './event-schema';
 import type { ConsensusDiagnosis, AgentProgressEvent, NDJSONEvent } from './types';
 
-const DEFAULT_TIMEOUT_MS = 45_000;
+export const DEFAULT_TIMEOUT_MS = 120_000;
 const SIGKILL_GRACE_PERIOD_MS = 1_500;
 const DEFAULT_MODEL = 'llama3.1';
 const DEFAULT_BASE_URL = 'http://localhost:11434';
@@ -38,7 +38,7 @@ export interface CouncilBridgeOptions {
   model?: string;
   /** Base URL for Ollama API (default: 'http://localhost:11434'). */
   baseUrl?: string;
-  /** Maximum execution duration in milliseconds before watchdog triggers SIGTERM/SIGKILL (default: 45000). */
+  /** Maximum execution duration in milliseconds before watchdog triggers SIGTERM/SIGKILL. */
   timeoutMs?: number;
   /** Callback invoked on parsed NDJSON streaming events. */
   onEvent?: (event: NDJSONEvent) => void;
@@ -48,6 +48,16 @@ export interface CouncilBridgeOptions {
   onProgress?: (event: AgentProgressEvent) => void;
   /** Optional custom spawn function (primarily for testing). */
   spawnFn?: typeof spawn;
+}
+
+/** Resolves a valid per-call, environment, or default council timeout. */
+export function resolveCouncilTimeoutMs(timeoutMs?: number): number {
+  if (Number.isSafeInteger(timeoutMs) && timeoutMs! > 0) return timeoutMs!;
+
+  const fromEnvironment = Number(process.env.KDM_COUNCIL_TIMEOUT_MS);
+  if (Number.isSafeInteger(fromEnvironment) && fromEnvironment > 0) return fromEnvironment;
+
+  return DEFAULT_TIMEOUT_MS;
 }
 
 /**
@@ -368,7 +378,7 @@ export async function runAgentCouncilProcess(
 ): Promise<ConsensusDiagnosis> {
   const scriptPath = getCouncilScriptPath();
   const spawnImpl = options.spawnFn || spawn;
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timeoutMs = resolveCouncilTimeoutMs(options.timeoutMs);
 
   const payload = JSON.stringify({
     failureText: options.failureText,

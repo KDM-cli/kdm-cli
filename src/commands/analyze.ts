@@ -50,6 +50,14 @@ const parseCustomHeaders = (
   return result;
 };
 
+const parseCouncilTimeout = (value: string): number => {
+  const timeoutMs = Number(value);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new Error('Council timeout must be a positive whole number of milliseconds');
+  }
+  return timeoutMs;
+};
+
 /**
  * Builds the analysis configuration options from the CLI raw options.
  * @param options CLI parsed options.
@@ -74,15 +82,12 @@ const buildAnalysisOptions = (options: any, signal: AbortSignal): AnalysisOption
   anonymize: Boolean(options.anonymize),
   customHeaders: options.customHeaders,
   noCache: Boolean(options.noCache),
+  councilTimeoutMs: options.councilTimeout,
   exportAudit: options.exportAudit,
   multiAgent: options.multiAgent ? Boolean(options.multiAgent) : undefined,
   targetResource: options.targetResource,
   resourceName: options.resourceName,
   interactive: options.interactive !== false && options.output !== 'json' && Boolean(process.stdout.isTTY && process.stdin.isTTY),
-  exportAudit: options.exportAudit,
-  multiAgent: options.multiAgent ? Boolean(options.multiAgent) : undefined,
-  targetResource: options.targetResource,
-  resourceName: options.resourceName,
 });
 
 /**
@@ -284,5 +289,6 @@ export const registerAnalyzeCommand = (program: Command) => {
     .option('-c, --no-cache', 'Skip cache for AI explanations')
     .option('--export-audit <path>', 'Export sanitized incident audit trail to a JSON file')
     .option('--multi-agent', 'Enable experimental multi-agent SRE council')
+    .option('--council-timeout <ms>', 'Maximum council runtime in milliseconds', parseCouncilTimeout)
     .action(handleAnalyze);
 };

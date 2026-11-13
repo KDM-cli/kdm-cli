@@ -573,7 +573,9 @@ async function executeCouncilForResults(
   results: AnalyzerResult[],
   options: AnalysisOptions,
 ): Promise<void> {
-  const primaryResult = results[0];
+  if (results.every((result) => result.errors.length === 0)) return;
+
+  const primaryResult = results.find((result) => result.errors.length > 0) || results[0];
   const failureText = results
     .flatMap((r) => r.errors.map((e) => e.text))
     .join('\n') || (options.targetResource ? `Workload ${options.targetResource} failure` : options.labelSelector ? `Workload matching selector ${options.labelSelector} failure` : 'Cluster workload failure');
@@ -587,13 +589,22 @@ async function executeCouncilForResults(
     name: targetName,
   };
 
+  const baseUrl = resolveOllamaBaseUrl();
+  let degradationReason: string | undefined;
   try {
+    const dependencies = await checkCouncilDependencies(baseUrl);
+    if (!dependencies.canRunCouncil) {
+      degradationReason = dependencies.degradationReason || 'Council dependencies are unavailable';
+      throw new Error(degradationReason);
+    }
+
     const runner = runAgentCouncilProcess || runPythonAgentCouncil;
     const consensus = await runner({
       failureText,
       context: targetContext,
       model: options.model,
-      baseUrl: getAIConfig().providers.find((provider) => provider.name.toLowerCase() === 'ollama')?.baseUrl || resolveOllamaBaseUrl(),
+      baseUrl,
+      timeoutMs: options.councilTimeoutMs,
     });
 
     if (consensus) {
@@ -615,10 +626,38 @@ async function executeCouncilForResults(
       return;
     }
   } catch (err) {
-    logger.warn(`Multi-agent council bridge failed: ${(err as Error).message}. Falling back to legacy pipeline.`);
+    degradationReason ||= (err as Error).message;
+    logger.warn(`Multi-agent council bridge failed: ${degradationReason}. Falling back to diagnostics.`);
   }
 
-  await explainResults(results, options);
+  // Always leave useful diagnostic details behind when the council is unavailable,
+  // including when --explain was not separately requested.
+  const backend = resolveBackend(options);
+  for (const result of results) {
+    if (result.errors.length === 0) continue;
+
+    const failureText = result.errors.map((error) => error.text).join('\n');
+    const { promptText, mapping } = preparePromptMapping(failureText, options.anonymize);
+    const prompt = buildPrompt({
+      failureText: promptText,
+      language: options.language ?? DEFAULT_LANGUAGE,
+      analyzerName: result.kind,
+    });
+    const fallbackContext: FallbackContext = {
+      result,
+      backend,
+      failureText: promptText,
+      prompt,
+      degradationReason,
+      customHeaders: options.customHeaders,
+    };
+
+    if (!applyRuleEngineFallback(fallbackContext)) {
+      const legacyResponse = await applyLegacyAiFallback(fallbackContext);
+      if (!legacyResponse) applyRawSummaryFallback(fallbackContext);
+    }
+    result.details = applyAnonymization(result.details || '', mapping, options.anonymize);
+  }
 }
 
 /**

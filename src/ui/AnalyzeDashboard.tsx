@@ -160,7 +160,7 @@ const DashboardHeader: React.FC<{
   status?: string;
   isLoading: boolean;
 }> = ({ namespace, backend, problemsCount, status, isLoading }) => {
-  const isOk = status === 'OK' || problemsCount === 0;
+  const isOk = problemsCount === 0 && status !== 'ProblemDetected';
   const statusColor = isOk ? 'green' : 'yellow';
   const statusLabel = isOk ? 'OK' : 'PROBLEMS DETECTED';
 
