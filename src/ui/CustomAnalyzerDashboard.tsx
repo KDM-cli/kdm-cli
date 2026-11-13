@@ -201,7 +201,7 @@ export const CustomAnalyzerDashboard: React.FC<CustomAnalyzerDashboardProps> = (
       {pendingRemoval ? (
         <Text color="yellow">Remove &quot;{pendingRemoval}&quot;? [y/N]</Text>
       ) : (
-        <Text>[A] Add Rule  [DELETE/D] Remove  [Esc/Q] Back</Text>
+        <Text>[A] Add Rule  [DELETE/D] Remove  [B/Esc] Back  [Q] Quit</Text>
       )}
     </Box>
   );
