@@ -12,7 +12,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { runAnalysis, explainSingleResult, resolveBackend } from '../analysis';
 import { clearConfig, setAIConfig } from '../../config/store';
-import { isPythonAgentAvailable, runPythonAgentCouncil } from '../../agent/python-bridge';
+import { isPythonAgentAvailable, runAgentCouncilProcess } from '../../agent/python-bridge';
 import * as probesModule from '../probes';
 import {
   registry,
@@ -84,6 +84,7 @@ vi.mock('../../ai/factory', () => ({
 }));
 
 vi.mock('../../agent/python-bridge', () => ({
+  runAgentCouncilProcess: vi.fn(),
   runPythonAgentCouncil: vi.fn(),
   isPythonAgentAvailable: vi.fn(async () => false),
 }));
@@ -266,7 +267,7 @@ describe('Baseline Pipeline Regression Tests', () => {
     registry.register(createMockAnalyzer('Pod', [OOM_KILLED_FIXTURE]));
     setAIConfig({ providers: [{ name: 'ollama', model: 'gemma:2b', baseUrl: 'http://ollama.remote:11434' }] });
     vi.mocked(isPythonAgentAvailable).mockResolvedValueOnce(true);
-    vi.mocked(runPythonAgentCouncil).mockResolvedValueOnce({
+    vi.mocked(runAgentCouncilProcess).mockResolvedValueOnce({
       confidence: 'high',
       rootCause: 'test cause',
       bestSolution: { actionTitle: 'test fix', steps: [] },
@@ -280,7 +281,7 @@ describe('Baseline Pipeline Regression Tests', () => {
       noCache: true,
     });
 
-    expect(runPythonAgentCouncil).toHaveBeenCalledWith(expect.objectContaining({
+    expect(runAgentCouncilProcess).toHaveBeenCalledWith(expect.objectContaining({
       baseUrl: 'http://ollama.remote:11434',
     }));
   });

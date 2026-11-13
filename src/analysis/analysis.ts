@@ -634,34 +634,51 @@ async function applyCouncilFallbacks(
   options: AnalysisOptions,
   degradationReason: string,
 ): Promise<void> {
-  // Always leave useful diagnostic details behind when the council is unavailable,
-  // including when --explain was not separately requested.
   const backend = resolveBackend(options);
   for (const result of results) {
-    if (result.errors.length === 0) continue;
+    if (result.errors.length > 0) {
+      await applyCouncilFallbackForResult(result, options, backend, degradationReason);
+    }
+  }
+}
 
-    const failureText = result.errors.map((error) => error.text).join('\n');
-    const { promptText, mapping } = preparePromptMapping(failureText, options.anonymize);
-    const prompt = buildPrompt({
-      failureText: promptText,
-      language: options.language ?? DEFAULT_LANGUAGE,
-      analyzerName: result.kind,
-    });
-    const fallbackContext: FallbackContext = {
+function createCouncilFallbackContext(
+  result: AnalyzerResult,
+  options: AnalysisOptions,
+  backend: string,
+  degradationReason: string,
+): { context: FallbackContext; mapping: { original: string; placeholder: string }[] } {
+  const failureText = result.errors.map((error) => error.text).join('\n');
+  const { promptText, mapping } = preparePromptMapping(failureText, options.anonymize);
+  const prompt = buildPrompt({
+    failureText: promptText,
+    language: options.language ?? DEFAULT_LANGUAGE,
+    analyzerName: result.kind,
+  });
+  return {
+    context: {
       result,
       backend,
       failureText: promptText,
       prompt,
       degradationReason,
       customHeaders: options.customHeaders,
-    };
+    },
+    mapping,
+  };
+}
 
-    if (!applyRuleEngineFallback(fallbackContext)) {
-      const legacyResponse = await applyLegacyAiFallback(fallbackContext);
-      if (!legacyResponse) applyRawSummaryFallback(fallbackContext);
-    }
-    result.details = applyAnonymization(result.details || '', mapping, options.anonymize);
+async function applyCouncilFallbackForResult(
+  result: AnalyzerResult,
+  options: AnalysisOptions,
+  backend: string,
+  degradationReason: string,
+): Promise<void> {
+  const { context, mapping } = createCouncilFallbackContext(result, options, backend, degradationReason);
+  if (!applyRuleEngineFallback(context) && !(await applyLegacyAiFallback(context))) {
+    applyRawSummaryFallback(context);
   }
+  result.details = applyAnonymization(result.details || '', mapping, options.anonymize);
 }
 
 /**
