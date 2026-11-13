@@ -2,12 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
 import { registerFiltersCommand } from '../commands/filters';
 import { getActiveFilters, setActiveFilters } from '../config/store';
-import * as Ink from 'ink';
+import { render } from 'ink';
 
 vi.mock('../config/store', () => ({
   getActiveFilters: vi.fn(() => []),
   setActiveFilters: vi.fn(),
 }));
+
+vi.mock('ink', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('ink')>();
+  return { ...actual, render: vi.fn() };
+});
 
 describe('filters command', () => {
   let program: Command;
@@ -136,7 +141,7 @@ describe('filters command', () => {
     process.stdout.isTTY = true as any;
     process.stdin.isTTY = true as any;
     const waitUntilExit = vi.fn().mockResolvedValue(undefined);
-    vi.spyOn(Ink, 'render').mockReturnValue({ waitUntilExit } as any);
+    vi.mocked(render).mockReturnValue({ waitUntilExit } as any);
 
     try {
       await program.parseAsync(['node', 'test', 'filters']);
