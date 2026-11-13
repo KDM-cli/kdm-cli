@@ -97,6 +97,9 @@ export class FileCacheProvider implements CacheProvider {
    * @returns Absolute path to the file.
    */
   private getSafeFilePath(key: string): string {
+    if (!key || key === '.' || key === '..' || key.includes('/') || key.includes('\\') || key.includes('\0')) {
+      throw new Error('Invalid cache key: keys must be a single path segment');
+    }
     const resolvedCacheDir = path.resolve(this.cacheDir);
     const resolvedPath = path.resolve(this.cacheDir, key);
 
