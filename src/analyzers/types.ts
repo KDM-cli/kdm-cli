@@ -19,6 +19,7 @@ export interface AnalyzerResult {
   parentObject?: string;
   errors: Failure[];
   details?: string;
+  consensus?: import('../agent/types').ConsensusDiagnosis;
   fallbackBadge?: string;
   fallbackReason?: string;
   fallbackStep?: 'council' | 'rule_engine' | 'legacy_ai' | 'raw_summary';

@@ -7,6 +7,7 @@ import { NoopAIClient } from './noop';
 import { AzureOpenAIClient } from './azure-openai';
 import { CohereAIClient } from './cohere';
 import { GoogleGeminiAIClient } from './google-gemini';
+import { GoogleGenAIClient } from './google-genai';
 import { GoogleVertexAIClient } from './google-vertex';
 import { AmazonBedrockAIClient } from './amazon-bedrock';
 import { HuggingFaceAIClient } from './huggingface';
@@ -27,7 +28,9 @@ const CLIENT_MAPPING: Record<string, new () => AIClient> = {
   cohere: CohereAIClient,
   'google-gemini': GoogleGeminiAIClient,
   googlegemini: GoogleGeminiAIClient,
-  gemini: GoogleGeminiAIClient,
+  'google-genai': GoogleGenAIClient,
+  googlegenai: GoogleGenAIClient,
+  gemini: GoogleGenAIClient,
   'google-vertex': GoogleVertexAIClient,
   googlevertex: GoogleVertexAIClient,
   vertex: GoogleVertexAIClient,
@@ -50,19 +53,30 @@ const CLIENT_MAPPING: Record<string, new () => AIClient> = {
  * @param backendName The name of the AI provider backend (e.g. 'openai', 'ollama').
  * @returns Instantiated and configured AIClient.
  */
-export async function createAIClient(backendName: string): Promise<AIClient> {
+export async function createAIClient(backendName: string, model?: string, headers?: Record<string, string>): Promise<AIClient> {
   const aiConfig = getAIConfig();
-  const providerConfig = aiConfig.providers.find(
-    (p) => p.name.toLowerCase() === backendName.toLowerCase(),
+  const lower = backendName.toLowerCase();
+
+  let providerConfig = aiConfig.providers.find(
+    (p) => p.name.toLowerCase() === lower,
   );
 
-  const ClientClass = CLIENT_MAPPING[backendName.toLowerCase()];
+  if (!providerConfig && (lower === 'gemini' || lower === 'google-genai')) {
+    providerConfig = aiConfig.providers.find(
+      (p) =>
+        p.name.toLowerCase() === 'google-genai' ||
+        p.name.toLowerCase() === 'gemini' ||
+        p.name.toLowerCase() === 'google-gemini',
+    );
+  }
+
+  const ClientClass = CLIENT_MAPPING[lower];
   if (!ClientClass) {
     throw new Error(`Unsupported AI provider: ${backendName}`);
   }
 
   const client = new ClientClass();
   const activeConfig = providerConfig || { name: backendName, model: '' };
-  await client.configure(activeConfig);
+  await client.configure({ ...activeConfig, model: model || activeConfig.model, customHeaders: { ...activeConfig.customHeaders, ...headers } });
   return client;
 }

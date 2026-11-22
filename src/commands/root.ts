@@ -14,6 +14,7 @@ import { registerAuthCommand } from './auth';
 import { registerCacheCommand } from './cache';
 import { registerServeCommand } from './serve';
 import { registerCustomAnalyzerCommand } from './custom-analyzer';
+import { registerCopilotCommand } from './copilot';
 import { logger } from '../utils/logger';
 import { showWelcomeBanner } from '../ui/banner';
 import { createSpinner } from '../ui/spinner';
@@ -39,6 +40,7 @@ registerAuthCommand(program);
 registerCacheCommand(program);
 registerServeCommand(program);
 registerCustomAnalyzerCommand(program);
+registerCopilotCommand(program);
 
 // Register integration analyzers
 registerIntegrations();

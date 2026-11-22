@@ -60,7 +60,7 @@ describe('WatchDashboard actions', () => {
     stdin = new TestStdin();
     k8sApiMock.deleteNamespacedPod.mockClear();
     k8sApiMock.readNamespacedPodLog.mockClear();
-    app = render(<WatchDashboard />, { stdin, stdout, debug: true });
+    app = render(<WatchDashboard />, { stdin: stdin as any, stdout: stdout as any, debug: true });
     await wait();
 
     stdin.send('r');

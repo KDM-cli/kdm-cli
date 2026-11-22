@@ -8,6 +8,7 @@ import { createAIClient } from '../ai/factory';
 import { getAIConfig } from '../config/store';
 import chalk from 'chalk';
 import { triggerBack, triggerExit } from './navigation-utils';
+import { CopilotShell } from './CopilotShell';
 
 const StatusBadge = ({ status, type }: { status: string, type: 'pod' | 'container' }) => {
   const isRunning = type === 'pod' ? status === 'Running' : status === 'running';
@@ -54,6 +55,7 @@ export const WatchDashboard: React.FC<WatchDashboardProps> = ({ onBack, onExit }
   
   const [aiDiagnosis, setAiDiagnosis] = useState<string | null>(null);
   const [runningAi, setRunningAi] = useState(false);
+  const [troubleshootResource, setTroubleshootResource] = useState<string | null>(null);
   
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [confirmRestart, setConfirmRestart] = useState(false);
@@ -260,6 +262,13 @@ export const WatchDashboard: React.FC<WatchDashboardProps> = ({ onBack, onExit }
       return;
     }
 
+    if (troubleshootResource) {
+      if (key.escape || lowerInput === 'b') {
+        setTroubleshootResource(null);
+      }
+      return;
+    }
+
     if (key.escape || lowerInput === 'b') {
       triggerBack(onBack, exit);
       return;
@@ -303,6 +312,10 @@ export const WatchDashboard: React.FC<WatchDashboardProps> = ({ onBack, onExit }
       if (lowerInput === 'l') {
         setShowLogs(true);
         void fetchSelectedLogs(selectedResource);
+        return;
+      }
+      if (lowerInput === 't') {
+        setTroubleshootResource(selectedResource.name);
         return;
       }
       if (lowerInput === 'a') {
@@ -353,6 +366,16 @@ export const WatchDashboard: React.FC<WatchDashboardProps> = ({ onBack, onExit }
           <Text color="white">{aiDiagnosis}</Text>
         </Box>
       </Box>
+    );
+  }
+
+  // Render Interactive Copilot Troubleshooting Session
+  if (troubleshootResource) {
+    return (
+      <CopilotShell
+        targetResource={troubleshootResource}
+        onExit={() => setTroubleshootResource(null)}
+      />
     );
   }
 
@@ -508,7 +531,7 @@ export const WatchDashboard: React.FC<WatchDashboardProps> = ({ onBack, onExit }
 
       {/* Footer / Shortcuts */}
       <Box marginTop={1}>
-        <Text bold>[L] Logs  [A] AI Analysis  [R] Restart  [TAB] Switch Focus  [Esc/B] Back  [Q] Quit</Text>
+        <Text bold>[L] Logs  [T] Troubleshoot  [A] AI Analysis  [R] Restart  [TAB] Switch Focus  [Esc/B] Back  [Q] Quit</Text>
       </Box>
     </Box>
   );

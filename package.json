@@ -27,7 +27,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format esm && tsc --emitDeclarationOnly --declaration --outDir dist",
+    "prebuild": "rm -rf dist",
+    "build": "rm -rf dist && tsup src/index.ts --format esm && tsc --emitDeclarationOnly --declaration --outDir dist",
     "dev": "tsup src/index.ts --format esm --watch",
     "pretest": "npm run build",
     "test": "vitest run --pool=forks --maxWorkers=1",
@@ -46,6 +47,7 @@
   "author": "",
   "license": "AGPL-3.0-only",
   "dependencies": {
+    "@google/genai": "^1.30.0",
     "@kubernetes/client-node": "^1.4.0",
     "@vr_patel/tui": "^1.0.0",
     "chalk": "^6.0.0",
@@ -53,14 +55,17 @@
     "commander": "^15.0.0",
     "conf": "^16.0.0",
     "cosmiconfig": "^10.0.1",
+    "diff": "^8.0.3",
     "dockerode": "^5.0.0",
     "ink": "^8.0.0",
     "ink-spinner": "^5.0.0",
     "ink-text-input": "^6.0.0",
     "nodemailer": "^10.0.0",
-    "react": "^19.2.7"
+    "react": "^19.2.7",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@types/diff": "^8.0.0",
     "@types/dockerode": "^4.0.2",
     "@types/node": "^26.0.1",
     "@types/nodemailer": "^8.0.0",

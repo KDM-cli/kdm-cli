@@ -2,6 +2,8 @@
  * Types and interfaces for the Multi-Agent Collaborative Analysis system.
  */
 
+import type { z } from 'zod';
+
 /**
  * Roles for agents participating in workload failure triaging.
  */
@@ -97,3 +99,148 @@ export type NDJSONEvent =
   | { event: 'agent_failed'; role: string; error: string; timestamp: string }
   | { event: 'diagnosis_ready'; consensus: ConsensusDiagnosis; timestamp: string }
   | { event: 'error'; message: string; fatal: boolean; timestamp: string };
+
+// ─── Milestone 3: Multi-Agent Coordination Protocol Types ────────────────────
+
+/**
+ * Execution context provided to registered subagents.
+ */
+export interface AgentContext {
+  cwd?: string;
+  namespace?: string;
+  clusterContext?: string;
+  signal?: AbortSignal;
+  depth?: number;
+  maxDepth?: number;
+  dryRun?: boolean;
+  auditTrail?: any;
+  registry?: any;
+  aiClient?: any;
+  toolRegistry?: any;
+  [key: string]: unknown;
+}
+
+/**
+ * Standard agent definition registered in AgentRegistry.
+ * Conforms to PROJECT.md § Interface Contracts.
+ */
+export interface AgentDefinition<TInput = any, TOutput = any> {
+  name: string;
+  description: string;
+  inputSchema: z.ZodType<TInput>;
+  outputSchema: z.ZodType<TOutput>;
+  run: (input: TInput, context?: AgentContext) => Promise<TOutput>;
+  type?: 'local' | 'remote' | 'specialist' | 'council';
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Type alias for local in-process agent definition.
+ */
+export type LocalAgentDefinition<TInput = any, TOutput = any> = AgentDefinition<TInput, TOutput>;
+
+/**
+ * Unified subagent progress representation consumed by terminal UI and event bridges.
+ * Conforms to PROJECT.md § Interface Contracts.
+ */
+export interface SubagentProgress {
+  agentName: string;
+  state: 'running' | 'completed' | 'error' | 'cancelled';
+  thought?: string;
+  toolCall?: {
+    name: string;
+    args: Record<string, unknown>;
+    status: 'running' | 'success' | 'error';
+    output?: string;
+  };
+  result?: string;
+}
+
+/**
+ * Event type discriminators for gemini-cli agent coordination.
+ */
+export type AgentEventType =
+  | 'agent_start'
+  | 'thought'
+  | 'tool_call'
+  | 'tool_result'
+  | 'agent_complete'
+  | 'agent_error'
+  | 'agent_cancelled'
+  | 'diagnosis_ready';
+
+/**
+ * Unified gemini-cli agent event protocol envelope.
+ */
+export interface AgentEvent {
+  id?: string;
+  agentName: string;
+  type: AgentEventType;
+  timestamp?: string;
+  payload: {
+    message?: string;
+    thought?: string;
+    tool?: string;
+    args?: Record<string, unknown>;
+    output?: string;
+    durationMs?: number;
+    result?: string;
+    summary?: string;
+    error?: string;
+    consensus?: ConsensusDiagnosis;
+  };
+}
+
+/**
+ * Parameters for delegate_to_agent tool.
+ */
+export interface DelegateToAgentParams {
+  agent_name: string;
+  prompt: string;
+  depth?: number;
+  input?: Record<string, unknown>;
+  context?: Record<string, unknown>;
+}
+
+/**
+ * Finding item produced by codebase investigation.
+ */
+export interface CodebaseFindingItem {
+  file: string;
+  issue: string;
+  recommendation: string;
+  patch?: string;
+}
+
+/**
+ * Location citation in codebase investigation (gemini-cli format).
+ */
+export interface CodebaseRelevantLocation {
+  FilePath: string;
+  Reasoning: string;
+  KeySymbols: string[];
+  LineNumber?: number;
+  Snippet?: string;
+}
+
+/**
+ * KDM SRE finding report from codebase investigation.
+ */
+export interface CodebaseFinding {
+  discoveredManifests: string[];
+  findings: CodebaseFindingItem[];
+  driftDetected?: boolean;
+}
+
+/**
+ * Comprehensive dual-schema report from CodebaseInvestigatorAgent
+ * supporting both gemini-cli and KDM SRE schemas.
+ */
+export interface CodebaseInvestigationReport {
+  SummaryOfFindings: string;
+  ExplorationTrace: string[];
+  RelevantLocations: CodebaseRelevantLocation[];
+  discoveredManifests: string[];
+  findings: CodebaseFindingItem[];
+  driftDetected: boolean;
+}
