@@ -81,7 +81,7 @@ const buildAnalysisOptions = (options: any, signal: AbortSignal): AnalysisOption
   language: options.language,
   anonymize: Boolean(options.anonymize),
   customHeaders: options.customHeaders,
-  noCache: Boolean(options.noCache),
+  noCache: options.cache === false,
   councilTimeoutMs: options.councilTimeout,
   exportAudit: options.exportAudit,
   multiAgent: options.multiAgent ? Boolean(options.multiAgent) : undefined,
@@ -159,7 +159,11 @@ async function handleExportAudit(
   };
 
   await exportIncidentAudit(exportPath, session);
-  logger.success(`Incident audit exported to ${exportPath}`);
+  if (runOpts.output === 'json') {
+    console.error(chalk.green(`✔ Incident audit exported to ${exportPath}`));
+  } else {
+    logger.success(`Incident audit exported to ${exportPath}`);
+  }
 }
 
 /**
@@ -235,12 +239,12 @@ async function handleAnalyze(resourceOrOptions: any, optionsOrCommand?: any): Pr
     output = parseOutput(options.output);
     const runOpts = buildAnalysisOptions(options, abortController.signal);
 
-    if (output === 'json') {
+    if (!runOpts.interactive) {
       const result = await runAnalysis(runOpts);
       if (options.exportAudit) {
         await handleExportAudit(options.exportAudit, runOpts, result);
       }
-      printAnalysisResult(result, 'json');
+      printAnalysisResult(result, output);
       return;
     }
 

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
+import { registry } from '../analyzers';
 import { runAnalysis } from '../analysis/analysis';
 import { registerAnalyzeCommand } from '../commands/analyze';
 import { registerConfigCommand } from '../commands/config';
@@ -94,6 +95,20 @@ describe('Phase 23 - Feature Flags, Rollout Modes & Legacy Fallback (Issue #294)
   });
 
   describe('Flag & Config Routing in Analysis Engine', () => {
+    beforeEach(() => {
+      vi.spyOn(registry, 'get').mockImplementation(kind => kind === 'Pod' ? {
+        name: 'Pod', analyze: async () => [{ kind, namespace: 'production', name: 'payment', errors: [{ text: 'Pod unhealthy' }] }],
+      } : undefined);
+    });
+    afterEach(() => vi.restoreAllMocks());
+
+    it('skips council when analyzers report no failures', async () => {
+      vi.mocked(registry.get).mockReturnValue({ name: 'Pod', analyze: async () => [] });
+      const output = await runAnalysis({ filters: ['Pod'], multiAgent: true });
+      expect(output.problems).toBe(0);
+      expect(pythonBridge.runAgentCouncilProcess).not.toHaveBeenCalled();
+    });
+
     it('asserts --multi-agent flag routes to multi-agent bridge', async () => {
       const output = await runAnalysis({
         multiAgent: true,
@@ -105,7 +120,7 @@ describe('Phase 23 - Feature Flags, Rollout Modes & Legacy Fallback (Issue #294)
         expect.objectContaining({
           context: expect.objectContaining({
             namespace: 'production',
-            name: 'app=payment',
+            name: 'payment',
           }),
         }),
       );
@@ -126,7 +141,7 @@ describe('Phase 23 - Feature Flags, Rollout Modes & Legacy Fallback (Issue #294)
       expect(logger.warn).toHaveBeenCalledWith(
         expect.stringContaining(LEGACY_DEPRECATION_WARNING),
       );
-      expect(output.status).toBe('OK');
+      expect(output.status).toBe('ProblemDetected');
     });
 
     it('routes to multi-agent bridge when KDM_MULTI_AGENT environment variable is true', async () => {

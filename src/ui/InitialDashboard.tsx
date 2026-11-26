@@ -11,6 +11,7 @@ import { LogsDashboard } from './LogsDashboard';
 import { AuthDashboard } from './AuthDashboard';
 import { CacheDashboard } from './CacheDashboard';
 import { CustomAnalyzerDashboard } from './CustomAnalyzerDashboard';
+import { CopilotShell } from './CopilotShell';
 import { getConfig, setConfigValue } from '../config/store';
 import { createCustomAnalyzer, type CustomAnalyzerConfig } from '../analyzers/custom';
 import { registry } from '../analyzers';
@@ -95,6 +96,14 @@ const MENU_ACTIONS: MenuAction[] = [
     cmd: 'kdm analyze --explain -b ollama',
     description: 'Collaborative multi-agent council (Runtime, Config, Resource, SRE Synthesizer) triaging failures',
     args: ['analyze', '--explain', '--backend', 'ollama'],
+  },
+  {
+    id: 'copilot',
+    key: 'g',
+    name: 'Gemini Copilot Shell',
+    cmd: 'kdm copilot',
+    description: 'Interactive SRE workspace with Gemini AI, slash commands & agent tree',
+    args: ['copilot'],
   },
   {
     id: 'watch',
@@ -403,6 +412,7 @@ export const SUB_SCREENS: Record<
       onExit={onExit}
     />
   ),
+  copilot: (onBack, onExit) => <CopilotShell onExit={onBack} />,
   watch: (onBack, onExit) => <WatchDashboard onBack={onBack} onExit={onExit} />,
   health: (onBack, onExit) => <HealthDashboard initialTarget="all" onBack={onBack} onExit={onExit} />,
   logs: (onBack, onExit) => <LogsDashboard onBack={onBack} onExit={onExit} />,

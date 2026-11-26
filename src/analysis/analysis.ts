@@ -297,10 +297,10 @@ async function attemptPrimaryCouncil(
 
 async function attemptPrimaryClient(
   backend: string,
-  prompt: string
+  prompt: string,
+  client: Awaited<ReturnType<typeof createAIClient>>,
 ): Promise<PrimaryExecutionResult> {
   try {
-    const client = await createAIClient(backend);
     const rawResponse = await client.getCompletion(prompt);
     if (rawResponse) {
       return { success: true, response: rawResponse };
@@ -316,12 +316,13 @@ async function executePrimaryStep(
   params: ExplainSingleParams,
   promptText: string,
   prompt: string,
-  model: string
+  model: string,
+  client: Awaited<ReturnType<typeof createAIClient>>,
 ): Promise<PrimaryExecutionResult> {
   if (params.backend.toLowerCase() === 'ollama') {
     return attemptPrimaryCouncil(params, promptText, model);
   }
-  return attemptPrimaryClient(params.backend, prompt);
+  return attemptPrimaryClient(params.backend, prompt, client);
 }
 
 async function executeFallbackSteps(
@@ -373,8 +374,8 @@ export async function explainSingleResult(params: ExplainSingleParams): Promise<
     analyzerName: params.result.kind,
   });
 
-  const client = await createAIClient(params.backend);
-  const model = params.model || ((client as any).model ?? '');
+  const client = await createAIClient(params.backend, params.model, params.customHeaders);
+  const model = params.model || getAIConfig().providers.find(p => p.name.toLowerCase() === params.backend.toLowerCase())?.model || '';
 
   const cacheKey = await buildCacheKey({
     provider: params.backend,
@@ -389,7 +390,7 @@ export async function explainSingleResult(params: ExplainSingleParams): Promise<
     return;
   }
 
-  const primary = await executePrimaryStep(params, promptText, prompt, model);
+  const primary = await executePrimaryStep(params, promptText, prompt, model, client);
   if (primary.success && primary.response) {
     params.result.details = applyAnonymization(primary.response, mapping, params.shouldAnonymize);
     if (!params.noCache) {
@@ -482,7 +483,7 @@ async function runSingleAnalyzer(params: RunSingleParams): Promise<void> {
       params.stats.push({ analyzer: params.analyzer.name, durationMs });
     }
 
-    params.results.push(...analyzerResults);
+    params.results.push(...analyzerResults.filter(result => !params.options.resourceName || result.name === params.options.resourceName));
   } catch (err: any) {
     params.errors.push(`Analyzer ${params.analyzer.name} failed: ${err?.message || String(err)}`);
   }
@@ -576,55 +577,37 @@ async function executeCouncilForResults(
   results: AnalyzerResult[],
   options: AnalysisOptions,
 ): Promise<void> {
-  const primaryResult = results.find((result) => result.errors.length > 0) || results[0];
-  const failureText = results
-    .flatMap((r) => r.errors.map((e) => e.text))
-    .join('\n') || (options.targetResource ? `Workload ${options.targetResource} failure` : options.labelSelector ? `Workload matching selector ${options.labelSelector} failure` : 'Cluster workload failure');
+  const failures = results.filter(result => result.errors.length > 0);
+  if (!failures.length || options.signal?.aborted) return;
 
-  const targetKind = primaryResult?.kind || (options.targetResource?.includes('/') ? options.targetResource.split('/')[0] : 'Workload');
-  const targetName = primaryResult?.name || options.resourceName || options.labelSelector || 'cluster';
+  const baseUrl = resolveOllamaBaseUrl();
+  const deps = await checkCouncilDependencies(baseUrl);
+  if (!deps.canRunCouncil) {
+    await applyCouncilFallbacks(failures, options, deps.degradationReason || 'Council unavailable');
+    return;
+  }
 
-  const targetContext = {
-    namespace: primaryResult?.namespace || options.namespace,
-    kind: targetKind,
-    name: targetName,
-  };
-
-  try {
-    const baseUrl = resolveOllamaBaseUrl();
-    const dependencies = await checkCouncilDependencies(baseUrl);
-    if (!dependencies.canRunCouncil) {
-      throw new Error(dependencies.degradationReason || 'Council dependencies are unavailable');
+  const model = options.model || getAIConfig().providers.find(p => p.name.toLowerCase() === 'ollama')?.model;
+  for (const result of failures) {
+    if (options.signal?.aborted) break;
+    const failureText = result.errors.map(error => error.text).join('\n');
+    const { promptText, mapping } = preparePromptMapping(failureText, options.anonymize);
+    try {
+      const consensus = await runAgentCouncilProcess({
+        failureText: promptText,
+        context: options.anonymize ? { kind: result.kind } : {
+          kind: result.kind, name: result.name, namespace: result.namespace,
+        },
+        model, baseUrl, timeoutMs: options.councilTimeoutMs,
+      });
+      result.details = applyAnonymization(formatConsensusExplanation(consensus), mapping, options.anonymize);
+      result.consensus = consensus;
+      result.fallbackStep = 'council';
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      logger.warn('Multi-agent council bridge failed: ' + reason);
+      await applyCouncilFallbacks([result], options, reason);
     }
-
-    const runner = runAgentCouncilProcess || runPythonAgentCouncil;
-    const consensus = await runner({
-      failureText,
-      context: targetContext,
-      model: options.model,
-      baseUrl,
-      timeoutMs: options.councilTimeoutMs,
-    });
-
-    if (primaryResult) {
-      (primaryResult as any).consensus = consensus;
-      primaryResult.details = formatConsensusExplanation(consensus);
-      primaryResult.fallbackStep = 'council';
-    } else {
-      results.push({
-        kind: targetContext.kind,
-        name: targetContext.name,
-        namespace: targetContext.namespace || 'default',
-        errors: [{ text: failureText }],
-        details: formatConsensusExplanation(consensus),
-        consensus,
-        fallbackStep: 'council',
-      } as any);
-    }
-  } catch (err) {
-    const degradationReason = (err as Error).message;
-    logger.warn(`Multi-agent council bridge failed: ${degradationReason}. Falling back to diagnostics.`);
-    await applyCouncilFallbacks(results, options, degradationReason);
   }
 }
 

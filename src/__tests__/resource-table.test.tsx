@@ -46,7 +46,7 @@ describe('ResourceTable', () => {
     ];
     const app = render(
       <ResourceTable columns={columns} rows={rows} selectedIndex={18} onSelect={vi.fn()} />,
-      { stdin, stdout, debug: true },
+      { stdin: stdin as any, stdout: stdout as any, debug: true },
     );
     await new Promise((resolve) => setTimeout(resolve, 50));
 

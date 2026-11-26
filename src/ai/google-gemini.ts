@@ -52,4 +52,30 @@ export class GoogleGeminiAIClient implements AIClient {
     const data = (await response.json()) as any;
     return data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
   }
+
+  /**
+   * Applies sliding window truncation to input exceeding limit to avoid token exhaustion.
+   * @param input Raw log or prompt string.
+   * @param limit Maximum character limit (default 100,000).
+   */
+  truncatePrompt(input: string, limit = 100_000): { text: string; truncated: boolean } {
+    if (input.length <= limit) return { text: input, truncated: false };
+    const slice = input.slice(-limit);
+    return {
+      text: `[... Truncated earlier log entries ...]\n` + slice,
+      truncated: true,
+    };
+  }
+
+  /**
+   * Safely parses tool call JSON payload from model response, handling truncation or syntax errors.
+   */
+  safeParseToolCall(raw: string): { success: boolean; data?: any; error?: string } {
+    try {
+      const parsed = JSON.parse(raw);
+      return { success: true, data: parsed };
+    } catch (err: any) {
+      return { success: false, error: `Truncated function call JSON: ${err.message}` };
+    }
+  }
 }
